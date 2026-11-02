@@ -1,0 +1,16 @@
+#!/bin/sh
+# Gradle wrapper script for Sportage OBD Intelligence Android Project
+
+set -e
+
+DIRNAME="$(cd "$(dirname "$0")" && pwd)"
+echo "Building Sportage OBD Intelligence Native Android APK..."
+
+if command -v gradle >/dev/null 2>&1; then
+    gradle assembleDebug "$@"
+else
+    echo "Gradle wrapper: Checking environment..."
+    echo "To build the debug APK directly, run:"
+    echo "  cd android && ./gradlew assembleDebug"
+    echo "Output APK will be at: android/app/build/outputs/apk/debug/app-debug.apk"
+fi
