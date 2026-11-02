@@ -3,6 +3,10 @@ package com.sportage.obd
 import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.pm.PackageManager
+import android.content.Context
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.os.Build
 import android.os.Bundle
 import android.widget.Toast
@@ -21,9 +25,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-class MainActivity : ComponentActivity() {
+class MainActivity : ComponentActivity(), LocationListener {
 
     private val transport = BluetoothTransport()
+    private var locationManager: LocationManager? = null
 
     // Live Telemetry state
     private var liveSpeed by mutableStateOf<Int?>(null)
@@ -32,19 +37,28 @@ class MainActivity : ComponentActivity() {
     private var liveVoltage by mutableStateOf<Float?>(null)
     private var liveGear by mutableStateOf<Int>(0)
 
+    // Live GPS Location for Waze & Map
+    private var currentLat by mutableStateOf(25.2854)
+    private var currentLon by mutableStateOf(51.5310)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
+        val btGranted = permissions.entries
+            .filter { it.key.contains("BLUETOOTH") }
+            .all { it.value }
+        if (btGranted) {
             startBluetoothPairing()
-        } else {
-            Toast.makeText(this, "Bluetooth permissions required for OBD2 communication", Toast.LENGTH_SHORT).show()
         }
+        initLocationTracking()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+        checkAndRequestPermissions()
+        initLocationTracking()
 
         setContent {
             val connState by transport.connectionState.collectAsState()
@@ -57,11 +71,47 @@ class MainActivity : ComponentActivity() {
                     coolant = liveCoolant,
                     voltage = liveVoltage,
                     gear = liveGear,
+                    currentLat = currentLat,
+                    currentLon = currentLon,
                     onConnectClick = { checkAndRequestPermissions() }
                 )
             }
         }
     }
+
+    private fun initLocationTracking() {
+        try {
+            val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                val lm = locationManager ?: return
+                // Try last known location first
+                val lastGps = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                val lastNet = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+                val best = lastGps ?: lastNet
+                if (best != null) {
+                    currentLat = best.latitude
+                    currentLon = best.longitude
+                }
+
+                // Request continuous location updates
+                if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, this)
+                }
+                if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 10f, this)
+                }
+            }
+        } catch (_: SecurityException) {} catch (_: Exception) {}
+    }
+
+    override fun onLocationChanged(location: Location) {
+        currentLat = location.latitude
+        currentLon = location.longitude
+    }
+
+    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) {}
 
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
@@ -71,8 +121,9 @@ class MainActivity : ComponentActivity() {
         } else {
             permissions.add(Manifest.permission.BLUETOOTH)
             permissions.add(Manifest.permission.BLUETOOTH_ADMIN)
-            permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+        permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+        permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
 
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -80,6 +131,7 @@ class MainActivity : ComponentActivity() {
 
         if (missing.isEmpty()) {
             startBluetoothPairing()
+            initLocationTracking()
         } else {
             permissionLauncher.launch(missing.toTypedArray())
         }

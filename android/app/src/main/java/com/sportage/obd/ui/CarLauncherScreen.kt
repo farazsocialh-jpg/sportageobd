@@ -5,8 +5,14 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.view.KeyEvent
+import android.webkit.GeolocationPermissions
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
+import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +46,82 @@ val ANDROID_RADIO_PRESETS = listOf(
     AndroidRadioPreset(107.6f, "Oryx FM")
 )
 
+/**
+ * Bulletproof Waze Launcher for Android 11+ (API 30-35)
+ * Tries direct package launch -> deep link -> geo intent -> web fallback.
+ */
+fun launchWazeApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
+    val pm = context.packageManager
+
+    // 1. Direct package launch if Waze is installed
+    try {
+        val launchIntent = pm.getLaunchIntentForPackage("com.waze")
+        if (launchIntent != null) {
+            val deepLinkUri = when {
+                !query.isNullOrBlank() -> Uri.parse("waze://?q=${Uri.encode(query)}&navigate=yes")
+                lat != null && lon != null -> Uri.parse("waze://?ll=$lat,$lon&navigate=yes")
+                else -> Uri.parse("waze://")
+            }
+            val intent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
+                setPackage("com.waze")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            try {
+                context.startActivity(intent)
+                return
+            } catch (_: Exception) {
+                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                context.startActivity(launchIntent)
+                return
+            }
+        }
+    } catch (_: Exception) {}
+
+    // 2. Generic waze:// URI
+    try {
+        val uri = when {
+            !query.isNullOrBlank() -> Uri.parse("waze://?q=${Uri.encode(query)}&navigate=yes")
+            lat != null && lon != null -> Uri.parse("waze://?ll=$lat,$lon&navigate=yes")
+            else -> Uri.parse("waze://")
+        }
+        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(intent)
+        return
+    } catch (_: Exception) {}
+
+    // 3. Fallback to Google Maps navigation if available
+    try {
+        val mapsIntent = Intent(Intent.ACTION_VIEW, Uri.parse(
+            if (!query.isNullOrBlank()) "google.navigation:q=${Uri.encode(query)}"
+            else "geo:${lat ?: 25.2854},${lon ?: 51.5310}?z=15"
+        )).apply {
+            setPackage("com.google.android.apps.maps")
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (mapsIntent.resolveActivity(pm) != null) {
+            context.startActivity(mapsIntent)
+            return
+        }
+    } catch (_: Exception) {}
+
+    // 4. Web browser fallback with Waze Live navigation URL
+    try {
+        val webUri = when {
+            !query.isNullOrBlank() -> Uri.parse("https://waze.com/ul?q=${Uri.encode(query)}&navigate=yes")
+            lat != null && lon != null -> Uri.parse("https://waze.com/ul?ll=$lat,$lon&navigate=yes")
+            else -> Uri.parse("https://waze.com/ul")
+        }
+        val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        context.startActivity(webIntent)
+    } catch (e: Exception) {
+        Toast.makeText(context, "Please install Waze from Google Play Store", Toast.LENGTH_SHORT).show()
+    }
+}
+
 @Composable
 fun CarLauncherScreen(
     connectionState: ConnectionState,
@@ -48,6 +130,8 @@ fun CarLauncherScreen(
     coolant: Int?,
     voltage: Float?,
     gear: Int,
+    currentLat: Double = 25.2854,
+    currentLon: Double = 51.5310,
     onConnectClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -142,15 +226,12 @@ fun CarLauncherScreen(
                     Icon(Icons.Default.Home, contentDescription = "Home", tint = ElectricCyan, modifier = Modifier.size(20.dp))
                 }
 
-                // Waze External
+                // Waze External Launcher
                 IconButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("waze://"))
-                        try { context.startActivity(intent) } catch (_: Exception) {
-                            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://waze.com/ul")))
-                        }
-                    },
-                    modifier = Modifier.size(42.dp)
+                    onClick = { launchWazeApp(context, currentLat, currentLon) },
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(Color(0xFF33CCFF).copy(alpha = 0.15f), RoundedCornerShape(10.dp))
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = "Waze", tint = Color(0xFF33CCFF), modifier = Modifier.size(20.dp))
                 }
@@ -424,24 +505,229 @@ fun CarLauncherScreen(
                     colors = CardDefaults.cardColors(containerColor = DarkSurface),
                     shape = RoundedCornerShape(14.dp)
                 ) {
+                    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+                    var hasMapError by remember { mutableStateOf(false) }
+                    var isMapLoading by remember { mutableStateOf(false) }
+
+                    val mapUrl = "https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1"
+
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        // Embedded Live Map View via WebView
-                        AndroidView(
+                        // Top Header inside Display 2: Navigation title & Actions
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f),
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    settings.javaScriptEnabled = true
-                                    settings.domStorageEnabled = true
-                                    settings.setGeolocationEnabled(true)
-                                    webViewClient = WebViewClient()
-                                    loadUrl("https://embed.waze.com/iframe?zoom=15&lat=25.2854&lon=51.5310&ct=livemap&pin=1")
+                                .background(Color(0xFF0E1722))
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Navigation,
+                                    contentDescription = null,
+                                    tint = Color(0xFF33CCFF),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Text(
+                                            text = "WAZE LIVE NAVIGATION",
+                                            color = Color.White,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .size(6.dp)
+                                                .background(TealAccent, RoundedCornerShape(3.dp))
+                                        )
+                                    }
+                                    Text(
+                                        text = "${"%.4f".format(currentLat)}°N, ${"%.4f".format(currentLon)}°E",
+                                        color = SecondaryText,
+                                        fontSize = 9.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
                                 }
                             }
-                        )
+
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                // Reload Map Button
+                                IconButton(
+                                    onClick = {
+                                        hasMapError = false
+                                        webViewRef?.reload()
+                                    },
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .background(Color(0xFF1E293B), RoundedCornerShape(6.dp))
+                                ) {
+                                    Icon(
+                                        Icons.Default.Refresh,
+                                        contentDescription = "Reload Map",
+                                        tint = ElectricCyan,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+
+                                // Open in Full Waze App Button
+                                Surface(
+                                    modifier = Modifier
+                                        .clickable { launchWazeApp(context, currentLat, currentLon) },
+                                    color = Color(0xFF33CCFF),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Navigation,
+                                            contentDescription = null,
+                                            tint = Color(0xFF05070B),
+                                            modifier = Modifier.size(12.dp)
+                                        )
+                                        Text(
+                                            text = "Open App",
+                                            color = Color(0xFF05070B),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Embedded Live Map View via WebView with Fail-Safe Overlay
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            AndroidView(
+                                modifier = Modifier.fillMaxSize(),
+                                factory = { ctx ->
+                                    WebView(ctx).apply {
+                                        webViewRef = this
+                                        settings.apply {
+                                            javaScriptEnabled = true
+                                            domStorageEnabled = true
+                                            databaseEnabled = true
+                                            setGeolocationEnabled(true)
+                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                            cacheMode = WebSettings.LOAD_DEFAULT
+                                            allowFileAccess = true
+                                            allowContentAccess = true
+                                            useWideViewPort = true
+                                            loadWithOverviewMode = true
+                                            // Standard modern mobile Chrome user agent prevents Waze embed blocking
+                                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                        }
+
+                                        webChromeClient = object : WebChromeClient() {
+                                            override fun onGeolocationPermissionsShowPrompt(
+                                                origin: String?,
+                                                callback: GeolocationPermissions.Callback?
+                                            ) {
+                                                callback?.invoke(origin, true, false)
+                                            }
+                                        }
+
+                                        webViewClient = object : WebViewClient() {
+                                            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                                                super.onPageStarted(view, url, favicon)
+                                                isMapLoading = true
+                                                hasMapError = false
+                                            }
+
+                                            override fun onPageFinished(view: WebView?, url: String?) {
+                                                super.onPageFinished(view, url)
+                                                isMapLoading = false
+                                            }
+
+                                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
+                                                super.onReceivedError(view, request, error)
+                                                if (request?.isForMainFrame == true) {
+                                                    hasMapError = true
+                                                    isMapLoading = false
+                                                }
+                                            }
+                                        }
+
+                                        loadUrl(mapUrl)
+                                    }
+                                },
+                                update = { webView ->
+                                    // Only reload if location has moved significantly
+                                }
+                            )
+
+                            // Error or Offline Fallback Overlay
+                            if (hasMapError) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color(0xF0090D14))
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.Center,
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Icon(
+                                        Icons.Default.Navigation,
+                                        contentDescription = null,
+                                        tint = Color(0xFF33CCFF),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Waze Map Offline or Loading Issue",
+                                        color = Color.White,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Verify phone internet/hotspot, or launch the Waze application directly.",
+                                        color = SecondaryText,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Button(
+                                            onClick = {
+                                                hasMapError = false
+                                                webViewRef?.reload()
+                                            },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("Retry Load", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                                        }
+
+                                        Button(
+                                            onClick = { launchWazeApp(context, currentLat, currentLon) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF33CCFF)),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Text("Launch Waze App", color = Color(0xFF05070B), fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
 
                         // Bottom Trip Status Bar
                         Row(
@@ -453,19 +739,33 @@ fun CarLauncherScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "WAZE LIVE TRAFFIC",
+                                text = "WAZE LIVE TRAFFIC · GPS TRACKING",
                                 color = PrimaryText,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace
                             )
 
-                            Text(
-                                text = "GPS ACTIVE",
-                                color = TealAccent,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "LIVE",
+                                    color = TealAccent,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = "TAP TO ROUTE",
+                                    color = Color(0xFF33CCFF),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .clickable { launchWazeApp(context, currentLat, currentLon) }
+                                )
+                            }
                         }
                     }
                 }
