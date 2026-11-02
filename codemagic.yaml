@@ -27,6 +27,9 @@ workflows:
       - name: Prepare Gradle wrapper
         script: |
           cd "$CM_BUILD_DIR/android"
+          if [ ! -f "gradle.properties" ] || ! grep -q "android.useAndroidX" "gradle.properties"; then
+            echo "android.useAndroidX=true" >> gradle.properties
+          fi
           if command -v gradle >/dev/null 2>&1; then
             gradle wrapper --gradle-version 8.9
           fi
