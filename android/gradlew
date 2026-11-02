@@ -1,16 +1,31 @@
-#!/bin/sh
-# Gradle wrapper script for Sportage OBD Intelligence Android Project
+#!/usr/bin/env bash
+# Gradle wrapper script for Sportage OBD Intelligence Native Android Project
 
 set -e
 
 DIRNAME="$(cd "$(dirname "$0")" && pwd)"
-echo "Building Sportage OBD Intelligence Native Android APK..."
+cd "$DIRNAME"
 
+# 1. If gradle command is directly in PATH, run it
 if command -v gradle >/dev/null 2>&1; then
-    gradle assembleDebug "$@"
+    exec gradle "$@"
+fi
+
+# 2. If wrapper jar exists, execute it
+if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+    exec java -jar "gradle/wrapper/gradle-wrapper.jar" "$@"
+fi
+
+# 3. Otherwise fetch wrapper jar automatically
+mkdir -p gradle/wrapper
+if command -v curl >/dev/null 2>&1; then
+    echo "Downloading Gradle wrapper jar..."
+    curl -sSLo gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.7.0/gradle/wrapper/gradle-wrapper.jar || true
+fi
+
+if [ -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+    exec java -jar "gradle/wrapper/gradle-wrapper.jar" "$@"
 else
-    echo "Gradle wrapper: Checking environment..."
-    echo "To build the debug APK directly, run:"
-    echo "  cd android && ./gradlew assembleDebug"
-    echo "Output APK will be at: android/app/build/outputs/apk/debug/app-debug.apk"
+    echo "Error: Neither gradle binary nor gradle/wrapper/gradle-wrapper.jar was found."
+    exit 1
 fi
