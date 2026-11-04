@@ -31,64 +31,93 @@ class BluetoothTransport : ElmTransport {
     private var outputStream: OutputStream? = null
 
     /**
-     * Connects to ELM327 Bluetooth adapter with robust fallbacks designed
-     * specifically for Chinese Android aftermarket head units (TS10, UIS7862, MTK, PX5/PX6).
+     * Connects to an ELM327 Bluetooth adapter with fallbacks for aftermarket head units.
+     * Bluetooth permission and device/ROM failures are reported through [connectionState]
+     * instead of escaping the service coroutine and crashing the APK.
      */
     @SuppressLint("MissingPermission")
     override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
         _connectionState.value = ConnectionState.Connecting
-        BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
 
-        var connectedSocket: BluetoothSocket? = null
-        var lastError: Exception? = null
-
-        // Method 1: Standard Secure RFCOMM Socket
         try {
-            val sock = device.createRfcommSocketToServiceRecord(SPP_UUID)
-            sock.connect()
-            connectedSocket = sock
-        } catch (e1: Exception) {
-            lastError = e1
-        }
-
-        // Method 2: Insecure RFCOMM Socket (Bypasses authentication issues common on head units)
-        if (connectedSocket == null) {
+            // Discovery must stop before an RFCOMM connection, but some Android versions
+            // throw here when Bluetooth permission was revoked while the dialog was open.
             try {
-                val sock = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
-                sock.connect()
-                connectedSocket = sock
-            } catch (e2: Exception) {
-                lastError = e2
+                BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
+            } catch (_: SecurityException) {
+                // Continue; socket.connect() below will produce the permission error if needed.
             }
-        }
 
-        // Method 3: Reflection on Hidden RFCOMM Channel 1 (Standard for Chinese Head Unit ROMs)
-        if (connectedSocket == null) {
+            var connectedSocket: BluetoothSocket? = null
+            var lastError: Exception? = null
+
+            // Method 1: Standard Secure RFCOMM Socket
             try {
-                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                val sock = m.invoke(device, 1) as BluetoothSocket
-                sock.connect()
-                connectedSocket = sock
-            } catch (e3: Exception) {
-                lastError = e3
+                val candidate = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                candidate.connect()
+                connectedSocket = candidate
+            } catch (error: Exception) {
+                lastError = error
             }
-        }
 
-        if (connectedSocket != null && connectedSocket.isConnected) {
-            socket = connectedSocket
-            inputStream = connectedSocket.inputStream
-            outputStream = connectedSocket.outputStream
+            // Method 2: Insecure RFCOMM Socket (compatibility fallback)
+            if (connectedSocket == null) {
+                try {
+                    val candidate = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+                    candidate.connect()
+                    connectedSocket = candidate
+                } catch (error: Exception) {
+                    lastError = error
+                }
+            }
 
-            _connectionState.value = ConnectionState.Connected(
-                deviceName = device.name ?: "ELM327 OBD2",
-                address = device.address,
-                protocol = "ISO 15765-4 (CAN 11/500)"
-            )
-            true
-        } else {
+            // Method 3: Hidden RFCOMM channel 1, used by some aftermarket head units
+            if (connectedSocket == null) {
+                try {
+                    val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                    val candidate = method.invoke(device, 1) as BluetoothSocket
+                    candidate.connect()
+                    connectedSocket = candidate
+                } catch (error: Exception) {
+                    lastError = error
+                }
+            }
+
+            val activeSocket = connectedSocket
+            if (activeSocket != null && activeSocket.isConnected) {
+                socket = activeSocket
+                inputStream = activeSocket.inputStream
+                outputStream = activeSocket.outputStream
+
+                // Read metadata only after a successful connection and guard against permission
+                // revocation between the connection request and completion.
+                val deviceName = try { device.name ?: "ELM327 OBD2" } catch (_: SecurityException) { "ELM327 OBD2" }
+                val deviceAddress = try { device.address } catch (_: SecurityException) { "Unknown address" }
+                _connectionState.value = ConnectionState.Connected(
+                    deviceName = deviceName,
+                    address = deviceAddress,
+                    protocol = "ISO 15765-4 (CAN 11/500)"
+                )
+                true
+            } else {
+                disconnect()
+                val message = lastError?.localizedMessage?.takeIf { it.isNotBlank() }
+                    ?: "Could not establish an RFCOMM connection with the adapter"
+                _connectionState.value = ConnectionState.Error(message)
+                false
+            }
+        } catch (error: SecurityException) {
             disconnect()
-            val msg = lastError?.message ?: "Could not establish RFCOMM serial connection with ELM327"
-            _connectionState.value = ConnectionState.Error(msg)
+            _connectionState.value = ConnectionState.Error(
+                "Bluetooth permission is required. Grant Nearby devices permission and try again."
+            )
+            false
+        } catch (error: Exception) {
+            disconnect()
+            _connectionState.value = ConnectionState.Error(
+                error.localizedMessage?.takeIf { it.isNotBlank() }
+                    ?: "Bluetooth connection failed"
+            )
             false
         }
     }
@@ -102,8 +131,8 @@ class BluetoothTransport : ElmTransport {
             inStream.read()
         }
 
-        // ELM327 commands must terminate with Carriage Return ('\r')
-        val formatted = command.trim() + "\r"
+        // ELM327 commands must terminate with Carriage Return ('\\r')
+        val formatted = command.trim() + "\\r"
         out.write(formatted.toByteArray(Charsets.US_ASCII))
         out.flush()
 
@@ -128,8 +157,8 @@ class BluetoothTransport : ElmTransport {
         }
 
         buffer.toString()
-            .replace("\r", " ")
-            .replace("\n", " ")
+            .replace("\\r", " ")
+            .replace("\\n", " ")
             .replace(">", "")
             .trim()
     }
