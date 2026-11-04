@@ -14,10 +14,14 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -25,7 +29,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -33,22 +42,26 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.sportage.obd.bluetooth.ConnectionState
+import com.sportage.obd.obd.DtcItem
+import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.ui.theme.*
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-data class AndroidRadioPreset(val freq: Float, val name: String)
+data class RadioStation(val freq: Float, val name: String, val genre: String)
 
-val ANDROID_RADIO_PRESETS = listOf(
-    AndroidRadioPreset(91.7f, "QBS Radio"),
-    AndroidRadioPreset(94.0f, "Al Rayyan"),
-    AndroidRadioPreset(97.5f, "Doha Hit"),
-    AndroidRadioPreset(101.4f, "Sportage FM"),
-    AndroidRadioPreset(104.8f, "BBC World"),
-    AndroidRadioPreset(107.6f, "Oryx FM")
+val SPORTAGE_RADIO_PRESETS = listOf(
+    RadioStation(91.7f, "QBS Radio", "English Hits"),
+    RadioStation(94.0f, "Al Rayyan FM", "Arabic Culture"),
+    RadioStation(97.5f, "Doha Hit FM", "Top 40"),
+    RadioStation(101.4f, "Sportage Drive", "Automotive Stereo"),
+    RadioStation(104.8f, "BBC World Service", "Global News"),
+    RadioStation(107.6f, "Oryx FM", "French & Jazz")
 )
 
 /**
- * Bulletproof Waze Launcher for Android 11+ (API 30-35)
- * Tries direct package launch -> deep link -> geo intent -> web fallback.
+ * Bulletproof Waze & Navigation launcher for Android 11+ (API 30-35)
  */
 fun launchWazeApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
     val pm = context.packageManager
@@ -128,25 +141,45 @@ fun CarLauncherScreen(
     speed: Int?,
     rpm: Int?,
     coolant: Int?,
+    intakeTemp: Int?,
+    fuelLevel: Int?,
+    throttle: Float?,
+    load: Float?,
     voltage: Float?,
     gear: Int,
+    speedHistory: List<Pair<Long, Int>>,
+    rpmHistory: List<Pair<Long, Int>>,
     currentLat: Double = 25.2854,
     currentLon: Double = 51.5310,
-    onConnectClick: () -> Unit
+    activePage: Int,
+    onNavigatePage: (Int) -> Unit,
+    onOpenBluetoothClick: () -> Unit,
+    dtcCodes: List<DtcItem>,
+    isScanningDtc: Boolean,
+    onScanDtc: () -> Unit,
+    onClearDtc: () -> Unit,
+    tripDistanceKm: Double,
+    tripDurationSeconds: Long,
+    tripMaxSpeed: Int,
+    tripAvgSpeed: Int,
+    onResetTrip: () -> Unit,
+    onSetDefaultLauncher: () -> Unit,
+    isDemoMode: Boolean,
+    onToggleDemoMode: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.screenWidthDp >= configuration.screenHeightDp
+
     var speedUnit by remember { mutableStateOf("km/h") }
     val displaySpeed = if (speed != null) {
         if (speedUnit == "mph") (speed * 0.621371).toInt() else speed
     } else null
 
-    // Audio & Radio State
-    var audioSource by remember { mutableStateOf("RADIO") } // "LOCAL_MUSIC" or "RADIO"
-    var isMediaPlaying by remember { mutableStateOf(true) }
+    // Radio State
     var radioFreq by remember { mutableStateOf(101.4f) }
     var radioStationName by remember { mutableStateOf("Sportage Drive FM") }
-    var localTrackTitle by remember { mutableStateOf("Local MP3 / Audio Stream") }
-    var localTrackArtist by remember { mutableStateOf("Android Music Player") }
+    var isMediaPlaying by remember { mutableStateOf(true) }
 
     fun sendMediaKey(keyCode: Int) {
         try {
@@ -188,7 +221,6 @@ fun CarLauncherScreen(
                 }
             } catch (_: Exception) {}
         }
-        // Fallback generic music intent
         try {
             val generic = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC)
             generic.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -196,835 +228,1771 @@ fun CarLauncherScreen(
         } catch (_: Exception) {}
     }
 
-    Row(
+    val currentTime = remember {
+        derivedStateOf {
+            SimpleDateFormat("HH:mm · EEE, MMM d", Locale.getDefault()).format(Date())
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(DarkBackground)
     ) {
-        // --- 1. LEFT SLIM IN-CAR DOCK (Optimized for 1024x600 & 1280x720 Head Units) ---
-        Column(
-            modifier = Modifier
-                .width(56.dp)
-                .fillMaxHeight()
-                .background(Color(0xFF090D14))
-                .border(width = 1.dp, color = Color(0xFF1E293B))
-                .padding(vertical = 8.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            
+            // ==========================================
+            // 1. LEFT SLIM IN-CAR DOCK (Fixed Width 60dp)
+            // ==========================================
             Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Home
-                IconButton(
-                    onClick = { },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(ElectricCyan.copy(alpha = 0.2f), RoundedCornerShape(10.dp))
-                ) {
-                    Icon(Icons.Default.Home, contentDescription = "Home", tint = ElectricCyan, modifier = Modifier.size(20.dp))
-                }
-
-                // Waze External Launcher
-                IconButton(
-                    onClick = { launchWazeApp(context, currentLat, currentLon) },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(Color(0xFF33CCFF).copy(alpha = 0.15f), RoundedCornerShape(10.dp))
-                ) {
-                    Icon(Icons.Default.Navigation, contentDescription = "Waze", tint = Color(0xFF33CCFF), modifier = Modifier.size(20.dp))
-                }
-
-                // FM Radio Dock Button
-                IconButton(
-                    onClick = {
-                        audioSource = "RADIO"
-                        launchHeadUnitRadioApp()
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(
-                            if (audioSource == "RADIO") ElectricCyan.copy(alpha = 0.2f) else Color.Transparent,
-                            RoundedCornerShape(10.dp)
-                        )
-                ) {
-                    Icon(Icons.Default.Radio, contentDescription = "FM Radio", tint = if (audioSource == "RADIO") ElectricCyan else Color.Gray, modifier = Modifier.size(20.dp))
-                }
-
-                // Local Music Dock Button
-                IconButton(
-                    onClick = {
-                        audioSource = "LOCAL_MUSIC"
-                        launchLocalMusicApp()
-                    },
-                    modifier = Modifier
-                        .size(42.dp)
-                        .background(
-                            if (audioSource == "LOCAL_MUSIC") Color(0xFF10B981).copy(alpha = 0.2f) else Color.Transparent,
-                            RoundedCornerShape(10.dp)
-                        )
-                ) {
-                    Icon(Icons.Default.MusicNote, contentDescription = "Local Music", tint = if (audioSource == "LOCAL_MUSIC") Color(0xFF10B981) else Color.Gray, modifier = Modifier.size(20.dp))
-                }
-
-                // Phone
-                IconButton(
-                    onClick = {
-                        val intent = Intent(Intent.ACTION_DIAL)
-                        context.startActivity(intent)
-                    },
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(Icons.Default.Phone, contentDescription = "Phone", tint = Color(0xFF10B981), modifier = Modifier.size(20.dp))
-                }
-            }
-
-            // Bottom Bluetooth Pairing Button
-            IconButton(
-                onClick = onConnectClick,
                 modifier = Modifier
-                    .size(42.dp)
-                    .background(
-                        if (connectionState is ConnectionState.Connected) TealAccent.copy(alpha = 0.25f)
-                        else Color(0xFF1E293B),
-                        RoundedCornerShape(10.dp)
-                    )
+                    .width(60.dp)
+                    .fillMaxHeight()
+                    .background(Color(0xFF070B12))
+                    .border(BorderStroke(1.dp, Color(0xFF1E293B)))
+                    .padding(vertical = 8.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = Icons.Default.Bluetooth,
-                    contentDescription = "Bluetooth",
-                    tint = if (connectionState is ConnectionState.Connected) TealAccent else Color.Gray,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
+                // Top Page Navigation Buttons
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Home
+                    DockButton(
+                        icon = Icons.Default.Home,
+                        label = "Home",
+                        isSelected = activePage == 0,
+                        accentColor = ElectricCyan,
+                        onClick = { onNavigatePage(0) }
+                    )
 
-        // --- 2. MAIN COCKPIT AREA: DUAL DISPLAYS + BOTTOM AUDIO BAR ---
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        ) {
-            // TOP: DUAL-DISPLAY SPLIT COCKPIT (Left: Speed/Gauges | Right: Live Waze Map)
-            Row(
+                    // Vehicle Telemetry & Graphs
+                    DockButton(
+                        icon = Icons.Default.Speed,
+                        label = "Gauges",
+                        isSelected = activePage == 1,
+                        accentColor = ElectricCyan,
+                        onClick = { onNavigatePage(1) }
+                    )
+
+                    // ECU Diagnostics (DTC)
+                    DockButton(
+                        icon = Icons.Default.WarningAmber,
+                        label = "Diag",
+                        isSelected = activePage == 2,
+                        accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning,
+                        onClick = { onNavigatePage(2) }
+                    )
+
+                    // Trip Computer
+                    DockButton(
+                        icon = Icons.Default.Navigation,
+                        label = "Trip",
+                        isSelected = activePage == 3,
+                        accentColor = TealAccent,
+                        onClick = { onNavigatePage(3) }
+                    )
+
+                    // In-Car Media & Radio
+                    DockButton(
+                        icon = Icons.Default.Radio,
+                        label = "Media",
+                        isSelected = activePage == 4,
+                        accentColor = Color(0xFF8B5CF6),
+                        onClick = { onNavigatePage(4) }
+                    )
+
+                    // Settings & Default Launcher
+                    DockButton(
+                        icon = Icons.Default.Settings,
+                        label = "Setup",
+                        isSelected = activePage == 5,
+                        accentColor = Color.LightGray,
+                        onClick = { onNavigatePage(5) }
+                    )
+                }
+
+                // Bottom Bluetooth Link Trigger Button
+                IconButton(
+                    onClick = onOpenBluetoothClick,
+                    modifier = Modifier
+                        .size(46.dp)
+                        .background(
+                            when (connectionState) {
+                                is ConnectionState.Connected -> TealAccent.copy(alpha = 0.2f)
+                                is ConnectionState.Connecting -> ElectricCyan.copy(alpha = 0.2f)
+                                is ConnectionState.Error -> CriticalRed.copy(alpha = 0.2f)
+                                else -> if (isDemoMode) AmberWarning.copy(alpha = 0.2f) else Color(0xFF131D2A)
+                            },
+                            RoundedCornerShape(10.dp)
+                        )
+                        .border(
+                            1.dp,
+                            when (connectionState) {
+                                is ConnectionState.Connected -> TealAccent
+                                is ConnectionState.Connecting -> ElectricCyan
+                                is ConnectionState.Error -> CriticalRed
+                                else -> if (isDemoMode) AmberWarning else Color(0xFF1E293B)
+                            },
+                            RoundedCornerShape(10.dp)
+                        )
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            imageVector = Icons.Default.Bluetooth,
+                            contentDescription = "Bluetooth OBD2",
+                            tint = when (connectionState) {
+                                is ConnectionState.Connected -> TealAccent
+                                is ConnectionState.Connecting -> ElectricCyan
+                                is ConnectionState.Error -> CriticalRed
+                                else -> if (isDemoMode) AmberWarning else Color.Gray
+                            },
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Text(
+                            text = when (connectionState) {
+                                is ConnectionState.Connected -> "OBD"
+                                is ConnectionState.Connecting -> "PAIR"
+                                else -> if (isDemoMode) "DEMO" else "BT"
+                            },
+                            color = when (connectionState) {
+                                is ConnectionState.Connected -> TealAccent
+                                is ConnectionState.Connecting -> ElectricCyan
+                                is ConnectionState.Error -> CriticalRed
+                                else -> if (isDemoMode) AmberWarning else Color.Gray
+                            },
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // ==========================================
+            // 2. MAIN COCKPIT VIEWPORT
+            // ==========================================
+            Column(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
-                    .padding(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .fillMaxHeight()
             ) {
-                // DISPLAY 1 (LEFT 50%): AUTHORITATIVE SPEEDOMETER & REAL OBD2 GAUGES
-                Card(
+                // --- TOP STATUS STRIP (Compact, automotive dark bar) ---
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    shape = RoundedCornerShape(14.dp)
+                        .fillMaxWidth()
+                        .height(32.dp)
+                        .background(Color(0xFF090D14))
+                        .border(BorderStroke(1.dp, Color(0xFF1E293B)))
+                        .padding(horizontal = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(10.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
+                    // Left: Car Branding & Date
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        // Top Status Bar inside Display 1
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Text(
+                            text = "KIA SPORTAGE 2.0 MPI AWD",
+                            color = ElectricCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(text = "·", color = Color.DarkGray, fontSize = 11.sp)
+                        Text(
+                            text = currentTime.value,
+                            color = SecondaryText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+
+                    // Right: Real GPS Coordinates & Connection Badge
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        // GPS Badge
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(modifier = Modifier.size(6.dp).background(TealAccent, CircleShape))
                             Text(
-                                text = "KIA SPORTAGE 2.0 MPI AWD",
-                                color = ElectricCyan,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
+                                text = "GPS: ${"%.4f".format(currentLat)}°N, ${"%.4f".format(currentLon)}°E",
+                                color = SecondaryText,
+                                fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace
                             )
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                // Gear
-                                Text(
-                                    text = if (gear == 0) "P / N" else "D$gear",
-                                    color = TealAccent,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier
-                                        .background(Color(0xFF0E1722), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-
-                                // Speed Unit Switch
-                                Text(
-                                    text = speedUnit.uppercase(),
-                                    color = ElectricCyan,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier
-                                        .background(Color(0xFF1E293B), RoundedCornerShape(6.dp))
-                                        .clickable { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" }
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
                         }
 
-                        // Large Glanceable Speedometer Centerpiece
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                        // Bluetooth Adapter State Pill (Clickable)
+                        Surface(
+                            modifier = Modifier.clickable { onOpenBluetoothClick() },
+                            color = when (connectionState) {
+                                is ConnectionState.Connected -> TealAccent.copy(alpha = 0.15f)
+                                is ConnectionState.Connecting -> ElectricCyan.copy(alpha = 0.15f)
+                                is ConnectionState.Error -> CriticalRed.copy(alpha = 0.15f)
+                                else -> if (isDemoMode) AmberWarning.copy(alpha = 0.15f) else Color(0xFF1E293B)
+                            },
+                            shape = RoundedCornerShape(4.dp),
+                            border = BorderStroke(
+                                1.dp,
+                                when (connectionState) {
+                                    is ConnectionState.Connected -> TealAccent
+                                    is ConnectionState.Connecting -> ElectricCyan
+                                    is ConnectionState.Error -> CriticalRed
+                                    else -> if (isDemoMode) AmberWarning else Color.Transparent
+                                }
+                            )
                         ) {
                             Text(
-                                text = displaySpeed?.toString() ?: "--",
-                                color = PrimaryText,
-                                fontSize = 68.sp,
-                                fontWeight = FontWeight.Black,
+                                text = when (connectionState) {
+                                    is ConnectionState.Connected -> "ELM327 CONNECTED (10Hz)"
+                                    is ConnectionState.Connecting -> "PAIRING ELM327..."
+                                    is ConnectionState.Error -> "ADAPTER ERROR"
+                                    else -> if (isDemoMode) "BENCH DEMO ACTIVE" else "TAP TO CONNECT OBD"
+                                },
+                                color = when (connectionState) {
+                                    is ConnectionState.Connected -> TealAccent
+                                    is ConnectionState.Connecting -> ElectricCyan
+                                    is ConnectionState.Error -> CriticalRed
+                                    else -> if (isDemoMode) AmberWarning else Color.LightGray
+                                },
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.Monospace,
-                                lineHeight = 68.sp
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
-
-                            Text(
-                                text = speedUnit.uppercase(),
-                                color = ElectricCyan,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-
-                            // Sweeping RPM Bar
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(
-                                modifier = Modifier.width(220.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Text(
-                                    text = "RPM: ${rpm ?: "--"}",
-                                    color = SecondaryText,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    text = "6500 MAX",
-                                    color = CriticalRed,
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-
-                            LinearProgressIndicator(
-                                progress = { ((rpm ?: 0) / 7000f).coerceIn(0f, 1f) },
-                                modifier = Modifier
-                                    .width(220.dp)
-                                    .height(6.dp),
-                                color = if ((rpm ?: 0) > 6000) CriticalRed else ElectricCyan,
-                                trackColor = Color(0xFF0F1722)
-                            )
-                        }
-
-                        // 4 Real OBD2 Telemetry Gauges at Bottom of Display 1
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            // Coolant
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1722)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text("COOLANT", color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                    Text(
-                                        text = if (coolant != null) "$coolant°C" else "--",
-                                        color = PrimaryText,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-
-                            // Battery Voltage
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1722)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text("BATTERY", color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                    Text(
-                                        text = if (voltage != null) "${"%.1f".format(voltage)}V" else "--",
-                                        color = TealAccent,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-
-                            // Connection Status
-                            Card(
-                                modifier = Modifier.weight(1f),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF0E1722)),
-                                shape = RoundedCornerShape(8.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(6.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text("STATUS", color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                                    Text(
-                                        text = when (connectionState) {
-                                            is ConnectionState.Connected -> "LIVE"
-                                            is ConnectionState.Connecting -> "PAIR"
-                                            else -> "STANDBY"
-                                        },
-                                        color = if (connectionState is ConnectionState.Connected) TealAccent else Color.Gray,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
                         }
                     }
                 }
 
-                // DISPLAY 2 (RIGHT 50%): DEDICATED LIVE WAZE NAVIGATION
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight(),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    shape = RoundedCornerShape(14.dp)
-                ) {
-                    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-                    var hasMapError by remember { mutableStateOf(false) }
-                    var isMapLoading by remember { mutableStateOf(false) }
-
-                    val mapUrl = "https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1"
-
-                    Column(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        // Top Header inside Display 2: Navigation title & Actions
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF0E1722))
-                                .padding(horizontal = 10.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Navigation,
-                                    contentDescription = null,
-                                    tint = Color(0xFF33CCFF),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Column {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Text(
-                                            text = "WAZE LIVE NAVIGATION",
-                                            color = Color.White,
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .size(6.dp)
-                                                .background(TealAccent, RoundedCornerShape(3.dp))
-                                        )
-                                    }
-                                    Text(
-                                        text = "${"%.4f".format(currentLat)}°N, ${"%.4f".format(currentLon)}°E",
-                                        color = SecondaryText,
-                                        fontSize = 9.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-                            }
-
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                // Reload Map Button
-                                IconButton(
-                                    onClick = {
-                                        hasMapError = false
-                                        webViewRef?.reload()
-                                    },
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .background(Color(0xFF1E293B), RoundedCornerShape(6.dp))
-                                ) {
-                                    Icon(
-                                        Icons.Default.Refresh,
-                                        contentDescription = "Reload Map",
-                                        tint = ElectricCyan,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-
-                                // Open in Full Waze App Button
-                                Surface(
-                                    modifier = Modifier
-                                        .clickable { launchWazeApp(context, currentLat, currentLon) },
-                                    color = Color(0xFF33CCFF),
-                                    shape = RoundedCornerShape(6.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Navigation,
-                                            contentDescription = null,
-                                            tint = Color(0xFF05070B),
-                                            modifier = Modifier.size(12.dp)
-                                        )
-                                        Text(
-                                            text = "Open App",
-                                            color = Color(0xFF05070B),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                }
-                            }
+                // --- MAIN PAGE SWITCHER ---
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                    when (activePage) {
+                        0 -> {
+                            // PAGE 0: PERMANENT SPLIT HOME (Dominant Live Map + Authoritative OBD Telemetry)
+                            PermanentHomeSplitView(
+                                isLandscape = isLandscape,
+                                currentLat = currentLat,
+                                currentLon = currentLon,
+                                speed = displaySpeed,
+                                speedUnit = speedUnit,
+                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                rpm = rpm,
+                                coolant = coolant,
+                                voltage = voltage,
+                                load = load,
+                                throttle = throttle,
+                                gear = gear,
+                                connectionState = connectionState,
+                                isDemoMode = isDemoMode,
+                                onOpenFullWaze = { launchWazeApp(context, currentLat, currentLon) }
+                            )
                         }
 
-                        // Embedded Live Map View via WebView with Fail-Safe Overlay
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        ) {
-                            AndroidView(
-                                modifier = Modifier.fillMaxSize(),
-                                factory = { ctx ->
-                                    WebView(ctx).apply {
-                                        webViewRef = this
-                                        settings.apply {
-                                            javaScriptEnabled = true
-                                            domStorageEnabled = true
-                                            databaseEnabled = true
-                                            setGeolocationEnabled(true)
-                                            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                                            cacheMode = WebSettings.LOAD_DEFAULT
-                                            allowFileAccess = true
-                                            allowContentAccess = true
-                                            useWideViewPort = true
-                                            loadWithOverviewMode = true
-                                            // Standard modern mobile Chrome user agent prevents Waze embed blocking
-                                            userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-                                        }
+                        1 -> {
+                            // PAGE 1: VEHICLE TELEMETRY & LIVE CANVAS GRAPHS
+                            GaugesAndGraphsPage(
+                                speed = displaySpeed,
+                                speedUnit = speedUnit,
+                                rpm = rpm,
+                                coolant = coolant,
+                                intakeTemp = intakeTemp,
+                                fuelLevel = fuelLevel,
+                                throttle = throttle,
+                                load = load,
+                                voltage = voltage,
+                                gear = gear,
+                                speedHistory = speedHistory,
+                                rpmHistory = rpmHistory
+                            )
+                        }
 
-                                        webChromeClient = object : WebChromeClient() {
-                                            override fun onGeolocationPermissionsShowPrompt(
-                                                origin: String?,
-                                                callback: GeolocationPermissions.Callback?
-                                            ) {
-                                                callback?.invoke(origin, true, false)
-                                            }
-                                        }
+                        2 -> {
+                            // PAGE 2: ECU DIAGNOSTICS & DTC SCANNER
+                            DiagnosticsPage(
+                                dtcCodes = dtcCodes,
+                                isScanning = isScanningDtc,
+                                onScan = onScanDtc,
+                                onClear = onClearDtc,
+                                connectionState = connectionState
+                            )
+                        }
 
-                                        webViewClient = object : WebViewClient() {
-                                            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                                super.onPageStarted(view, url, favicon)
-                                                isMapLoading = true
-                                                hasMapError = false
-                                            }
+                        3 -> {
+                            // PAGE 3: TRIP COMPUTER
+                            TripComputerPage(
+                                distanceKm = tripDistanceKm,
+                                durationSeconds = tripDurationSeconds,
+                                maxSpeed = tripMaxSpeed,
+                                avgSpeed = tripAvgSpeed,
+                                currentSpeed = displaySpeed ?: 0,
+                                speedUnit = speedUnit,
+                                currentLat = currentLat,
+                                currentLon = currentLon,
+                                onReset = onResetTrip
+                            )
+                        }
 
-                                            override fun onPageFinished(view: WebView?, url: String?) {
-                                                super.onPageFinished(view, url)
-                                                isMapLoading = false
-                                            }
-
-                                            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                                                super.onReceivedError(view, request, error)
-                                                if (request?.isForMainFrame == true) {
-                                                    hasMapError = true
-                                                    isMapLoading = false
-                                                }
-                                            }
-                                        }
-
-                                        loadUrl(mapUrl)
-                                    }
+                        4 -> {
+                            // PAGE 4: IN-CAR MEDIA & RADIO
+                            MediaRadioPage(
+                                radioFreq = radioFreq,
+                                onFreqChange = { radioFreq = it },
+                                radioStationName = radioStationName,
+                                onStationChange = { name, freq ->
+                                    radioStationName = name
+                                    radioFreq = freq
                                 },
-                                update = { webView ->
-                                    // Only reload if location has moved significantly
+                                isMediaPlaying = isMediaPlaying,
+                                onTogglePlayPause = {
+                                    isMediaPlaying = !isMediaPlaying
+                                    sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                                },
+                                onPrev = { sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS) },
+                                onNext = { sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT) },
+                                onLaunchNativeRadio = { launchHeadUnitRadioApp() },
+                                onLaunchLocalMusic = { launchLocalMusicApp() }
+                            )
+                        }
+
+                        5 -> {
+                            // PAGE 5: SETTINGS & DEFAULT LAUNCHER ONBOARDING
+                            SettingsPage(
+                                speedUnit = speedUnit,
+                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                onSetDefaultLauncher = onSetDefaultLauncher,
+                                isDemoMode = isDemoMode,
+                                onToggleDemoMode = onToggleDemoMode,
+                                onOpenBluetoothSettings = {
+                                    try {
+                                        context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        })
+                                    } catch (_: Exception) {}
                                 }
                             )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 
-                            // Error or Offline Fallback Overlay
-                            if (hasMapError) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color(0xF0090D14))
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.Center,
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Icon(
-                                        Icons.Default.Navigation,
-                                        contentDescription = null,
-                                        tint = Color(0xFF33CCFF),
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                    Spacer(modifier = Modifier.height(8.dp))
+// =========================================================================
+// SUB-VIEW: PERMANENT HOME SPLIT SCREEN (Dominant Live Map + Live OBD Gauges)
+// =========================================================================
+@Composable
+fun PermanentHomeSplitView(
+    isLandscape: Boolean,
+    currentLat: Double,
+    currentLon: Double,
+    speed: Int?,
+    speedUnit: String,
+    onToggleSpeedUnit: () -> Unit,
+    rpm: Int?,
+    coolant: Int?,
+    voltage: Float?,
+    load: Float?,
+    throttle: Float?,
+    gear: Int,
+    connectionState: ConnectionState,
+    isDemoMode: Boolean,
+    onOpenFullWaze: () -> Unit
+) {
+    if (isLandscape) {
+        // Landscape: Dominant Live Map Pane (approx 62%) + Persistent OBD Pane (approx 38%)
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            // Dominant Left Map Pane
+            Box(modifier = Modifier.weight(0.62f).fillMaxHeight()) {
+                LiveMapSurface(
+                    currentLat = currentLat,
+                    currentLon = currentLon,
+                    speed = speed,
+                    speedUnit = speedUnit,
+                    onOpenFullWaze = onOpenFullWaze
+                )
+            }
+
+            // Persistent Right OBD Telemetry Pane
+            Box(modifier = Modifier.weight(0.38f).fillMaxHeight()) {
+                AuthoritativeObdPane(
+                    speed = speed,
+                    speedUnit = speedUnit,
+                    onToggleSpeedUnit = onToggleSpeedUnit,
+                    rpm = rpm,
+                    coolant = coolant,
+                    voltage = voltage,
+                    load = load,
+                    throttle = throttle,
+                    gear = gear,
+                    connectionState = connectionState,
+                    isDemoMode = isDemoMode
+                )
+            }
+        }
+    } else {
+        // Portrait (e.g. Samsung Galaxy S24 Ultra): Top Map (45%) + Bottom OBD Telemetry (55%)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Box(modifier = Modifier.weight(0.45f).fillMaxWidth()) {
+                LiveMapSurface(
+                    currentLat = currentLat,
+                    currentLon = currentLon,
+                    speed = speed,
+                    speedUnit = speedUnit,
+                    onOpenFullWaze = onOpenFullWaze
+                )
+            }
+
+            Box(modifier = Modifier.weight(0.55f).fillMaxWidth()) {
+                AuthoritativeObdPane(
+                    speed = speed,
+                    speedUnit = speedUnit,
+                    onToggleSpeedUnit = onToggleSpeedUnit,
+                    rpm = rpm,
+                    coolant = coolant,
+                    voltage = voltage,
+                    load = load,
+                    throttle = throttle,
+                    gear = gear,
+                    connectionState = connectionState,
+                    isDemoMode = isDemoMode
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: LIVE MAP SURFACE (With Authentic Interactive Map & Open Waze Button)
+// =========================================================================
+@Composable
+fun LiveMapSurface(
+    currentLat: Double,
+    currentLon: Double,
+    speed: Int?,
+    speedUnit: String,
+    onOpenFullWaze: () -> Unit
+) {
+    var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "WAZE_EMBED"
+    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+    var speedLimit by remember { mutableStateOf(100) }
+
+    // HTML payload for interactive dark-mode Leaflet Map with real vehicle pin
+    val leafletHtml = remember(currentLat, currentLon) {
+        """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <style>
+                body, html, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #070B12; }
+                .car-marker {
+                    width: 24px; height: 24px; border-radius: 50%;
+                    background: #00E5FF; border: 3px solid #FFFFFF;
+                    box-shadow: 0 0 12px #00E5FF;
+                }
+            </style>
+        </head>
+        <body>
+            <div id="map"></div>
+            <script>
+                var map = L.map('map', { zoomControl: false, attributionControl: false })
+                    .setView([$currentLat, $currentLon], 15);
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                    maxZoom: 19, subdomains: 'abcd'
+                }).addTo(map);
+                var carIcon = L.divIcon({ className: 'car-marker', iconSize: [24, 24] });
+                L.marker([$currentLat, $currentLon], { icon: carIcon }).addTo(map);
+            </script>
+        </body>
+        </html>
+        """.trimIndent()
+    }
+
+    Card(
+        modifier = Modifier.fillMaxSize(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Map Top Bar
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0E1722))
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF33CCFF), modifier = Modifier.size(16.dp))
+                    Text(
+                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "WAZE TRAFFIC EMBED",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Box(modifier = Modifier.size(6.dp).background(TealAccent, CircleShape))
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Toggle Provider
+                    Surface(
+                        modifier = Modifier.clickable {
+                            mapProvider = if (mapProvider == "OSM_DARK") "WAZE_EMBED" else "OSM_DARK"
+                        },
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = if (mapProvider == "OSM_DARK") "Switch: Waze" else "Switch: Dark Map",
+                            color = ElectricCyan,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    // OPEN FULL WAZE (Primary Non-Negotiable Action)
+                    Surface(
+                        modifier = Modifier.clickable { onOpenFullWaze() },
+                        color = Color(0xFF33CCFF),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(11.dp))
+                            Text(
+                                text = "Open Full Waze",
+                                color = Color(0xFF05070B),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Interactive Map View Container with Overlays
+            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                AndroidView(
+                    modifier = Modifier.fillMaxSize(),
+                    factory = { ctx ->
+                        WebView(ctx).apply {
+                            webViewRef = this
+                            settings.apply {
+                                javaScriptEnabled = true
+                                domStorageEnabled = true
+                                databaseEnabled = true
+                                setGeolocationEnabled(true)
+                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                cacheMode = WebSettings.LOAD_DEFAULT
+                                allowFileAccess = true
+                                allowContentAccess = true
+                                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                            }
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
+                                    callback?.invoke(origin, true, false)
+                                }
+                            }
+                            webViewClient = WebViewClient()
+
+                            if (mapProvider == "OSM_DARK") {
+                                loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
+                            } else {
+                                loadUrl("https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1")
+                            }
+                        }
+                    },
+                    update = { webView ->
+                        if (mapProvider == "OSM_DARK") {
+                            webView.loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
+                        } else {
+                            webView.loadUrl("https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1")
+                        }
+                    }
+                )
+
+                // Floating Road Speed Limit Sign & Speed Badge (Top Left of Map)
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    // Circular Speed Limit Sign
+                    Surface(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clickable { speedLimit = if (speedLimit == 100) 120 else if (speedLimit == 120) 80 else 100 },
+                        color = Color.White,
+                        shape = CircleShape,
+                        border = BorderStroke(3.dp, CriticalRed)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Text(
+                                text = "$speedLimit",
+                                color = Color.Black,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+
+                    // GPS Speed Overlay
+                    Surface(
+                        color = Color(0xD9080C14),
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF1E293B))
+                    ) {
+                        Text(
+                            text = "${speed ?: "--"} $speedUnit",
+                            color = ElectricCyan,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                // Floating Action Button: Open Turn-by-Turn in Waze
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(10.dp)
+                        .clickable { onOpenFullWaze() },
+                    color = Color(0xFF33CCFF),
+                    shape = RoundedCornerShape(8.dp),
+                    shadowElevation = 6.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
+                        Text(
+                            text = "START IN WAZE",
+                            color = Color(0xFF05070B),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+
+            // Bottom Trip Status Line
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF0E1722))
+                    .padding(horizontal = 10.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "GPS ACTIVE · CONTINUOUS CAR MAPPING",
+                    color = SecondaryText,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "${"%.4f".format(currentLat)}, ${"%.4f".format(currentLon)}",
+                    color = ElectricCyan,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: AUTHORITATIVE PRIMARY OBD TELEMETRY PANE
+// =========================================================================
+@Composable
+fun AuthoritativeObdPane(
+    speed: Int?,
+    speedUnit: String,
+    onToggleSpeedUnit: () -> Unit,
+    rpm: Int?,
+    coolant: Int?,
+    voltage: Float?,
+    load: Float?,
+    throttle: Float?,
+    gear: Int,
+    connectionState: ConnectionState,
+    isDemoMode: Boolean
+) {
+    Card(
+        modifier = Modifier.fillMaxSize(),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.SpaceBetween
+        ) {
+            // Top Status & Gear Selector
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LIVE TELEMETRY",
+                    color = SecondaryText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    // Gear Badge
+                    Surface(
+                        color = Color(0xFF0E1722),
+                        shape = RoundedCornerShape(4.dp),
+                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
+                    ) {
+                        Text(
+                            text = if (gear == 0) "P / N" else "D$gear",
+                            color = TealAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+
+                    // Speed Unit Switch
+                    Surface(
+                        modifier = Modifier.clickable { onToggleSpeedUnit() },
+                        color = Color(0xFF1E293B),
+                        shape = RoundedCornerShape(4.dp)
+                    ) {
+                        Text(
+                            text = speedUnit.uppercase(),
+                            color = ElectricCyan,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        )
+                    }
+                }
+            }
+
+            // Giant Speedometer Centerpiece (Stable container width so no number jumping)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = speed?.toString() ?: "--",
+                    color = Color.White,
+                    fontSize = 64.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace,
+                    lineHeight = 64.sp
+                )
+
+                Text(
+                    text = speedUnit.uppercase(),
+                    color = ElectricCyan,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Sweeping RPM bar
+                Row(
+                    modifier = Modifier.fillMaxWidth(0.9f),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(text = "RPM: ${rpm ?: "--"}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Text(text = "6500 REDLINE", color = CriticalRed, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                }
+
+                LinearProgressIndicator(
+                    progress = { ((rpm ?: 0) / 7000f).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .height(6.dp),
+                    color = if ((rpm ?: 0) > 6000) CriticalRed else ElectricCyan,
+                    trackColor = Color(0xFF0B1017)
+                )
+            }
+
+            // 4 Essential Live Sensor Tiles at Bottom
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Coolant Temp
+                SensorMiniTile(
+                    title = "COOLANT",
+                    value = if (coolant != null) "$coolant°C" else "--",
+                    valueColor = if ((coolant ?: 0) > 105) CriticalRed else Color.White,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Battery Voltage
+                SensorMiniTile(
+                    title = "BATTERY",
+                    value = if (voltage != null) "${"%.1f".format(voltage)}V" else "--",
+                    valueColor = TealAccent,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Engine Load
+                SensorMiniTile(
+                    title = "LOAD",
+                    value = if (load != null) "${load.toInt()}%" else "--",
+                    valueColor = ElectricCyan,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Connection State
+                SensorMiniTile(
+                    title = "STATUS",
+                    value = when (connectionState) {
+                        is ConnectionState.Connected -> "10Hz"
+                        is ConnectionState.Connecting -> "PAIR"
+                        else -> if (isDemoMode) "DEMO" else "OFF"
+                    },
+                    valueColor = if (connectionState is ConnectionState.Connected) TealAccent else Color.Gray,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun SensorMiniTile(
+    title: String,
+    value: String,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        color = Color(0xFF090D14),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(
+            modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(title, color = SecondaryText, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = value,
+                color = valueColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: GAUGES & REAL-TIME CANVAS GRAPHS PAGE
+// =========================================================================
+@Composable
+fun GaugesAndGraphsPage(
+    speed: Int?,
+    speedUnit: String,
+    rpm: Int?,
+    coolant: Int?,
+    intakeTemp: Int?,
+    fuelLevel: Int?,
+    throttle: Float?,
+    load: Float?,
+    voltage: Float?,
+    gear: Int,
+    speedHistory: List<Pair<Long, Int>>,
+    rpmHistory: List<Pair<Long, Int>>
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        // Real-Time Canvas Line Chart: Speed & RPM over time
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.55f),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(10.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "REAL-TIME ENGINE TELEMETRY GRAPH (60 SECONDS)",
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(modifier = Modifier.size(8.dp).background(ElectricCyan, RoundedCornerShape(2.dp)))
+                            Text(text = "Speed: ${speed ?: "--"} $speedUnit", color = ElectricCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Box(modifier = Modifier.size(8.dp).background(Color(0xFFF59E0B), RoundedCornerShape(2.dp)))
+                            Text(text = "RPM: ${rpm ?: "--"}", color = Color(0xFFF59E0B), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Canvas Graph
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .background(Color(0xFF070B12), RoundedCornerShape(6.dp))
+                        .padding(6.dp)
+                ) {
+                    val w = size.width
+                    val h = size.height
+
+                    // Grid lines
+                    for (i in 1..4) {
+                        val y = h * (i / 5f)
+                        drawLine(
+                            color = Color(0xFF1A2634),
+                            start = Offset(0f, y),
+                            end = Offset(w, y),
+                            strokeWidth = 1f
+                        )
+                    }
+
+                    // Draw Speed Line (max 200 km/h)
+                    if (speedHistory.size > 1) {
+                        val path = Path()
+                        speedHistory.forEachIndexed { idx, pair ->
+                            val x = w * (idx.toFloat() / (speedHistory.size - 1))
+                            val y = h - (h * (pair.second.coerceIn(0, 200) / 200f))
+                            if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                        }
+                        drawPath(path, color = ElectricCyan, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+                    }
+
+                    // Draw RPM Line (max 7000 RPM)
+                    if (rpmHistory.size > 1) {
+                        val rpmPath = Path()
+                        rpmHistory.forEachIndexed { idx, pair ->
+                            val x = w * (idx.toFloat() / (rpmHistory.size - 1))
+                            val y = h - (h * (pair.second.coerceIn(0, 7000) / 7000f))
+                            if (idx == 0) rpmPath.moveTo(x, y) else rpmPath.lineTo(x, y)
+                        }
+                        drawPath(rpmPath, color = Color(0xFFF59E0B), style = Stroke(width = 2f, cap = StrokeCap.Round))
+                    }
+                }
+            }
+        }
+
+        // 8 Detailed Engine Sensors Grid
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.45f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "ENGINE RPM", value = rpm?.toString() ?: "--", unit = "RPM", color = Color(0xFFF59E0B), modifier = Modifier.weight(1f))
+                SensorCard(title = "COOLANT TEMP", value = coolant?.toString() ?: "--", unit = "°C", color = Color.White, modifier = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "INTAKE AIR TEMP", value = intakeTemp?.toString() ?: "--", unit = "°C", color = ElectricCyan, modifier = Modifier.weight(1f))
+                SensorCard(title = "ENGINE LOAD", value = load?.let { "%.1f".format(it) } ?: "--", unit = "%", color = TealAccent, modifier = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "THROTTLE POS", value = throttle?.let { "%.1f".format(it) } ?: "--", unit = "%", color = ElectricCyan, modifier = Modifier.weight(1f))
+                SensorCard(title = "FUEL TANK LEVEL", value = fuelLevel?.toString() ?: "--", unit = "%", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "CONTROL VOLTAGE", value = voltage?.let { "%.1f".format(it) } ?: "--", unit = "V", color = TealAccent, modifier = Modifier.weight(1f))
+                SensorCard(title = "GEAR POSITION", value = if (gear == 0) "P/N" else "D$gear", unit = "AUTO", color = ElectricCyan, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+fun SensorCard(
+    title: String,
+    value: String,
+    unit: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = Color(0xFF090D14),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(6.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(title, color = SecondaryText, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
+            Row(verticalAlignment = Alignment.Baseline, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(value, color = color, fontSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+                Text(unit, color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+            }
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: ECU DIAGNOSTICS & DTC SCANNER PAGE
+// =========================================================================
+@Composable
+fun DiagnosticsPage(
+    dtcCodes: List<DtcItem>,
+    isScanning: Boolean,
+    onScan: () -> Unit,
+    onClear: () -> Unit,
+    connectionState: ConnectionState
+) {
+    var showClearConfirm by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Top Action Card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "ECU DIAGNOSTICS & TROUBLE CODE SCANNER",
+                        color = Color.White,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        text = "STANDARD OBD-II MODE 03 & 07 FAULT CODE INSPECTION",
+                        color = SecondaryText,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onScan,
+                        enabled = !isScanning,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        if (isScanning) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color(0xFF05070B), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Scanning...", color = Color(0xFF05070B), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Scan ECU (03)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        }
+                    }
+
+                    Button(
+                        onClick = { showClearConfirm = true },
+                        enabled = !isScanning,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Clear Codes (04)", color = CriticalRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+
+        // DTC Code List or Clean State
+        if (dtcCodes.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .background(Color(0xFF080C14), RoundedCornerShape(10.dp))
+                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                    .padding(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(44.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text("No Diagnostic Trouble Codes Found", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("ECU reports MIL (Check Engine Light) is OFF. All powertrain monitors normal.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                }
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(dtcCodes) { dtc ->
+                    Surface(
+                        color = Color(0xFF0A0F17),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text(
-                                        text = "Waze Map Offline or Loading Issue",
-                                        color = Color.White,
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
+                                        text = dtc.code,
+                                        color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black,
                                         fontFamily = FontFamily.Monospace
                                     )
-                                    Spacer(modifier = Modifier.height(4.dp))
                                     Text(
-                                        text = "Verify phone internet/hotspot, or launch the Waze application directly.",
+                                        text = dtc.system,
                                         color = SecondaryText,
                                         fontSize = 11.sp,
                                         fontFamily = FontFamily.Monospace
                                     )
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button(
-                                            onClick = {
-                                                hasMapError = false
-                                                webViewRef?.reload()
-                                            },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text("Retry Load", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-                                        }
-
-                                        Button(
-                                            onClick = { launchWazeApp(context, currentLat, currentLon) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF33CCFF)),
-                                            shape = RoundedCornerShape(8.dp)
-                                        ) {
-                                            Text("Launch Waze App", color = Color(0xFF05070B), fontFamily = FontFamily.Monospace, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
                                 }
-                            }
-                        }
 
-                        // Bottom Trip Status Bar
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(Color(0xFF0E1722))
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "WAZE LIVE TRAFFIC · GPS TRACKING",
-                                color = PrimaryText,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
-                            )
-
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
                                 Text(
-                                    text = "LIVE",
-                                    color = TealAccent,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Text(
-                                    text = "TAP TO ROUTE",
-                                    color = Color(0xFF33CCFF),
+                                    text = dtc.severity.name,
+                                    color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     fontFamily = FontFamily.Monospace,
                                     modifier = Modifier
-                                        .clickable { launchWazeApp(context, currentLat, currentLon) }
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // BOTTOM BAR: UNIVERSAL IN-CAR AUDIO DOCK (LOCAL MUSIC & FM RADIO TUNER)
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(54.dp),
-                color = Color(0xFF080C14),
-                border = BorderStroke(1.dp, Color(0xFF1E293B))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    // 1. Source Switcher Tabs
-                    Row(
-                        modifier = Modifier
-                            .background(Color(0xFF0A0E17), RoundedCornerShape(8.dp))
-                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(8.dp))
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        // Local Music Tab
-                        Surface(
-                            modifier = Modifier.clickable { audioSource = "LOCAL_MUSIC" },
-                            color = if (audioSource == "LOCAL_MUSIC") ElectricCyan else Color.Transparent,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.MusicNote,
-                                    contentDescription = null,
-                                    tint = if (audioSource == "LOCAL_MUSIC") Color(0xFF05070B) else Color.Gray,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Local Music",
-                                    color = if (audioSource == "LOCAL_MUSIC") Color(0xFF05070B) else Color.Gray,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-
-                        // FM Radio Tab
-                        Surface(
-                            modifier = Modifier.clickable { audioSource = "RADIO" },
-                            color = if (audioSource == "RADIO") ElectricCyan else Color.Transparent,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    Icons.Default.Radio,
-                                    contentDescription = null,
-                                    tint = if (audioSource == "RADIO") Color(0xFF05070B) else Color.Gray,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "FM Radio",
-                                    color = if (audioSource == "RADIO") Color(0xFF05070B) else Color.Gray,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                            }
-                        }
-                    }
-
-                    // 2. Playback Controls
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        IconButton(
-                            onClick = {
-                                if (audioSource == "LOCAL_MUSIC") {
-                                    sendMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
-                                } else {
-                                    radioFreq = (radioFreq - 0.1f).coerceAtLeast(87.5f)
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = Color.LightGray, modifier = Modifier.size(18.dp))
-                        }
-
-                        IconButton(
-                            onClick = {
-                                isMediaPlaying = !isMediaPlaying
-                                sendMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
-                            },
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(ElectricCyan, RoundedCornerShape(17.dp))
-                        ) {
-                            Icon(
-                                if (isMediaPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = "Play/Pause",
-                                tint = Color(0xFF05070B),
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
-
-                        IconButton(
-                            onClick = {
-                                if (audioSource == "LOCAL_MUSIC") {
-                                    sendMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
-                                } else {
-                                    radioFreq = (radioFreq + 0.1f).coerceAtMost(108.0f)
-                                }
-                            },
-                            modifier = Modifier.size(32.dp)
-                        ) {
-                            Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.LightGray, modifier = Modifier.size(18.dp))
-                        }
-                    }
-
-                    // 3. Center Info Panel (Local Music Track vs FM Radio Station)
-                    Surface(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(horizontal = 8.dp)
-                            .clickable {
-                                if (audioSource == "LOCAL_MUSIC") launchLocalMusicApp() else launchHeadUnitRadioApp()
-                            },
-                        color = Color(0xFF0A0E17),
-                        shape = RoundedCornerShape(8.dp),
-                        border = BorderStroke(1.dp, Color(0xFF1E293B))
-                    ) {
-                        if (audioSource == "RADIO") {
-                            // FM Radio Station Display
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Surface(
-                                        color = Color(0xFF0B2133),
-                                        shape = RoundedCornerShape(4.dp),
-                                        border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
-                                    ) {
-                                        Text(
-                                            text = "${"%.1f".format(radioFreq)} MHz",
-                                            color = ElectricCyan,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                        .background(
+                                            (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning).copy(alpha = 0.15f),
+                                            RoundedCornerShape(4.dp)
                                         )
-                                    }
-
-                                    Column {
-                                        Text(
-                                            text = radioStationName,
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "FM1 · Driving Stereo Broadcast",
-                                            color = SecondaryText,
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                }
-
-                                // Quick presets
-                                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    ANDROID_RADIO_PRESETS.take(4).forEach { preset ->
-                                        Surface(
-                                            modifier = Modifier.clickable {
-                                                radioFreq = preset.freq
-                                                radioStationName = preset.name
-                                            },
-                                            color = if (Math.abs(radioFreq - preset.freq) < 0.15f) ElectricCyan else Color(0xFF1E293B),
-                                            shape = RoundedCornerShape(4.dp)
-                                        ) {
-                                            Text(
-                                                text = "%.1f".format(preset.freq),
-                                                color = if (Math.abs(radioFreq - preset.freq) < 0.15f) Color(0xFF05070B) else Color.LightGray,
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                fontFamily = FontFamily.Monospace,
-                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        } else {
-                            // Local Music Track Display
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Icon(Icons.Default.MusicNote, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
-                                    Column {
-                                        Text(
-                                            text = localTrackTitle,
-                                            color = Color.White,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Text(
-                                            text = "$localTrackArtist · Local Storage / USB",
-                                            color = SecondaryText,
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    }
-                                }
-
-                                Text(
-                                    text = "OPEN APP",
-                                    color = Color(0xFF10B981),
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier
-                                        .background(Color(0xFF09291D), RoundedCornerShape(4.dp))
-                                        .border(1.dp, Color(0xFF10B981).copy(alpha = 0.4f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
                         }
                     }
                 }
             }
+        }
+    }
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Clear Fault Codes (Mode 04)?", fontFamily = FontFamily.Monospace, color = Color.White) },
+            text = {
+                Text(
+                    "Warning: Clearing ECU codes resets emissions inspection readiness monitors and turns off the check engine light. If the physical fault is not repaired, the code will reoccur.",
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    color = SecondaryText
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showClearConfirm = false
+                        onClear()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = CriticalRed)
+                ) {
+                    Text("Confirm Clear", fontFamily = FontFamily.Monospace, color = Color.White)
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showClearConfirm = false },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B))
+                ) {
+                    Text("Cancel", fontFamily = FontFamily.Monospace, color = Color.LightGray)
+                }
+            },
+            containerColor = Color(0xFF0F1722)
+        )
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: TRIP COMPUTER PAGE
+// =========================================================================
+@Composable
+fun TripComputerPage(
+    distanceKm: Double,
+    durationSeconds: Long,
+    maxSpeed: Int,
+    avgSpeed: Int,
+    currentSpeed: Int,
+    speedUnit: String,
+    currentLat: Double,
+    currentLon: Double,
+    onReset: () -> Unit
+) {
+    val hrs = durationSeconds / 3600
+    val mins = (durationSeconds % 3600) / 60
+    val secs = durationSeconds % 60
+    val timeFormatted = String.format(Locale.US, "%02d:%02d:%02d", hrs, mins, secs)
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Header
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text("TRIP COMPUTER & ODOMETER", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Text("GPS TRAIL & VEHICLE DISTANCE LOG", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            }
+
+            Button(
+                onClick = onReset,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(6.dp)
+            ) {
+                Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Reset Trip", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            }
+        }
+
+        // 4 Large Metrics Cards
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TripCard(
+                title = "DISTANCE",
+                value = "%.1f".format(if (speedUnit == "mph") distanceKm * 0.621371 else distanceKm),
+                unit = if (speedUnit == "mph") "MILES" else "KM",
+                accentColor = ElectricCyan,
+                modifier = Modifier.weight(1f)
+            )
+
+            TripCard(
+                title = "ELAPSED TIME",
+                value = timeFormatted,
+                unit = "HH:MM:SS",
+                accentColor = TealAccent,
+                modifier = Modifier.weight(1f)
+            )
+
+            TripCard(
+                title = "AVG SPEED",
+                value = "$avgSpeed",
+                unit = speedUnit.uppercase(),
+                accentColor = Color(0xFFF59E0B),
+                modifier = Modifier.weight(1f)
+            )
+
+            TripCard(
+                title = "MAX SPEED",
+                value = "$maxSpeed",
+                unit = speedUnit.uppercase(),
+                accentColor = CriticalRed,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Live GPS Status Box
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(8.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(modifier = Modifier.size(8.dp).background(TealAccent, CircleShape))
+                    Text("ACTIVE GPS RECORDING", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+
+                Text(
+                    text = "COORDINATES: ${"%.5f".format(currentLat)}, ${"%.5f".format(currentLon)}",
+                    color = ElectricCyan,
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun TripCard(
+    title: String,
+    value: String,
+    unit: String,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxHeight(),
+        color = Color(0xFF090D14),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(title, color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(value, color = accentColor, fontSize = 26.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
+            Text(unit, color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: MEDIA & RADIO PAGE
+// =========================================================================
+@Composable
+fun MediaRadioPage(
+    radioFreq: Float,
+    onFreqChange: (Float) -> Unit,
+    radioStationName: String,
+    onStationChange: (String, Float) -> Unit,
+    isMediaPlaying: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onLaunchNativeRadio: () -> Unit,
+    onLaunchLocalMusic: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        // Top Frequency Display & Tuner Dial
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "FM STEREO TUNER",
+                    color = SecondaryText,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Text(
+                    text = "${"%.1f".format(radioFreq)} MHz",
+                    color = ElectricCyan,
+                    fontSize = 44.sp,
+                    fontWeight = FontWeight.Black,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Text(
+                    text = radioStationName,
+                    color = Color.White,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Playback Controls Row
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = {
+                            val newF = (radioFreq - 0.1f).coerceAtLeast(87.5f)
+                            onFreqChange(newF)
+                            onPrev()
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(Color(0xFF1E293B), CircleShape)
+                    ) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = Color.White)
+                    }
+
+                    IconButton(
+                        onClick = onTogglePlayPause,
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(ElectricCyan, CircleShape)
+                    ) {
+                        Icon(
+                            if (isMediaPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = "Play/Pause",
+                            tint = Color(0xFF05070B),
+                            modifier = Modifier.size(28.dp)
+                        )
+                    }
+
+                    IconButton(
+                        onClick = {
+                            val newF = (radioFreq + 0.1f).coerceAtMost(108.0f)
+                            onFreqChange(newF)
+                            onNext()
+                        },
+                        modifier = Modifier
+                            .size(42.dp)
+                            .background(Color(0xFF1E293B), CircleShape)
+                    ) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
+                    }
+                }
+            }
+        }
+
+        // Station Presets Grid
+        Text("PRESET RADIO STATIONS", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SPORTAGE_RADIO_PRESETS.take(4).forEach { station ->
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable { onStationChange(station.name, station.freq) },
+                    color = if (Math.abs(radioFreq - station.freq) < 0.1f) ElectricCyan.copy(alpha = 0.2f) else Color(0xFF090D14),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, if (Math.abs(radioFreq - station.freq) < 0.1f) ElectricCyan else Color(0xFF1E293B))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(8.dp),
+                        verticalArrangement = Arrangement.Center,
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "${"%.1f".format(station.freq)}",
+                            color = ElectricCyan,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = station.name,
+                            color = Color.White,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            text = station.genre,
+                            color = SecondaryText,
+                            fontSize = 8.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+            }
+        }
+
+        // Launch Native Apps Row
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(
+                onClick = onLaunchNativeRadio,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Open Head Unit Radio App", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            }
+
+            Button(
+                onClick = onLaunchLocalMusic,
+                modifier = Modifier.weight(1f),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(6.dp))
+                Text("Open Local Music Player", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+            }
+        }
+    }
+}
+
+// =========================================================================
+// SUB-VIEW: SETTINGS & DEFAULT LAUNCHER ONBOARDING PAGE
+// =========================================================================
+@Composable
+fun SettingsPage(
+    speedUnit: String,
+    onToggleSpeedUnit: () -> Unit,
+    onSetDefaultLauncher: () -> Unit,
+    isDemoMode: Boolean,
+    onToggleDemoMode: (Boolean) -> Unit,
+    onOpenBluetoothSettings: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        Text("LAUNCHER PREFERENCES & SYSTEM SETUP", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+
+        // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        "Makes Sportage OBD the permanent car dashboard. Booting the head unit or pressing Home returns here.",
+                        color = SecondaryText,
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                Button(
+                    onClick = onSetDefaultLauncher,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text("Set Default Home", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                }
+            }
+        }
+
+        // 2. Units & Telemetry Settings Card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Speed Unit
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Speed & Distance Units", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Current: $speedUnit", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Button(
+                        onClick = onToggleSpeedUnit,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+
+                // Bench Test / Demo Telemetry
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Bench Test / Demo Simulation", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Switch(
+                        checked = isDemoMode,
+                        onCheckedChange = onToggleDemoMode,
+                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan, checkedTrackColor = ElectricCyan.copy(alpha = 0.4f))
+                    )
+                }
+
+                // Android Bluetooth Settings Shortcut
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Android Bluetooth System Settings", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Button(
+                        onClick = onOpenBluetoothSettings,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Open Settings", color = Color.LightGray, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// =========================================================================
+// HELPER: DOCK BUTTON COMPONENT
+// =========================================================================
+@Composable
+fun DockButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    isSelected: Boolean,
+    accentColor: Color,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .size(46.dp)
+            .clickable { onClick() },
+        color = if (isSelected) accentColor.copy(alpha = 0.2f) else Color.Transparent,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, if (isSelected) accentColor else Color.Transparent)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = label,
+                tint = if (isSelected) accentColor else Color.Gray,
+                modifier = Modifier.size(18.dp)
+            )
+            Text(
+                text = label,
+                color = if (isSelected) accentColor else Color.Gray,
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }

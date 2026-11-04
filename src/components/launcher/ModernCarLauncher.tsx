@@ -9,6 +9,9 @@ import {
 import { DEFAULT_LAUNCHER_APPS, launchApp } from '../../services/launcherApps';
 import { SplitGaugesDisplay } from '../cockpit/SplitGaugesDisplay';
 import { SleekNavigationCockpit } from '../navigation/SleekNavigationCockpit';
+import { LiveGraphsAndSensorsView } from '../cockpit/LiveGraphsAndSensorsView';
+import { TripComputerView } from '../cockpit/TripComputerView';
+import { SettingsView } from '../cockpit/SettingsView';
 import { BluetoothConnectModal } from '../modals/BluetoothConnectModal';
 import { DiagnosticsModal } from '../modals/DiagnosticsModal';
 import { ApkExportModal } from '../modals/ApkExportModal';
@@ -100,6 +103,9 @@ export const ModernCarLauncher: React.FC = () => {
   const throttleVal = telemetry.throttlePosition.status === 'LIVE' ? telemetry.throttlePosition.value : null;
   const gear = telemetry.gear;
 
+  // Active Main Cockpit Page ('HOME' | 'GAUGES' | 'TRIP' | 'SETTINGS')
+  const [activePage, setActivePage] = useState<'HOME' | 'GAUGES' | 'TRIP' | 'SETTINGS'>('HOME');
+
   // Container styling based on Chinese Android Head Unit resolution preset
   const getContainerStyle = () => {
     switch (resolutionPreset) {
@@ -120,30 +126,62 @@ export const ModernCarLauncher: React.FC = () => {
       {/* Outer Shell respecting Head Unit Resolution */}
       <div className={`bg-[#070A0F] text-[#EAF5FA] font-sans flex flex-col justify-between ${getContainerStyle()}`}>
         
-        {/* Main Content Area: Left Slim Dock + Two Displays (Left Gauges + Right Waze Map) */}
+        {/* Main Content Area: Left Slim Dock + Main Cockpit Viewport */}
         <div className="flex-1 w-full flex overflow-hidden">
           
           {/* 1. Left Vertical In-Car Dock */}
           <aside className="w-14 sm:w-16 bg-[#090D14] border-r border-slate-800/90 flex flex-col items-center justify-between py-2 shrink-0 z-20">
             <div className="flex flex-col items-center gap-1.5 w-full">
-              {/* Home */}
+              {/* Home (Permanent Split: Live Map + OBD Telemetry) */}
               <button
-                onClick={() => {}}
-                className="w-11 h-11 rounded-xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 flex flex-col items-center justify-center transition-all shadow-md"
-                title="Cockpit Launcher Home"
+                onClick={() => setActivePage('HOME')}
+                className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center transition-all shadow-md ${
+                  activePage === 'HOME'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="Permanent Home (Live Map + Gauges)"
               >
                 <Home className="w-5 h-5" />
                 <span className="text-[8px] font-['Chakra_Petch'] font-bold">Home</span>
               </button>
 
-              {/* In-Car Apps Drawer */}
+              {/* Vehicle Telemetry & Live Graphs */}
               <button
-                onClick={() => setIsAppsDrawerOpen(true)}
-                className="w-11 h-11 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 flex flex-col items-center justify-center transition-all"
-                title="All Apps"
+                onClick={() => setActivePage('GAUGES')}
+                className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center transition-all ${
+                  activePage === 'GAUGES'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="Live Graphs & All 8 Sensors"
               >
-                <Grid className="w-5 h-5" />
-                <span className="text-[8px] font-['Chakra_Petch']">Apps</span>
+                <Gauge className="w-5 h-5" />
+                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Gauges</span>
+              </button>
+
+              {/* ECU Diagnostics (DTC) */}
+              <button
+                onClick={() => setIsDiagnosticsModalOpen(true)}
+                className="w-11 h-11 rounded-xl text-amber-400 hover:bg-amber-500/10 flex flex-col items-center justify-center transition-all"
+                title="Scan Fault Codes (DTC)"
+              >
+                <AlertTriangle className="w-5 h-5" />
+                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Diag</span>
+              </button>
+
+              {/* Trip Computer */}
+              <button
+                onClick={() => setActivePage('TRIP')}
+                className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center transition-all ${
+                  activePage === 'TRIP'
+                    ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="Trip Computer & Odometer"
+              >
+                <Navigation className="w-5 h-5" />
+                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Trip</span>
               </button>
 
               {/* Waze Full App Launch */}
@@ -162,34 +200,25 @@ export const ModernCarLauncher: React.FC = () => {
                   inCarAudioService.setSource('RADIO');
                   inCarAudioService.launchNativeRadioApp();
                 }}
-                className="w-11 h-11 rounded-xl text-cyan-400 hover:bg-cyan-500/10 flex flex-col items-center justify-center transition-all"
+                className="w-11 h-11 rounded-xl text-purple-400 hover:bg-purple-500/10 flex flex-col items-center justify-center transition-all"
                 title="FM / AM Radio Tuner"
               >
                 <Radio className="w-5 h-5" />
                 <span className="text-[8px] font-['Chakra_Petch'] font-bold">Radio</span>
               </button>
 
-              {/* Local Music */}
+              {/* Setup & Preferences */}
               <button
-                onClick={() => {
-                  inCarAudioService.setSource('LOCAL_MUSIC');
-                  inCarAudioService.launchNativeLocalMusicApp();
-                }}
-                className="w-11 h-11 rounded-xl text-emerald-400 hover:bg-emerald-500/10 flex flex-col items-center justify-center transition-all"
-                title="Local Music Player / USB"
+                onClick={() => setActivePage('SETTINGS')}
+                className={`w-11 h-11 rounded-xl flex flex-col items-center justify-center transition-all ${
+                  activePage === 'SETTINGS'
+                    ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-800/60'
+                }`}
+                title="Launcher Preferences & Default Setup"
               >
-                <Music className="w-5 h-5" />
-                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Music</span>
-              </button>
-
-              {/* ECU Diagnostics (DTC) */}
-              <button
-                onClick={() => setIsDiagnosticsModalOpen(true)}
-                className="w-11 h-11 rounded-xl text-amber-400 hover:bg-amber-500/10 flex flex-col items-center justify-center transition-all"
-                title="Scan Fault Codes (DTC)"
-              >
-                <AlertTriangle className="w-5 h-5" />
-                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Diag</span>
+                <Settings className="w-5 h-5" />
+                <span className="text-[8px] font-['Chakra_Petch'] font-bold">Setup</span>
               </button>
             </div>
 
@@ -224,31 +253,58 @@ export const ModernCarLauncher: React.FC = () => {
             </div>
           </aside>
 
-          {/* 2. TWO-DISPLAY SPLIT COCKPIT (Left: Speed & Gauges | Right: Live Waze Map) */}
-          <div className="flex-1 h-full flex flex-row gap-2 p-2 overflow-hidden">
-            
-            {/* DISPLAY 1 (LEFT 50%): AUTHORITATIVE SPEEDOMETER & REAL OBD2 GAUGES */}
-            <div className="w-1/2 h-full flex flex-col overflow-hidden">
-              <SplitGaugesDisplay
-                speed={speedVal}
-                rpm={rpmVal}
-                coolant={coolantVal}
-                fuelLevel={fuelVal}
-                voltage={batteryVal}
-                load={loadVal}
-                throttle={throttleVal}
-                gear={gear}
+          {/* 2. MAIN COCKPIT VIEWPORT (Page Switcher) */}
+          <div className="flex-1 h-full flex flex-col overflow-hidden">
+            {activePage === 'HOME' && (
+              /* PERMANENT SPLIT COCKPIT (Dominant Live Waze Map + Authoritative Gauges) */
+              <div className="flex-1 h-full flex flex-row gap-2 p-2 overflow-hidden">
+                {/* DISPLAY 1 (LEFT 50%): AUTHORITATIVE SPEEDOMETER & REAL OBD2 GAUGES */}
+                <div className="w-1/2 h-full flex flex-col overflow-hidden">
+                  <SplitGaugesDisplay
+                    speed={speedVal}
+                    rpm={rpmVal}
+                    coolant={coolantVal}
+                    fuelLevel={fuelVal}
+                    voltage={batteryVal}
+                    load={loadVal}
+                    throttle={throttleVal}
+                    gear={gear}
+                    speedUnit={speedUnit}
+                    onToggleSpeedUnit={() => setSpeedUnit(u => u === 'km/h' ? 'mph' : 'km/h')}
+                    isConnected={isConnected}
+                    protocol={adapterInfo.protocol}
+                  />
+                </div>
+
+                {/* DISPLAY 2 (RIGHT 50%): DEDICATED LIVE WAZE NAVIGATION & TURN-BY-TURN MAP */}
+                <div className="w-1/2 h-full flex flex-col overflow-hidden">
+                  <SleekNavigationCockpit speedKmH={speedVal} />
+                </div>
+              </div>
+            )}
+
+            {activePage === 'GAUGES' && (
+              <LiveGraphsAndSensorsView
+                telemetry={telemetry}
+                speedUnit={speedUnit}
+              />
+            )}
+
+            {activePage === 'TRIP' && (
+              <TripComputerView
+                currentSpeed={speedVal || 0}
+                speedUnit={speedUnit}
+              />
+            )}
+
+            {activePage === 'SETTINGS' && (
+              <SettingsView
                 speedUnit={speedUnit}
                 onToggleSpeedUnit={() => setSpeedUnit(u => u === 'km/h' ? 'mph' : 'km/h')}
-                isConnected={isConnected}
-                protocol={adapterInfo.protocol}
+                onOpenBluetoothModal={() => setIsConnectModalOpen(true)}
+                onOpenApkModal={() => setIsApkModalOpen(true)}
               />
-            </div>
-
-            {/* DISPLAY 2 (RIGHT 50%): DEDICATED LIVE WAZE NAVIGATION & TURN-BY-TURN MAP */}
-            <div className="w-1/2 h-full flex flex-col overflow-hidden">
-              <SleekNavigationCockpit speedKmH={speedVal} />
-            </div>
+            )}
           </div>
         </div>
 
