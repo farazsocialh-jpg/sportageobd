@@ -6,7 +6,11 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
+import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.ReadinessState
 import com.sportage.obd.repository.ObdRepository
+import com.sportage.obd.service.ActiveAlert
+import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.service.ObdTelemetry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,6 +43,30 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val dtcList: StateFlow<List<DtcItem>> = repository.dtcList
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val pendingDtcList: StateFlow<List<DtcItem>> = repository.pendingDtcList
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val permanentDtcList: StateFlow<List<DtcItem>> = repository.permanentDtcList
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val freezeFrame: StateFlow<FreezeFrame?> = repository.freezeFrame
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val readiness: StateFlow<ReadinessState?> = repository.readiness
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val vin: StateFlow<String?> = repository.vin
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val supportedPids: StateFlow<Set<String>> = repository.supportedPids
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    val activeAlerts: StateFlow<List<ActiveAlert>> = repository.activeAlerts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val isCsvLogging: StateFlow<Boolean> = repository.isCsvLogging
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
     private val _isScanningDtc = MutableStateFlow(false)
     val isScanningDtc: StateFlow<Boolean> = _isScanningDtc.asStateFlow()
 
@@ -69,8 +97,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun connectDevice(device: BluetoothDevice) {
-        repository.connectDevice(device)
+    fun connectDevice(device: BluetoothDevice, ble: Boolean = false) {
+        repository.connectDevice(device, ble)
     }
 
     fun disconnect() {
@@ -98,7 +126,33 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    suspend fun scanPendingDtcsNow(): List<DtcItem> = repository.scanPendingDtcs()
+
+    suspend fun scanPermanentDtcsNow(): List<DtcItem> = repository.scanPermanentDtcs()
+
+    suspend fun readFreezeFrameNow(): FreezeFrame? = repository.readFreezeFrame()
+
+    suspend fun readReadinessNow(): ReadinessState? = repository.readReadiness()
+
+    suspend fun readVinNow(): String? = repository.readVin()
+
     suspend fun clearDtcNow(): Boolean = repository.clearDtcCodes()
+
+    fun alertThresholds(): AlertThresholds = repository.alertThresholds()
+
+    fun updateAlertThresholds(thresholds: AlertThresholds) {
+        repository.updateAlertThresholds(thresholds)
+    }
+
+    fun startCsvLogging() = repository.startCsvLogging()
+
+    fun stopCsvLogging() = repository.stopCsvLogging()
+
+    fun csvLogFile(): java.io.File? = repository.csvLogFile()
+
+    fun csvAutostart(): Boolean = repository.csvAutostart()
+
+    fun setCsvAutostart(enabled: Boolean) = repository.setCsvAutostart(enabled)
 
     suspend fun sendRawCommand(cmd: String): String {
         return repository.sendRawCommand(cmd)

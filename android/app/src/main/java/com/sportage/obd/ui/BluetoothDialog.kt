@@ -47,7 +47,7 @@ fun BluetoothDialog(
     onClose: () -> Unit,
     connectionState: ConnectionState,
     pairedDevices: List<BluetoothDevice>,
-    onConnectDevice: (BluetoothDevice) -> Unit,
+    onConnectDevice: (BluetoothDevice, Boolean) -> Unit,
     onDisconnect: () -> Unit,
     onRefreshDevices: () -> Unit,
     onSendCommand: (String) -> Unit,
@@ -63,6 +63,43 @@ fun BluetoothDialog(
 
     val discoveredDevices = remember { mutableStateListOf<BluetoothDevice>() }
     var isScanningNearby by remember { mutableStateOf(false) }
+
+    val bleDevices = remember { mutableStateListOf<BluetoothDevice>() }
+    var isScanningBle by remember { mutableStateOf(false) }
+    val bleScanCallback = remember {
+        object : android.bluetooth.le.ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
+                try {
+                    val device = result.device ?: return
+                    val advertised = result.scanRecord?.deviceName ?: device.name
+                    val uuids = result.scanRecord?.serviceUuids
+                    val looksElm = advertised != null && listOf("obd", "elm", "vgate", "icar", "carista").any {
+                        advertised!!.lowercase().contains(it)
+                    } || (uuids != null && com.sportage.obd.bluetooth.BleTransport.looksLikeElmBle(uuids!!))
+                    if (looksElm && bleDevices.none { it.address == device.address }) {
+                        bleDevices.add(device)
+                    }
+                } catch (_: SecurityException) {}
+            }
+        }
+    }
+
+    fun startBleScan() {
+        try {
+            val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+            val scanner = adapter.bluetoothLeScanner ?: return
+            bleDevices.clear()
+            scanner.startScan(null, android.bluetooth.le.ScanSettings.Builder().build(), bleScanCallback)
+            isScanningBle = true
+        } catch (_: Exception) {}
+    }
+
+    fun stopBleScan() {
+        try {
+            BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner?.stopScan(bleScanCallback)
+        } catch (_: Exception) {}
+        isScanningBle = false
+    }
 
     fun startNearbyScan() {
         try {
@@ -124,6 +161,9 @@ fun BluetoothDialog(
             try {
                 BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
                 context.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+            try {
+                BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner?.stopScan(bleScanCallback)
             } catch (_: Exception) {}
         }
     }
@@ -215,7 +255,7 @@ fun BluetoothDialog(
                         .padding(3.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    listOf("PAIRED ADAPTERS", "RAW TERMINAL", "TROUBLESHOOTING").forEachIndexed { index, tabTitle ->
+                    listOf("PAIRED ADAPTERS", "BLE SCAN", "RAW TERMINAL", "TROUBLESHOOTING").forEachIndexed { index, tabTitle ->
                         Surface(
                             modifier = Modifier
                                 .weight(1f)
@@ -453,7 +493,7 @@ fun BluetoothDialog(
                                                 }
                                             } else {
                                                 Button(
-                                                    onClick = { onConnectDevice(device) },
+                                                    onClick = { onConnectDevice(device, false) },
                                                     enabled = connectionState !is ConnectionState.Connecting,
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = if (isObd) ElectricCyan else Color(0xFF1E293B)
@@ -560,7 +600,7 @@ fun BluetoothDialog(
                                                     try {
                                                         device.createBond()
                                                     } catch (_: Exception) {}
-                                                    onConnectDevice(device)
+                                                    onConnectDevice(device, false)
                                                 },
                                                 enabled = connectionState !is ConnectionState.Connecting,
                                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
@@ -650,8 +690,117 @@ fun BluetoothDialog(
                     }
                 }
 
-                // TAB 1: RAW TERMINAL
+                // TAB 1: BLE SCAN (Low Energy ELM327 adapters)
                 if (selectedTab == 1) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "BLUETOOTH LOW ENERGY SCAN (VGATE / iCAR / ELM327 BLE)",
+                            color = SecondaryText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Button(
+                                onClick = { if (isScanningBle) stopBleScan() else startBleScan() },
+                                colors = ButtonDefaults.buttonColors(containerColor = if (isScanningBle) CriticalRed else ElectricCyan),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                shape = RoundedCornerShape(6.dp)
+                            ) {
+                                Text(
+                                    text = if (isScanningBle) "Stop Scan" else "Scan BLE Adapters",
+                                    fontSize = 10.sp,
+                                    color = if (isScanningBle) Color.White else Color(0xFF05070B),
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (bleDevices.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
+                                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                                    .padding(24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    if (isScanningBle) {
+                                        CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(36.dp))
+                                        Spacer(modifier = Modifier.height(10.dp))
+                                        Text("Scanning for BLE ELM327 adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                    } else {
+                                        Icon(Icons.Default.Bluetooth, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text("No BLE Adapters Found Yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Plug the adapter in, then tap Scan BLE Adapters. BLE adapters do not need pairing.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                items(bleDevices) { device ->
+                                    Surface(
+                                        color = Color(0xFF101826),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.6f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(
+                                                    text = device.name ?: "BLE OBD Adapter",
+                                                    color = Color.White,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = "MAC: ${device.address}",
+                                                    color = SecondaryText,
+                                                    fontSize = 10.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                            Button(
+                                                onClick = { onConnectDevice(device, true) },
+                                                enabled = connectionState !is ConnectionState.Connecting,
+                                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Connect BLE",
+                                                    color = Color(0xFF05070B),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // TAB 2: RAW TERMINAL
+                if (selectedTab == 2) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "LIVE ELM327 AT / OBD COMMAND CONSOLE",

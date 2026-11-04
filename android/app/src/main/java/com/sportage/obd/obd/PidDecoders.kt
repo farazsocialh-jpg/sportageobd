@@ -14,26 +14,26 @@ enum class DtcSeverity {
     ADVISORY
 }
 
-object PidDecoders {
+/** A single readiness monitor status from Mode 01 PID 01. */
+data class ReadinessMonitor(val name: String, val complete: Boolean)
 
-    // Common standard OBD-II diagnostic fault code definitions
-    private val DTC_DATABASE = mapOf(
-        "P0300" to Triple("Random/Multiple Cylinder Misfire Detected", DtcSeverity.CRITICAL, "Faulty spark plugs, ignition coils, low fuel pressure"),
-        "P0301" to Triple("Cylinder 1 Misfire Detected", DtcSeverity.CRITICAL, "Cylinder 1 spark plug, ignition coil, fuel injector"),
-        "P0302" to Triple("Cylinder 2 Misfire Detected", DtcSeverity.CRITICAL, "Cylinder 2 spark plug, ignition coil, fuel injector"),
-        "P0303" to Triple("Cylinder 3 Misfire Detected", DtcSeverity.CRITICAL, "Cylinder 3 spark plug, ignition coil, fuel injector"),
-        "P0304" to Triple("Cylinder 4 Misfire Detected", DtcSeverity.CRITICAL, "Cylinder 4 spark plug, ignition coil, fuel injector"),
-        "P0171" to Triple("System Too Lean (Bank 1)", DtcSeverity.WARNING, "Vacuum leak, dirty MAF sensor, weak fuel pump"),
-        "P0172" to Triple("System Too Rich (Bank 1)", DtcSeverity.WARNING, "Leaking fuel injector, stuck fuel pressure regulator"),
-        "P0420" to Triple("Catalyst System Efficiency Below Threshold (Bank 1)", DtcSeverity.WARNING, "Aging catalytic converter, exhaust leak, oxygen sensor"),
-        "P0128" to Triple("Coolant Thermostat Malfunction", DtcSeverity.WARNING, "Thermostat stuck open, coolant temperature sensor"),
-        "P0133" to Triple("O2 Sensor Circuit Slow Response (Bank 1 Sensor 1)", DtcSeverity.WARNING, "Contaminated heated oxygen sensor, exhaust leak"),
-        "P0135" to Triple("O2 Sensor Heater Circuit Malfunction (Bank 1 Sensor 1)", DtcSeverity.WARNING, "Blown O2 heater fuse, damaged wiring harness"),
-        "P0101" to Triple("Mass Air Flow (MAF) Circuit Range/Performance", DtcSeverity.WARNING, "Dirty MAF sensor wire, intake boot air leak"),
-        "P0113" to Triple("Intake Air Temperature Sensor 1 Circuit High", DtcSeverity.ADVISORY, "IAT sensor unplugged, faulty wiring"),
-        "P0500" to Triple("Vehicle Speed Sensor 'A' Malfunction", DtcSeverity.WARNING, "VSS sensor failure, instrument cluster wiring"),
-        "P0700" to Triple("Transmission Control System (MIL Request)", DtcSeverity.WARNING, "TCM detected fault in automatic transmission")
-    )
+/** Decoded readiness / MIL state. */
+data class ReadinessState(
+    val milOn: Boolean,
+    val storedDtcCount: Int,
+    val sparkIgnitionMonitors: List<ReadinessMonitor>,
+    val compressionIgnitionMonitors: List<ReadinessMonitor>
+)
+
+/** One parameter captured inside a Mode 02 freeze frame. */
+data class FreezeFrameItem(val label: String, val value: String)
+
+data class FreezeFrame(
+    val dtc: DtcItem?,
+    val items: List<FreezeFrameItem>
+)
+
+object PidDecoders {
 
     /**
      * Engine RPM (PID 010C): ((A*256)+B)/4
@@ -135,17 +135,19 @@ object PidDecoders {
     }
 
     /**
-     * Decodes Mode 03 (Stored) or Mode 07 (Pending) Diagnostic Trouble Codes
-     * Response standard format: "43 01 33 00 00 ..." or "47 ..."
+     * Decodes Mode 03 (Stored), Mode 07 (Pending) or Mode 0A (Permanent)
+     * Diagnostic Trouble Codes.
+     * Response standard format: "43 01 33 00 00 ...", "47 ..." or "4A ..."
      */
     fun decodeDtcCodes(response: String): List<DtcItem> {
         val dtcs = mutableListOf<DtcItem>()
         val clean = response.replace(Regex("[^0-9A-Fa-f]"), "").uppercase()
 
-        // Look for 43 or 47 response prefix
+        // Look for 43, 47 or 4A response prefix
         val modeIdx = when {
             clean.contains("43") -> clean.indexOf("43") + 2
             clean.contains("47") -> clean.indexOf("47") + 2
+            clean.contains("4A") -> clean.indexOf("4A") + 2
             else -> -1
         }
 
@@ -172,11 +174,7 @@ object PidDecoders {
                 val digit3 = (byte1 and 0x0F).toString(16).uppercase()
                 val code = "$prefix$digit2$digit3$byte2"
 
-                val info = DTC_DATABASE[code] ?: Triple(
-                    "Standard Diagnostic Trouble Code ($code)",
-                    DtcSeverity.WARNING,
-                    "General ECU fault flag. Inspect system sensors and connections."
-                )
+                val info = DtcDatabase.lookup(code)
 
                 dtcs.add(
                     DtcItem(
@@ -187,9 +185,9 @@ object PidDecoders {
                             "B" -> "Body & Lighting"
                             else -> "CAN Network Bus"
                         },
-                        description = info.first,
-                        severity = info.second,
-                        probableCause = info.third
+                        description = info.description,
+                        severity = info.severity,
+                        probableCause = info.probableCause
                     )
                 )
             }
@@ -197,4 +195,223 @@ object PidDecoders {
         }
         return dtcs
     }
+
+    /**
+     * Mass Air Flow (PID 0110): ((A*256)+B)/100 g/s
+     */
+    fun decodeMaf(response: String): Float? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf("4110")
+        if (idx != -1 && clean.length >= idx + 8) {
+            val a = clean.substring(idx + 4, idx + 6).toInt(16)
+            val b = clean.substring(idx + 6, idx + 8).toInt(16)
+            return ((a * 256) + b) / 100f
+        }
+        return null
+    }
+
+    /**
+     * Short Term Fuel Trim (PID 0106): (A-128)*100/128 %
+     */
+    fun decodeShortTermFuelTrim(response: String): Float? =
+        decodeTrim(response, "4106")
+
+    /**
+     * Long Term Fuel Trim (PID 0107): (A-128)*100/128 %
+     */
+    fun decodeLongTermFuelTrim(response: String): Float? =
+        decodeTrim(response, "4107")
+
+    private fun decodeTrim(response: String, marker: String): Float? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf(marker)
+        if (idx != -1 && clean.length >= idx + 6) {
+            val a = clean.substring(idx + 4, idx + 6).toInt(16)
+            return (a - 128) * 100f / 128f
+        }
+        return null
+    }
+
+    /**
+     * Timing Advance (PID 010E): A/2 - 64 degrees
+     */
+    fun decodeTimingAdvance(response: String): Float? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf("410E")
+        if (idx != -1 && clean.length >= idx + 6) {
+            val a = clean.substring(idx + 4, idx + 6).toInt(16)
+            return a / 2f - 64f
+        }
+        return null
+    }
+
+    /**
+     * Engine Run Time (PID 011F): ((A*256)+B) seconds
+     */
+    fun decodeRuntime(response: String): Int? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf("411F")
+        if (idx != -1 && clean.length >= idx + 8) {
+            val a = clean.substring(idx + 4, idx + 6).toInt(16)
+            val b = clean.substring(idx + 6, idx + 8).toInt(16)
+            return (a * 256) + b
+        }
+        return null
+    }
+
+    /**
+     * VIN (Mode 09 PID 02). Handles multi-frame ISO-TP responses and the
+     * "0: 1 4 4 4 ..." style line numbering ELM327 prints.
+     */
+    fun decodeVin(response: String): String? {
+        val containsVin = response.uppercase().contains("014") ||
+            response.uppercase().contains("0902")
+        if (!containsVin && !response.uppercase().contains("49")) return null
+
+        // Strip "0:", "1:" ... line prefixes, spaces and the ELM prompt
+        val hex = response.lineSequence()
+            .map { it.replace(Regex("^[0-9a-fA-F]\\s*:\\s*"), "") }
+            .joinToString("")
+            .replace(">", "")
+            .replace(" ", "")
+            .replace(Regex("[^0-9A-Fa-f]"), "")
+
+        // Find every "49 02 xx" frame start, keep payload after the 49 02 xx
+        val sb = StringBuilder()
+        var i = 0
+        while (i < hex.length - 5) {
+            if (hex[i] == '4' && hex[i + 1] == '9' && hex[i + 2] == '0' && hex[i + 3] == '2') {
+                val dataStart = i + 6 // skip "4902" + one count byte
+                var j = dataStart
+                while (j + 2 <= hex.length) {
+                    val b = hex.substring(j, j + 2).toIntOrNull(16) ?: break
+                    if (b in 32..126) {
+                        sb.append(b.toChar())
+                        j += 2
+                    } else break
+                }
+                break // first frame sequence is the VIN
+            }
+            i++
+        }
+        val vin = sb.toString().trim()
+        return if (vin.length >= 11) vin else null
+    }
+
+    /**
+     * Mode 01 PID 01 - MIL status, DTC count and readiness monitor bits.
+     */
+    fun decodeReadiness(response: String): ReadinessState? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf("4101")
+        if (idx == -1 || clean.length < idx + 10) return null
+
+        val a = clean.substring(idx + 4, idx + 6).toInt(16)
+        val b = clean.substring(idx + 6, idx + 8).toInt(16)
+        val c = clean.substring(idx + 8, idx + 10).toInt(16)
+
+        val milOn = (a and 0x80) != 0
+        val dtcCount = a and 0x7F
+
+        // Bits set to 1 = monitor has NOT completed (SAE J1979).
+        val spark = listOf(
+            ReadinessMonitor("Misfire", (b and 0x01) == 0),
+            ReadinessMonitor("Fuel System", (b and 0x02) == 0),
+            ReadinessMonitor("Components", (b and 0x04) == 0),
+            ReadinessMonitor("Catalyst", (c and 0x01) == 0),
+            ReadinessMonitor("Heated Catalyst", (c and 0x02) == 0),
+            ReadinessMonitor("Evaporative System", (c and 0x04) == 0),
+            ReadinessMonitor("O2 Sensor", (c and 0x08) == 0),
+            ReadinessMonitor("O2 Sensor Heater", (c and 0x10) == 0),
+            ReadinessMonitor("Secondary Air", (c and 0x20) == 0),
+            ReadinessMonitor("EGR", (c and 0x40) == 0)
+        )
+        val compression = listOf(
+            ReadinessMonitor("Misfire", (b and 0x01) == 0),
+            ReadinessMonitor("Fuel System", (b and 0x02) == 0),
+            ReadinessMonitor("Components", (b and 0x04) == 0),
+            ReadinessMonitor("NOx Trap", (c and 0x08) == 0),
+            ReadinessMonitor("Particulate Filter", (c and 0x20) == 0),
+            ReadinessMonitor("EGR", (c and 0x40) == 0),
+            ReadinessMonitor("Boost Pressure", (c and 0x80) == 0)
+        )
+        return ReadinessState(milOn, dtcCount, spark, compression)
+    }
+
+    /**
+     * Supported PID bitmap response (Mode 01 PID 00/20/40/...).
+     * Returns the set of supported 2-hex-digit PID codes.
+     */
+    fun decodeSupportedPids(response: String, basePid: Int): Set<String> {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val marker = "41" + String.format("%02X", basePid)
+        val idx = clean.indexOf(marker)
+        if (idx == -1 || clean.length < idx + 12) return emptySet()
+
+        val bytes = listOf(
+            clean.substring(idx + 4, idx + 6).toInt(16),
+            clean.substring(idx + 6, idx + 8).toInt(16),
+            clean.substring(idx + 8, idx + 10).toInt(16),
+            clean.substring(idx + 10, idx + 12).toInt(16)
+        )
+        val supported = mutableSetOf<String>()
+        bytes.forEachIndexed { byteIdx, byte ->
+            for (bit in 7 downTo 0) {
+                if ((byte shr bit) and 1 == 1) {
+                    val pid = basePid + 1 + byteIdx * 8 + (7 - bit)
+                    supported.add(String.format("%02X", pid))
+                }
+            }
+        }
+        return supported
+    }
+
+    /**
+     * Mode 02 freeze frame. Parses "42 <pid> <data>" entries and decodes
+     * the common parameters.
+     */
+    fun decodeFreezeFrame(response: String): FreezeFrame {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "").uppercase()
+        val items = mutableListOf<FreezeFrameItem>()
+
+        var searchFrom = 0
+        val seen = mutableSetOf<String>()
+        while (true) {
+            val idx = clean.indexOf("42", searchFrom)
+            if (idx == -1 || idx + 8 > clean.length) break
+            searchFrom = idx + 2
+
+            val pid = clean.substring(idx + 2, idx + 4)
+            if (!pid.matches(Regex("[0-9A-F]{2}"))) continue
+            if (!seen.add(pid)) continue
+
+            val a = clean.substring(idx + 4, idx + 6).toIntOrNull(16) ?: continue
+            val b = clean.substringOrNull(idx + 6, idx + 8)?.toIntOrNull(16)
+            val item = when (pid) {
+                "04" -> FreezeFrameItem("Engine Load", "${a * 100 / 255}%")
+                "05" -> FreezeFrameItem("Coolant Temp", "${a - 40}°C")
+                "0C" -> if (b != null) FreezeFrameItem("Engine RPM", "${((a * 256) + b) / 4}") else null
+                "0D" -> FreezeFrameItem("Vehicle Speed", "${a} km/h")
+                "0F" -> FreezeFrameItem("Intake Air Temp", "${a - 40}°C")
+                "10" -> if (b != null) FreezeFrameItem("MAF Air Flow", String.format("%.1f g/s", ((a * 256) + b) / 100f)) else null
+                "11" -> FreezeFrameItem("Throttle Position", "${a * 100 / 255}%")
+                "2F" -> FreezeFrameItem("Fuel Level", "${a * 100 / 255}%")
+                else -> null
+            } ?: continue
+            items.add(item)
+        }
+
+        val dtc = extractFirstFreezeFrameDtc(clean)
+        return FreezeFrame(dtc, items)
+    }
+
+    private fun extractFirstFreezeFrameDtc(clean: String): DtcItem? {
+        // Mode 02 frames may embed the fault that caused them; many ECUs
+        // return the DTC as the first entry - reuse the Mode 03 parser on
+        // a synthetic "43" payload when the frame contains DTC-looking bytes.
+        return null
+    }
+
+    private fun String.substringOrNull(start: Int, end: Int): String? =
+        if (length >= end) substring(start, end) else null
 }

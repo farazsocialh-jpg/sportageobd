@@ -36,6 +36,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.sportage.obd.bluetooth.BluetoothDeviceInfo
+import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity(), LocationListener {
 
@@ -76,6 +82,11 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var currentLon by mutableStateOf(51.5310)
     private var currentGpsSpeed by mutableStateOf<Int?>(null)
 
+    // Auto night dimming (persisted)
+    private val uiPrefs by lazy { getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
+    private var autoNightDim by mutableStateOf(true)
+    private var nightDimLevel by mutableStateOf(0.55f)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -91,6 +102,9 @@ class MainActivity : ComponentActivity(), LocationListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+
+        autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
+        nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
 
         checkAndRequestPermissions()
         initLocationTracking()
@@ -148,44 +162,68 @@ class MainActivity : ComponentActivity(), LocationListener {
             }
 
             SportageObdTheme {
-                CarLauncherScreen(
-                    connectionState = connState,
-                    measuredHz = measuredHz,
-                    speed = liveSpeed,
-                    rpm = liveRpm,
-                    coolant = liveCoolant,
-                    intakeTemp = liveIntakeTemp,
-                    fuelLevel = liveFuelLevel,
-                    throttle = liveThrottle,
-                    load = liveLoad,
-                    voltage = liveVoltage,
-                    gear = liveGear,
-                    speedHistory = speedHist,
-                    rpmHistory = rpmHist,
-                    currentLat = currentLat,
-                    currentLon = currentLon,
-                    activePage = activePage,
-                    onNavigatePage = { activePage = it },
-                    onOpenBluetoothClick = {
-                        refreshPairedDevices()
-                        showBluetoothDialog = true
-                    },
-                    dtcCodes = dtcs,
-                    isScanningDtc = isScanning,
-                    onScanDtc = { scanDtcCodes() },
-                    onClearDtc = { clearDtcCodes() },
-                    tripDistanceKm = tripDistanceKm,
-                    tripDurationSeconds = tripDurationSeconds,
-                    tripMaxSpeed = tripMaxSpeed,
-                    tripAvgSpeed = tripAvgSpeed,
-                    onResetTrip = { resetTrip() },
-                    onSetDefaultLauncher = { promptSetDefaultLauncher() },
-                    isDemoMode = demoMode,
-                    onToggleDemoMode = { toggleDemoMode(it) },
-                    isPollingPaused = pollingPaused,
-                    onTogglePausePolling = { togglePausePolling() },
-                    onOpenAppDrawer = { showAppDrawer = true }
-                )
+                val isNight = isSystemInDarkTheme()
+                Box(modifier = Modifier.fillMaxSize()) {
+                    CarLauncherScreen(
+                        connectionState = connState,
+                        measuredHz = measuredHz,
+                        speed = liveSpeed,
+                        rpm = liveRpm,
+                        coolant = liveCoolant,
+                        intakeTemp = liveIntakeTemp,
+                        fuelLevel = liveFuelLevel,
+                        throttle = liveThrottle,
+                        load = liveLoad,
+                        voltage = liveVoltage,
+                        gear = liveGear,
+                        speedHistory = speedHist,
+                        rpmHistory = rpmHist,
+                        currentLat = currentLat,
+                        currentLon = currentLon,
+                        activePage = activePage,
+                        onNavigatePage = { activePage = it },
+                        onOpenBluetoothClick = {
+                            refreshPairedDevices()
+                            showBluetoothDialog = true
+                        },
+                        dtcCodes = dtcs,
+                        isScanningDtc = isScanning,
+                        onScanDtc = { scanDtcCodes() },
+                        onClearDtc = { clearDtcCodes() },
+                        tripDistanceKm = tripDistanceKm,
+                        tripDurationSeconds = tripDurationSeconds,
+                        tripMaxSpeed = tripMaxSpeed,
+                        tripAvgSpeed = tripAvgSpeed,
+                        onResetTrip = { resetTrip() },
+                        onSetDefaultLauncher = { promptSetDefaultLauncher() },
+                        isDemoMode = demoMode,
+                        onToggleDemoMode = { toggleDemoMode(it) },
+                        isPollingPaused = pollingPaused,
+                        onTogglePausePolling = { togglePausePolling() },
+                        onOpenAppDrawer = { showAppDrawer = true },
+                        viewModel = viewModel,
+                        autoNightDim = autoNightDim,
+                        nightDimLevel = nightDimLevel,
+                        onSetAutoNightDim = { enabled ->
+                            autoNightDim = enabled
+                            uiPrefs.edit().putBoolean("autoNightDim", enabled).apply()
+                        },
+                        onSetNightDimLevel = { level ->
+                            nightDimLevel = level.coerceIn(0.1f, 0.85f)
+                            uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
+                        }
+                    )
+
+                    // Night dimming overlay: darkens the whole dashboard after dark.
+                    // Non-interactive, so all controls stay touchable underneath.
+                    if (autoNightDim && isNight) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = nightDimLevel))
+                        )
+                    }
+                }
 
                 // Bluetooth Connection & Terminal Modal
                 BluetoothDialog(
@@ -193,7 +231,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     onClose = { showBluetoothDialog = false },
                     connectionState = connState,
                     pairedDevices = pairedDevicesList,
-                    onConnectDevice = { connectToDevice(it) },
+                    onConnectDevice = { device, ble -> connectToDevice(device, ble) },
                     onDisconnect = { disconnectDevice() },
                     onRefreshDevices = { refreshPairedDevices() },
                     onSendCommand = { sendTerminalCommand(it) },
@@ -246,14 +284,14 @@ class MainActivity : ComponentActivity(), LocationListener {
         } catch (_: Exception) {}
     }
 
-    private fun connectToDevice(device: BluetoothDevice) {
+    private fun connectToDevice(device: BluetoothDevice, ble: Boolean = false) {
         if (viewModel.isDemoMode.value) {
             viewModel.setDemoMode(false)
         }
-        logTerminal("INFO", "Connecting to ${BluetoothDeviceInfo.label(this, device)} through the background OBD service...")
-        // Starts (if needed) and binds ObdService, which owns the RFCOMM socket and polling loop,
+        logTerminal("INFO", "Connecting to ${BluetoothDeviceInfo.label(this, device)}${if (ble) " via BLE GATT" else ""} through the background OBD service...")
+        // Starts (if needed) and binds ObdService, which owns the transport link and polling loop,
         // so telemetry keeps streaming after this activity is backgrounded or destroyed.
-        viewModel.connectDevice(device)
+        viewModel.connectDevice(device, ble)
     }
 
     private fun disconnectDevice() {
