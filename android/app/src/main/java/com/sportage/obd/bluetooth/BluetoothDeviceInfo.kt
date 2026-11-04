@@ -36,6 +36,16 @@ object BluetoothDeviceInfo {
     }
 
     /**
+     * Device MAC address, or null when the name/address cannot be read.
+     */
+    fun address(context: Context, device: BluetoothDevice): String? {
+        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+            context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
+            PackageManager.PERMISSION_GRANTED
+        return if (granted) device.address else null
+    }
+
+    /**
      * Human readable "Name (MAC)" label, or a generic label when metadata is unavailable.
      */
     fun label(context: Context, device: BluetoothDevice): String {

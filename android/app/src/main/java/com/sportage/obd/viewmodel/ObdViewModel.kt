@@ -77,31 +77,28 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         repository.disconnect()
     }
 
-    fun togglePausePolling() {
+    fun togglePausePolling(): Boolean {
         val next = !repository.isPollingPaused.value
         repository.togglePausePolling(next)
+        return next
     }
+
+    fun isConnected(): Boolean = connectionState.value is ConnectionState.Connected
 
     fun setDemoMode(enable: Boolean) {
         repository.setDemoMode(enable)
     }
 
-    fun scanDtcCodes() {
-        viewModelScope.launch {
-            _isScanningDtc.value = true
-            try {
-                repository.scanDtcCodes()
-            } finally {
-                _isScanningDtc.value = false
-            }
+    suspend fun scanDtcNow(): List<DtcItem> {
+        _isScanningDtc.value = true
+        return try {
+            repository.scanDtcCodes()
+        } finally {
+            _isScanningDtc.value = false
         }
     }
 
-    fun clearDtcCodes() {
-        viewModelScope.launch {
-            repository.clearDtcCodes()
-        }
-    }
+    suspend fun clearDtcNow(): Boolean = repository.clearDtcCodes()
 
     suspend fun sendRawCommand(cmd: String): String {
         return repository.sendRawCommand(cmd)
@@ -109,6 +106,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        repository.unbindService()
+        // Unbinding leaves the foreground service (and the Bluetooth link) running on purpose:
+        // only the UI teardown happens here.
+        repository.close()
     }
 }

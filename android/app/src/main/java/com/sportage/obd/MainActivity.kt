@@ -21,17 +21,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
-import com.sportage.obd.bluetooth.BluetoothTransport
+import androidx.activity.viewModels
 import com.sportage.obd.bluetooth.ConnectionState
-import com.sportage.obd.obd.DtcItem
-import com.sportage.obd.obd.DtcSeverity
-import com.sportage.obd.obd.PidDecoders
+import com.sportage.obd.viewmodel.ObdViewModel
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.SportageObdTheme
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -42,10 +39,8 @@ import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 
 class MainActivity : ComponentActivity(), LocationListener {
 
-    private val transport = BluetoothTransport()
+    private val viewModel: ObdViewModel by viewModels()
     private var locationManager: LocationManager? = null
-    private var pollingJob: Job? = null
-    private var demoJob: Job? = null
 
     // Active Navigation Page (0: Home, 1: Gauges & Graphs, 2: DTC Diagnostics, 3: Trip, 4: Media, 5: Settings)
     private var activePage by mutableStateOf(0)
@@ -53,10 +48,8 @@ class MainActivity : ComponentActivity(), LocationListener {
     // Bluetooth Dialog State
     private var showBluetoothDialog by mutableStateOf(false)
     private var showAppDrawer by mutableStateOf(false)
-    private var isPollingPaused by mutableStateOf(false)
     private var pairedDevicesList = mutableStateListOf<BluetoothDevice>()
     private val terminalLogs = mutableStateListOf<TerminalLog>()
-    private var isDemoMode by mutableStateOf(false)
 
     // Live Telemetry state (authoritative values)
     private var liveSpeed by mutableStateOf<Int?>(null)
@@ -69,14 +62,6 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var liveVoltage by mutableStateOf<Float?>(null)
     private var liveGear by mutableStateOf<Int>(0)
     private var measuredHz by mutableStateOf<Float?>(null)
-
-    // Real-time speed & RPM history for live graphing
-    private val speedHistory = mutableStateListOf<Pair<Long, Int>>()
-    private val rpmHistory = mutableStateListOf<Pair<Long, Int>>()
-
-    // DTC Diagnostics State
-    private val dtcCodes = mutableStateListOf<DtcItem>()
-    private var isScanningDtc by mutableStateOf(false)
 
     // Trip Computer State
     private var tripDistanceKm by mutableStateOf(0.0)
@@ -127,7 +112,40 @@ class MainActivity : ComponentActivity(), LocationListener {
         })
 
         setContent {
-            val connState by transport.connectionState.collectAsState()
+            val connState by viewModel.connectionState.collectAsState()
+            val demoMode by viewModel.isDemoMode.collectAsState()
+            val pollingPaused by viewModel.isPollingPaused.collectAsState()
+            val dtcs by viewModel.dtcList.collectAsState()
+            val isScanning by viewModel.isScanningDtc.collectAsState()
+            val speedHist by viewModel.speedHistory.collectAsState()
+            val rpmHist by viewModel.rpmHistory.collectAsState()
+
+            LaunchedEffect(Unit) {
+                viewModel.telemetry.collect { t ->
+                    liveSpeed = t.speedKmh
+                    liveRpm = t.rpm
+                    liveCoolant = t.coolantTempC
+                    liveIntakeTemp = t.intakeTempC
+                    liveFuelLevel = t.fuelLevelPct
+                    liveThrottle = t.throttlePct
+                    liveLoad = t.engineLoadPct
+                    liveVoltage = t.batteryVoltage
+                    liveGear = t.estimatedGear
+                    measuredHz = t.sampleRateHz.takeIf { hz -> hz > 0f }
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.connectionState.collect { state ->
+                    when (state) {
+                        is ConnectionState.Connected ->
+                            logTerminal("INFO", "LINK ACTIVE: ${state.deviceName} \u00b7 ${state.protocol}")
+                        is ConnectionState.Error -> logTerminal("ERR", "Adapter error: ${state.message}")
+                        ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket...")
+                        ConnectionState.Disconnected -> logTerminal("INFO", "Adapter link closed.")
+                    }
+                }
+            }
 
             SportageObdTheme {
                 CarLauncherScreen(
@@ -142,8 +160,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                     load = liveLoad,
                     voltage = liveVoltage,
                     gear = liveGear,
-                    speedHistory = speedHistory,
-                    rpmHistory = rpmHistory,
+                    speedHistory = speedHist,
+                    rpmHistory = rpmHist,
                     currentLat = currentLat,
                     currentLon = currentLon,
                     activePage = activePage,
@@ -152,8 +170,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                         refreshPairedDevices()
                         showBluetoothDialog = true
                     },
-                    dtcCodes = dtcCodes,
-                    isScanningDtc = isScanningDtc,
+                    dtcCodes = dtcs,
+                    isScanningDtc = isScanning,
                     onScanDtc = { scanDtcCodes() },
                     onClearDtc = { clearDtcCodes() },
                     tripDistanceKm = tripDistanceKm,
@@ -162,17 +180,10 @@ class MainActivity : ComponentActivity(), LocationListener {
                     tripAvgSpeed = tripAvgSpeed,
                     onResetTrip = { resetTrip() },
                     onSetDefaultLauncher = { promptSetDefaultLauncher() },
-                    isDemoMode = isDemoMode,
+                    isDemoMode = demoMode,
                     onToggleDemoMode = { toggleDemoMode(it) },
-                    isPollingPaused = isPollingPaused,
-                    onTogglePausePolling = {
-                        isPollingPaused = !isPollingPaused
-                        if (isPollingPaused) {
-                            Toast.makeText(this@MainActivity, "OBD Polling Paused (Ignition Off Mode)", Toast.LENGTH_SHORT).show()
-                        } else {
-                            Toast.makeText(this@MainActivity, "OBD Polling Resumed", Toast.LENGTH_SHORT).show()
-                        }
-                    },
+                    isPollingPaused = pollingPaused,
+                    onTogglePausePolling = { togglePausePolling() },
                     onOpenAppDrawer = { showAppDrawer = true }
                 )
 
@@ -187,7 +198,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     onRefreshDevices = { refreshPairedDevices() },
                     onSendCommand = { sendTerminalCommand(it) },
                     terminalLogs = terminalLogs,
-                    isDemoMode = isDemoMode,
+                    isDemoMode = demoMode,
                     onToggleDemoMode = { toggleDemoMode(it) }
                 )
 
@@ -236,46 +247,17 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
-        if (isDemoMode) {
-            toggleDemoMode(false)
+        if (viewModel.isDemoMode.value) {
+            viewModel.setDemoMode(false)
         }
-        lifecycleScope.launch {
-            logTerminal("INFO", "Initiating connection to ${BluetoothDeviceInfo.label(this@MainActivity, device)}...")
-            val connected = transport.connect(device)
-            if (connected) {
-                logTerminal("INFO", "RFCOMM Socket connected. Initializing ELM327 protocol...")
-                try {
-                    sendTerminalCommand("ATZ")
-                    delay(400)
-                    sendTerminalCommand("ATE0") // Echo off
-                    sendTerminalCommand("ATL0") // Linefeeds off
-                    sendTerminalCommand("ATH0") // Headers off
-                    sendTerminalCommand("ATSP0") // Auto protocol search
-                    val voltRes = transport.sendCommand("ATRV")
-                    logTerminal("RX", "ATRV -> $voltRes")
-                    liveVoltage = PidDecoders.decodeBatteryVoltage(voltRes)
-
-                    // Discover supported PIDs
-                    val pidRes = transport.sendCommand("0100")
-                    logTerminal("RX", "0100 (Supported PIDs) -> $pidRes")
-
-                    startContinuousPolling()
-                } catch (e: Exception) {
-                    logTerminal("ERR", "Init failure: ${e.message}")
-                    Toast.makeText(this@MainActivity, "Init error: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            } else {
-                logTerminal("ERR", "Failed to connect to ${BluetoothDeviceInfo.label(this@MainActivity, device)}")
-                showBluetoothDialog = true
-                Toast.makeText(this@MainActivity, "Failed to connect to ${BluetoothDeviceInfo.displayName(this@MainActivity, device, "device")}. Select another adapter.", Toast.LENGTH_SHORT).show()
-            }
-        }
+        logTerminal("INFO", "Connecting to ${BluetoothDeviceInfo.label(this, device)} through the background OBD service...")
+        // Starts (if needed) and binds ObdService, which owns the RFCOMM socket and polling loop,
+        // so telemetry keeps streaming after this activity is backgrounded or destroyed.
+        viewModel.connectDevice(device)
     }
 
     private fun disconnectDevice() {
-        pollingJob?.cancel()
-        pollingJob = null
-        transport.disconnect()
+        viewModel.disconnect()
         logTerminal("INFO", "Disconnected from adapter.")
         liveSpeed = null
         liveRpm = null
@@ -288,9 +270,8 @@ class MainActivity : ComponentActivity(), LocationListener {
         lifecycleScope.launch {
             logTerminal("TX", command)
             try {
-                if (transport.connectionState.value is ConnectionState.Connected) {
-                    val response = transport.sendCommand(command)
-                    logTerminal("RX", response)
+                if (viewModel.isConnected()) {
+                    logTerminal("RX", viewModel.sendRawCommand(command))
                 } else {
                     logTerminal("ERR", "Socket is not connected. Connect an adapter first.")
                 }
@@ -300,181 +281,43 @@ class MainActivity : ComponentActivity(), LocationListener {
         }
     }
 
-    private fun startContinuousPolling() {
-        pollingJob?.cancel()
-        pollingJob = lifecycleScope.launch {
-            var loopCount = 0
-            var lastFpsTime = System.currentTimeMillis()
-            var framesInWindow = 0
-
-            while (isActive && transport.connectionState.value is ConnectionState.Connected) {
-                if (isPollingPaused) {
-                    delay(500)
-                    continue
-                }
-                try {
-                    val now = System.currentTimeMillis()
-
-                    // Measure actual polling rate
-                    framesInWindow++
-                    val elapsedWindow = now - lastFpsTime
-                    if (elapsedWindow >= 1000) {
-                        measuredHz = (framesInWindow * 1000f) / elapsedWindow
-                        framesInWindow = 0
-                        lastFpsTime = now
-                    }
-
-                    // 1. Speed (010D)
-                    val speedRes = transport.sendCommand("010D", 600)
-                    val speed = PidDecoders.decodeSpeed(speedRes)
-                    if (speed != null) {
-                        liveSpeed = speed
-                        speedHistory.add(Pair(now, speed))
-                        if (speedHistory.size > 80) speedHistory.removeAt(0)
-                        if (speed > tripMaxSpeed) tripMaxSpeed = speed
-                    }
-
-                    // 2. RPM (010C)
-                    val rpmRes = transport.sendCommand("010C", 600)
-                    val rpm = PidDecoders.decodeRpm(rpmRes)
-                    if (rpm != null) {
-                        liveRpm = rpm
-                        rpmHistory.add(Pair(now, rpm))
-                        if (rpmHistory.size > 80) rpmHistory.removeAt(0)
-                    }
-
-                    // Gear calculation (estimated ratio, only when rolling)
-                    val s = liveSpeed ?: 0
-                    val r = liveRpm ?: 0
-                    if (s < 5) {
-                        liveGear = 0
-                    } else {
-                        val ratio = if (s > 0) r / s else 0
-                        liveGear = when {
-                            ratio > 65 -> 1
-                            ratio > 45 -> 2
-                            ratio > 32 -> 3
-                            ratio > 24 -> 4
-                            ratio > 18 -> 5
-                            else -> 6
-                        }
-                    }
-
-                    // 3. Low-frequency queries (Throttle, Load, Coolant, Voltage) every 5-10 cycles
-                    if (loopCount % 5 == 0) {
-                        val throttleRes = transport.sendCommand("0111", 600)
-                        liveThrottle = PidDecoders.decodeThrottle(throttleRes)
-
-                        val loadRes = transport.sendCommand("0104", 600)
-                        liveLoad = PidDecoders.decodeLoad(loadRes)
-                    }
-
-                    if (loopCount % 10 == 0) {
-                        val coolantRes = transport.sendCommand("0105", 600)
-                        liveCoolant = PidDecoders.decodeCoolantTemp(coolantRes)
-
-                        val intakeRes = transport.sendCommand("010F", 600)
-                        liveIntakeTemp = PidDecoders.decodeIntakeTemp(intakeRes)
-
-                        val fuelRes = transport.sendCommand("012F", 600)
-                        liveFuelLevel = PidDecoders.decodeFuelLevel(fuelRes)
-
-                        val voltRes = transport.sendCommand("ATRV", 600)
-                        liveVoltage = PidDecoders.decodeBatteryVoltage(voltRes)
-                    }
-
-                    loopCount++
-                    delay(30) // Gentle throttle to maintain fast response while preventing bus saturation
-                } catch (_: Exception) {
-                    delay(250)
-                }
-            }
-        }
-    }
-
     private fun scanDtcCodes() {
-        if (isDemoMode) {
-            // Provide realistic sample DTC in demo mode
-            isScanningDtc = true
-            lifecycleScope.launch {
-                delay(1200)
-                dtcCodes.clear()
-                dtcCodes.add(
-                    DtcItem(
-                        code = "P0133",
-                        system = "Powertrain / Engine",
-                        description = "O2 Sensor Circuit Slow Response (Bank 1 Sensor 1)",
-                        severity = DtcSeverity.WARNING,
-                        probableCause = "Exhaust gas leak near manifold, contaminated heated O2 sensor element"
-                    )
-                )
-                isScanningDtc = false
-                Toast.makeText(this@MainActivity, "Scan complete: 1 DTC found", Toast.LENGTH_SHORT).show()
-            }
-            return
-        }
-
-        if (transport.connectionState.value !is ConnectionState.Connected) {
+        if (!viewModel.isConnected() && !viewModel.isDemoMode.value) {
             Toast.makeText(this, "Connect to OBD adapter before scanning DTCs", Toast.LENGTH_SHORT).show()
             return
         }
-
-        isScanningDtc = true
         lifecycleScope.launch {
-            try {
-                logTerminal("TX", "03 (Read Stored Diagnostic Trouble Codes)")
-                val res = transport.sendCommand("03", 3000)
-                logTerminal("RX", res)
-                val decoded = PidDecoders.decodeDtcCodes(res)
-                dtcCodes.clear()
-                dtcCodes.addAll(decoded)
-
-                if (dtcCodes.isEmpty()) {
-                    Toast.makeText(this@MainActivity, "No Diagnostic Trouble Codes detected. ECU clean.", Toast.LENGTH_LONG).show()
-                } else {
-                    Toast.makeText(this@MainActivity, "Found ${dtcCodes.size} Diagnostic Trouble Code(s)", Toast.LENGTH_LONG).show()
-                }
-            } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, "DTC Scan failed: ${e.message}", Toast.LENGTH_SHORT).show()
-            } finally {
-                isScanningDtc = false
+            logTerminal("TX", "03 (Read Stored Diagnostic Trouble Codes)")
+            val found = viewModel.scanDtcNow()
+            if (found.isEmpty()) {
+                Toast.makeText(this@MainActivity, "No Diagnostic Trouble Codes detected. ECU clean.", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Found ${found.size} Diagnostic Trouble Code(s)", Toast.LENGTH_LONG).show()
             }
         }
     }
 
     private fun clearDtcCodes() {
-        if (isDemoMode) {
-            dtcCodes.clear()
-            Toast.makeText(this, "Fault codes cleared successfully", Toast.LENGTH_SHORT).show()
-            return
-        }
-
-        if (transport.connectionState.value !is ConnectionState.Connected) {
+        if (!viewModel.isConnected() && !viewModel.isDemoMode.value) {
             Toast.makeText(this, "Connect to OBD adapter before clearing DTCs", Toast.LENGTH_SHORT).show()
             return
         }
-
         lifecycleScope.launch {
-            try {
-                logTerminal("TX", "04 (Clear Diagnostic Trouble Codes)")
-                val res = transport.sendCommand("04", 3000)
-                logTerminal("RX", res)
-                dtcCodes.clear()
+            logTerminal("TX", "04 (Clear Diagnostic Trouble Codes)")
+            if (viewModel.clearDtcNow()) {
                 Toast.makeText(this@MainActivity, "ECU Codes Cleared. Readiness monitors reset.", Toast.LENGTH_LONG).show()
-            } catch (e: Exception) {
-                Toast.makeText(this@MainActivity, "Clear codes failed: ${e.message}", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Clear codes failed: adapter did not acknowledge", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun toggleDemoMode(enabled: Boolean) {
-        isDemoMode = enabled
+        viewModel.setDemoMode(enabled)
         if (enabled) {
-            disconnectDevice()
-            startDemoSimulation()
+            logTerminal("INFO", "Bench demo mode enabled: virtual Sportage ECU streaming.")
         } else {
-            demoJob?.cancel()
-            demoJob = null
+            logTerminal("INFO", "Bench demo mode disabled.")
             liveSpeed = null
             liveRpm = null
             liveCoolant = null
@@ -483,49 +326,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         }
     }
 
-    private fun startDemoSimulation() {
-        demoJob?.cancel()
-        demoJob = lifecycleScope.launch {
-            var simSpeed = 45
-            var simRpm = 1850
-            var speedDelta = 1
-            measuredHz = 8.3f
-            liveCoolant = 89
-            liveIntakeTemp = 28
-            liveFuelLevel = 65
-            liveVoltage = 14.1f
-            liveLoad = 24.5f
-            liveThrottle = 19.0f
-
-            while (isActive && isDemoMode) {
-                simSpeed += speedDelta
-                if (simSpeed >= 95) speedDelta = -1
-                if (simSpeed <= 25) speedDelta = 1
-
-                simRpm = (simSpeed * 35) + (if (simSpeed % 2 == 0) 80 else -60)
-                liveSpeed = simSpeed
-                liveRpm = simRpm
-
-                val now = System.currentTimeMillis()
-                speedHistory.add(Pair(now, simSpeed))
-                if (speedHistory.size > 80) speedHistory.removeAt(0)
-                rpmHistory.add(Pair(now, simRpm))
-                if (rpmHistory.size > 80) rpmHistory.removeAt(0)
-
-                liveGear = when {
-                    simSpeed < 20 -> 1
-                    simSpeed < 38 -> 2
-                    simSpeed < 55 -> 3
-                    simSpeed < 72 -> 4
-                    simSpeed < 88 -> 5
-                    else -> 6
-                }
-
-                if (simSpeed > tripMaxSpeed) tripMaxSpeed = simSpeed
-
-                delay(120)
-            }
-        }
+    private fun togglePausePolling() {
+        val paused = viewModel.togglePausePolling()
+        val message = if (paused) "OBD Polling Paused (Ignition Off Mode)" else "OBD Polling Resumed"
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
     private fun startTripTicker() {
@@ -602,6 +406,9 @@ class MainActivity : ComponentActivity(), LocationListener {
         }
         permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
         permissions.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
 
         val missing = permissions.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -617,8 +424,8 @@ class MainActivity : ComponentActivity(), LocationListener {
 
     override fun onDestroy() {
         super.onDestroy()
-        pollingJob?.cancel()
-        demoJob?.cancel()
-        transport.disconnect()
+        // ObdService owns the RFCOMM socket and the polling loop, so the link and telemetry
+        // survive this activity being backgrounded or destroyed.
+        locationManager?.removeUpdates(this)
     }
 }
