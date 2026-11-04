@@ -52,6 +52,7 @@ class RealObdEngine {
   private incomingBuffer: string = '';
   private pendingResolver: ((res: string) => void) | null = null;
   private commandTimeoutTimer: any = null;
+  private commandQueue: Promise<void> = Promise.resolve();
 
   // Polling loop controller
   private isPollingActive: boolean = false;
@@ -490,7 +491,13 @@ class RealObdEngine {
   /**
    * Send command to ELM327 and wait for response prompt '>'
    */
-  public async sendCommand(cmd: string, timeoutMs: number = 3000): Promise<string> {
+  public sendCommand(cmd: string, timeoutMs: number = 3000): Promise<string> {
+    const result = this.commandQueue.then(() => this.sendCommandNow(cmd, timeoutMs));
+    this.commandQueue = result.then(() => undefined, () => undefined);
+    return result;
+  }
+
+  private async sendCommandNow(cmd: string, timeoutMs: number): Promise<string> {
     if (this.connectionState === 'DISCONNECTED') {
       throw new Error('Adapter is disconnected');
     }
