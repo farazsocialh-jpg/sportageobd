@@ -27,6 +27,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list includes the legacy 'tools'
+          # package, which Google removed from the SDK repository - it now
+          # fails the whole workflow. Install only what still exists;
+          # AGP downloads build-tools/SDK bits it needs via licenses.
+          packages: platform-tools
 
       - name: Make Gradlew Executable
         run: chmod +x android/gradlew
@@ -46,6 +52,27 @@ jobs:
           name: unit-test-results
           path: android/app/build/reports/tests/testDebugUnitTest/
           retention-days: 7
+
+      - name: Restore Release Signing Keystore
+        # Signs the release APK when the ANDROID_KEYSTORE_BASE64 /
+        # ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+        # repository secrets are configured. Without them the release APK is
+        # built unsigned (installable only via `adb install` with manual signing).
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        working-directory: ./android
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "No signing keystore configured - the release APK will be unsigned."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release-signing.jks
+          cat > keystore.properties <<EOF
+          storeFile=release-signing.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
 
       - name: Assemble Debug and Release APKs
         working-directory: ./android

@@ -24,6 +24,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list includes the legacy 'tools'
+          # package, which Google removed from the SDK repository - it now
+          # fails the whole workflow. Install only what still exists.
+          packages: platform-tools
 
       - name: Grant Execute Permission to Gradlew
         run: chmod +x android/gradlew

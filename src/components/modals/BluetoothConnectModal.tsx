@@ -154,22 +154,27 @@ export const BluetoothConnectModal: React.FC<BluetoothConnectModalProps> = ({
 
     try {
       if (device.type === 'BENCH') {
+        // Explicit, clearly-labeled bench simulation - only started when the user
+        // deliberately picks the Virtual Bench ECU entry.
         await obdEngine.startBenchSimulation(device.name);
-      } else {
-        // Attempt browser Web Bluetooth if available, otherwise launch adapter profile
-        if (typeof navigator !== 'undefined' && (navigator as any).bluetooth) {
-          try {
-            await obdEngine.connectBluetooth();
-          } catch (e: any) {
-            // If browser prompt cancelled or restricted in iframe, connect via profile
-            console.warn('Native requestDevice fallback to adapter profile:', e);
-            setInfoMessage(`Connected via ${device.name} protocol profile.`);
-            await obdEngine.startBenchSimulation(device.name);
-          }
-        } else {
-          setInfoMessage(`Web Bluetooth API unavailable in this browser. Initializing profile for ${device.name}.`);
-          await obdEngine.startBenchSimulation(device.name);
-        }
+        return;
+      }
+
+      // Real hardware only. If Web Bluetooth is unavailable (e.g. served over HTTP,
+      // an embedded WebView, or a non-Chromium browser), fail honestly instead of
+      // silently streaming simulated values as if the vehicle were connected.
+      if (typeof navigator === 'undefined' || !(navigator as any).bluetooth) {
+        setInfoMessage(
+          'Web Bluetooth is not supported in this browser. Use Chrome on Android or desktop over HTTPS, connect a USB ELM327 cable, or use the native Android app for classic Bluetooth adapters. No simulated data will be shown.'
+        );
+        return;
+      }
+
+      const ok = await obdEngine.connectBluetooth();
+      if (!ok) {
+        setInfoMessage(
+          `Could not connect to ${device.name}. The browser picker may have been cancelled, or the adapter did not respond. Retry the scan, or select the Virtual Bench ECU for clearly-labeled bench testing.`
+        );
       }
     } catch (err: any) {
       setInfoMessage(err.message || 'Connection failed.');
@@ -244,7 +249,7 @@ export const BluetoothConnectModal: React.FC<BluetoothConnectModalProps> = ({
       mac: 'AUTO-DETECT',
       rssi: -50,
       protocol: 'ISO 15765-4 (CAN 11/500)',
-      type: 'BENCH',
+      type: 'BLE',
       badge: 'User Defined Adapter'
     };
     await handleSelectDevice(newDev);

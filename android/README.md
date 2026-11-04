@@ -60,3 +60,32 @@ You can set this application as your **Default Home App / Car Launcher** in `Set
 3. Open **Android Bluetooth Settings** and pair with the adapter (PIN is typically `1234` or `0000`).
 4. Launch the **Sportage Launcher** app and tap **Connect ELM327**.
 5. Live vehicle velocity, engine RPM, automatic gear (`D1`–`D6`), coolant temperature, and battery alternator voltage will stream continuously!
+
+---
+
+## 5. Release Signing (Optional, Recommended)
+
+Release builds are **unsigned** by default, which means the CI artifact cannot be installed directly on a device. To produce an installable, signed release APK:
+
+1. Create a keystore once and keep it safe (losing it means you can never publish an update with the same identity):
+   ```bash
+   keytool -genkeypair -v \
+     -keystore android/release-signing.jks \
+     -alias sportageobd \
+     -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Copy `android/keystore.properties.example` to `android/keystore.properties` and fill in your passwords. Both files (`.jks` and `keystore.properties`) are gitignored - never commit them.
+3. Build: `cd android && ./gradlew assembleRelease`. The APK in `app/build/outputs/apk/release/` is now signed and installable.
+
+### Signing in CI
+
+Add these repository secrets (`Settings -> Secrets and variables -> Actions`) and the GitHub workflow signs the release APK automatically:
+
+| Secret | Value |
+|---|---|
+| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release-signing.jks` output |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore store password |
+| `ANDROID_KEY_ALIAS` | key alias (e.g. `sportageobd`) |
+| `ANDROID_KEY_PASSWORD` | key password |
+
+Without these secrets the workflow still succeeds, but the release APK remains unsigned.
