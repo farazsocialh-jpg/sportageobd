@@ -492,6 +492,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     private fun toggleDemoMode(enabled: Boolean) {
+        val wasDemoMode = isDemoMode
         isDemoMode = enabled
         if (enabled) {
             disconnectDevice()
@@ -499,11 +500,21 @@ class MainActivity : ComponentActivity(), LocationListener {
         } else {
             demoJob?.cancel()
             demoJob = null
-            liveSpeed = null
-            liveRpm = null
-            liveCoolant = null
-            liveVoltage = null
-            measuredHz = null
+            if (wasDemoMode) {
+                liveSpeed = null
+                liveRpm = null
+                liveCoolant = null
+                liveIntakeTemp = null
+                liveFuelLevel = null
+                liveThrottle = null
+                liveLoad = null
+                liveVoltage = null
+                liveGear = 0
+                measuredHz = null
+                speedHistory.clear()
+                rpmHistory.clear()
+                dtcCodes.clear()
+            }
         }
     }
 
