@@ -1,16 +1,19 @@
 package com.sportage.obd.service
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
 import android.os.Binder
 import android.os.Build
+import android.content.pm.PackageManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.sportage.obd.MainActivity
@@ -65,6 +68,9 @@ class ObdService : Service() {
         const val ACTION_PAUSE_POLLING = "com.sportage.obd.action.PAUSE_POLLING"
         const val ACTION_RESUME_POLLING = "com.sportage.obd.action.RESUME_POLLING"
 
+        private const val PREFS_NAME = "sportage_obd_service"
+        private const val KEY_LAST_DEVICE = "last_adapter_address"
+
         /** True while the foreground service is alive, so a restarted UI can re-attach to it. */
         @Volatile
         var isRunning: Boolean = false
@@ -115,7 +121,13 @@ class ObdService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
+        if (intent == null) {
+            // START_STICKY restart after the process was killed: nothing to resume, so restore the
+            // adapter the driver was last connected to.
+            restoreLastDevice()
+            return START_STICKY
+        }
+        when (intent.action) {
             ACTION_STOP -> {
                 stopPolling()
                 transport.disconnect()
@@ -145,6 +157,7 @@ class ObdService : Service() {
         serviceScope.launch {
             val success = transport.connect(device)
             if (success) {
+                rememberDevice(device)
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
                 initializeElm327()
                 startPollingLoop()
@@ -157,6 +170,7 @@ class ObdService : Service() {
 
     fun disconnect() {
         activeDevice = null
+        forgetDevice()
         reconnectJob?.cancel()
         stopPolling()
         transport.disconnect()
@@ -355,6 +369,46 @@ class ObdService : Service() {
             ratio in 22f..28f -> 5
             else -> 6
         }
+    }
+
+    private fun rememberDevice(device: BluetoothDevice) {
+        val address = BluetoothDeviceInfo.address(this, device) ?: return
+        prefs().edit().putString(KEY_LAST_DEVICE, address).apply()
+    }
+
+    private fun forgetDevice() {
+        prefs().edit().remove(KEY_LAST_DEVICE).apply()
+    }
+
+    private fun prefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * Rebuilds the link after a sticky restart using the adapter MAC persisted on the last
+     * successful connect. Silent no-op when Bluetooth is off, permission is missing, or the
+     * address is unknown.
+     */
+    private fun restoreLastDevice() {
+        if (activeDevice != null) return
+        val address = prefs().getString(KEY_LAST_DEVICE, null) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            updateNotification("Bluetooth permission required to restore link")
+            return
+        }
+        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        if (!adapter.isEnabled) {
+            updateNotification("Bluetooth is off · waiting for adapter")
+            return
+        }
+        val device = try {
+            adapter.getRemoteDevice(address)
+        } catch (_: Exception) {
+            forgetDevice()
+            return
+        }
+        updateNotification("Restoring link to ${BluetoothDeviceInfo.displayName(this, device)}...")
+        connectToDevice(device)
     }
 
     private fun createNotificationChannel() {

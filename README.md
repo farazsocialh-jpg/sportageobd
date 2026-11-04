@@ -43,7 +43,8 @@ cockpit instead of a normal home screen.
 
 - **Background streaming** — the RFCOMM socket and the PID loop live in the `connectedDevice`
   foreground service (`ObdService`), so telemetry keeps flowing while the launcher UI is
-  backgrounded, and a relaunched activity re-attaches to the still-running service.
+  backgrounded, and a relaunched activity re-attaches to the still-running service. The last
+  adapter's MAC is persisted, so a service restarted by the system rebuilds the link on its own.
 - **Pause polling** — one tap stops PID traffic when parked with the ignition off, so the adapter
   does not drain the battery.
 - **Bench demo mode** — a simulated ECU that drives every gauge, graph and DTC path for testing
