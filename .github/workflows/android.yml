@@ -52,10 +52,15 @@ jobs:
         # ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
         # repository secrets are configured. Without them the release APK is
         # built unsigned (installable only via `adb install` with manual signing).
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         working-directory: ./android
         run: |
-          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-signing.jks
+          if [ -z "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "No signing keystore configured - the release APK will be unsigned."
+            exit 0
+          fi
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release-signing.jks
           cat > keystore.properties <<EOF
           storeFile=release-signing.jks
           storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
