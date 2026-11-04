@@ -38,6 +38,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 
 class MainActivity : ComponentActivity(), LocationListener {
 
@@ -239,7 +240,7 @@ class MainActivity : ComponentActivity(), LocationListener {
             toggleDemoMode(false)
         }
         lifecycleScope.launch {
-            logTerminal("INFO", "Initiating connection to ${device.name ?: "Device"} (${device.address})...")
+            logTerminal("INFO", "Initiating connection to ${BluetoothDeviceInfo.label(this@MainActivity, device)}...")
             val connected = transport.connect(device)
             if (connected) {
                 logTerminal("INFO", "RFCOMM Socket connected. Initializing ELM327 protocol...")
@@ -264,9 +265,9 @@ class MainActivity : ComponentActivity(), LocationListener {
                     Toast.makeText(this@MainActivity, "Init error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } else {
-                logTerminal("ERR", "Failed to connect to ${device.address}")
+                logTerminal("ERR", "Failed to connect to ${BluetoothDeviceInfo.label(this@MainActivity, device)}")
                 showBluetoothDialog = true
-                Toast.makeText(this@MainActivity, "Failed to connect to ${device.name ?: "device"}. Select another adapter.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Failed to connect to ${BluetoothDeviceInfo.displayName(this@MainActivity, device, "device")}. Select another adapter.", Toast.LENGTH_SHORT).show()
             }
         }
     }

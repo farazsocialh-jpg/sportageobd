@@ -621,7 +621,10 @@ fun TopCockpitStatusStrip(
     connectionState: ConnectionState,
     measuredHz: Float?,
     isDemoMode: Boolean,
-    onOpenBluetoothClick: () -> Unit
+    onOpenBluetoothClick: () -> Unit,
+    isPollingPaused: Boolean = false,
+    onTogglePausePolling: () -> Unit = {},
+    onOpenAppDrawer: () -> Unit = {}
 ) {
     Row(
         modifier = Modifier
@@ -757,7 +760,6 @@ fun TopCockpitStatusStrip(
             }
         }
     }
-}
 }
 
 // =========================================================================

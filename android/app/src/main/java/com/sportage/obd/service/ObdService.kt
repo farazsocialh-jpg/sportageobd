@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.math.min
+import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 
 /**
  * Data model for live vehicle telemetry collected by ObdService.
@@ -138,7 +139,7 @@ class ObdService : Service() {
         serviceScope.launch {
             val success = transport.connect(device)
             if (success) {
-                updateNotification("Connected to ${device.name ?: "ELM327"} · Polling active")
+                updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
                 initializeElm327()
                 startPollingLoop()
             } else {
@@ -325,10 +326,10 @@ class ObdService : Service() {
 
                 if (!isActive || activeDevice == null) break
 
-                updateNotification("Reconnecting to ${target.name ?: "ELM327"}...")
+                updateNotification("Reconnecting to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}...")
                 val ok = transport.connect(target)
                 if (ok) {
-                    updateNotification("Connected to ${target.name ?: "ELM327"}")
+                    updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}")
                     initializeElm327()
                     startPollingLoop()
                     break
