@@ -7,6 +7,8 @@ import android.bluetooth.BluetoothSocket
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
@@ -29,6 +31,7 @@ class BluetoothTransport {
     private var socket: BluetoothSocket? = null
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
+    private val commandMutex = Mutex()
 
     /**
      * Connects to ELM327 Bluetooth adapter with robust fallbacks designed
@@ -94,44 +97,46 @@ class BluetoothTransport {
     }
 
     suspend fun sendCommand(command: String, timeoutMs: Long = 2500): String = withContext(Dispatchers.IO) {
-        val out = outputStream ?: throw IllegalStateException("Socket is not connected")
-        val inStream = inputStream ?: throw IllegalStateException("Socket is not connected")
+        commandMutex.withLock {
+            val out = outputStream ?: throw IllegalStateException("Socket is not connected")
+            val inStream = inputStream ?: throw IllegalStateException("Socket is not connected")
 
-        // Clear any old bytes in buffer
-        while (inStream.available() > 0) {
-            inStream.read()
-        }
-
-        // ELM327 commands must terminate with Carriage Return ('\r')
-        val formatted = command.trim() + "\r"
-        out.write(formatted.toByteArray(Charsets.US_ASCII))
-        out.flush()
-
-        // Read until prompt '>' is received
-        val buffer = StringBuilder()
-        val startTime = System.currentTimeMillis()
-        val byteBuffer = ByteArray(256)
-
-        while (System.currentTimeMillis() - startTime < timeoutMs) {
-            if (inStream.available() > 0) {
-                val readCount = inStream.read(byteBuffer)
-                if (readCount > 0) {
-                    val chunk = String(byteBuffer, 0, readCount, Charsets.US_ASCII)
-                    buffer.append(chunk)
-                    if (buffer.contains(">")) {
-                        break
-                    }
-                }
-            } else {
-                Thread.sleep(8)
+            // Clear any old bytes in buffer
+            while (inStream.available() > 0) {
+                inStream.read()
             }
-        }
 
-        buffer.toString()
-            .replace("\r", " ")
-            .replace("\n", " ")
-            .replace(">", "")
-            .trim()
+            // ELM327 commands must terminate with Carriage Return ('\r')
+            val formatted = command.trim() + "\r"
+            out.write(formatted.toByteArray(Charsets.US_ASCII))
+            out.flush()
+
+            // Read until prompt '>' is received
+            val buffer = StringBuilder()
+            val startTime = System.currentTimeMillis()
+            val byteBuffer = ByteArray(256)
+
+            while (System.currentTimeMillis() - startTime < timeoutMs) {
+                if (inStream.available() > 0) {
+                    val readCount = inStream.read(byteBuffer)
+                    if (readCount > 0) {
+                        val chunk = String(byteBuffer, 0, readCount, Charsets.US_ASCII)
+                        buffer.append(chunk)
+                        if (buffer.contains(">")) {
+                            break
+                        }
+                    }
+                } else {
+                    Thread.sleep(8)
+                }
+            }
+
+            buffer.toString()
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .replace(">", "")
+                .trim()
+        }
     }
 
     fun disconnect() {
