@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -12,7 +14,7 @@ android {
     // (never committed - see keystore.properties.example). If that file is
     // absent, the release build falls back to unsigned output, matching the
     // previous behavior, so local builds keep working without a keystore.
-    val keystoreProps = java.util.Properties()
+    val keystoreProps = Properties()
     val keystorePropsFile = rootProject.file("keystore.properties")
     val hasReleaseKeystore = keystorePropsFile.exists()
     if (hasReleaseKeystore) {
@@ -35,7 +37,10 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                storeFile = keystorePropsFile.parentFile.resolve(keystoreProps.getProperty("storeFile")!!)
+                val storeFilePath = keystoreProps.getProperty("storeFile")
+                if (storeFilePath != null) {
+                    storeFile = keystorePropsFile.parentFile.resolve(storeFilePath)
+                }
                 storePassword = keystoreProps.getProperty("storePassword")
                 keyAlias = keystoreProps.getProperty("keyAlias")
                 keyPassword = keystoreProps.getProperty("keyPassword")
