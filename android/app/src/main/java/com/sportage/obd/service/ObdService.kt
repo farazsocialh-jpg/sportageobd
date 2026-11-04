@@ -11,16 +11,21 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Binder
 import android.os.Build
-import android.content.pm.PackageManager
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import com.sportage.obd.MainActivity
+import com.sportage.obd.bluetooth.BleTransport
+import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 import com.sportage.obd.bluetooth.BluetoothTransport
 import com.sportage.obd.bluetooth.ConnectionState
+import com.sportage.obd.bluetooth.ElmTransport
 import com.sportage.obd.obd.DtcItem
+import com.sportage.obd.obd.FreezeFrame
 import com.sportage.obd.obd.PidDecoders
+import com.sportage.obd.obd.ReadinessState
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -32,8 +37,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
-import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 
 /**
  * Data model for live vehicle telemetry collected by ObdService.
@@ -47,6 +53,12 @@ data class ObdTelemetry(
     val throttlePct: Float? = null,
     val engineLoadPct: Float? = null,
     val batteryVoltage: Float? = null,
+    val mafGs: Float? = null,
+    val shortTermFuelTrimPct: Float? = null,
+    val longTermFuelTrimPct: Float? = null,
+    val timingAdvanceDeg: Float? = null,
+    val fuelEconomyL100: Float? = null,
+    val fuelUsedLiters: Float = 0f,
     val estimatedGear: Int = 0,
     val timestamp: Long = System.currentTimeMillis(),
     val sampleRateHz: Float = 0f
@@ -55,14 +67,16 @@ data class ObdTelemetry(
 /**
  * ObdService: Android Foreground Service with type 'connectedDevice'.
  * Runs continuously in the background, decoupled from Activity lifecycle,
- * maintaining an active Bluetooth link with ELM327 adapters and streaming
- * vehicle telemetry.
+ * maintaining an active link (Bluetooth Classic SPP or BLE) with ELM327
+ * adapters and streaming vehicle telemetry.
  */
 class ObdService : Service() {
 
     companion object {
         const val CHANNEL_ID = "sportage_obd_service_channel"
+        const val ALERT_CHANNEL_ID = "sportage_obd_alerts_channel"
         const val NOTIFICATION_ID = 2026
+        const val ALERT_NOTIFICATION_ID = 2027
         const val ACTION_START = "com.sportage.obd.action.START_SERVICE"
         const val ACTION_STOP = "com.sportage.obd.action.STOP_SERVICE"
         const val ACTION_PAUSE_POLLING = "com.sportage.obd.action.PAUSE_POLLING"
@@ -70,6 +84,8 @@ class ObdService : Service() {
 
         private const val PREFS_NAME = "sportage_obd_service"
         private const val KEY_LAST_DEVICE = "last_adapter_address"
+        private const val KEY_LAST_DEVICE_IS_BLE = "last_adapter_is_ble"
+        private const val KEY_CSV_AUTOSTART = "csv_autostart"
 
         /** True while the foreground service is alive, so a restarted UI can re-attach to it. */
         @Volatile
@@ -81,9 +97,13 @@ class ObdService : Service() {
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
 
-    private val transport = BluetoothTransport()
+    private var transport: ElmTransport = BluetoothTransport()
+    private var useBle = false
     private var pollingJob: Job? = null
     private var reconnectJob: Job? = null
+
+    private val alertEngine = AlertEngine(this)
+    private val csvLogger = CsvLogger(this)
 
     // Target Bluetooth device to maintain connection with
     private var activeDevice: BluetoothDevice? = null
@@ -98,12 +118,42 @@ class ObdService : Service() {
     private val _dtcList = MutableStateFlow<List<DtcItem>>(emptyList())
     val dtcList: StateFlow<List<DtcItem>> = _dtcList.asStateFlow()
 
-    val connectionState: StateFlow<ConnectionState> = transport.connectionState
+    private val _pendingDtcList = MutableStateFlow<List<DtcItem>>(emptyList())
+    val pendingDtcList: StateFlow<List<DtcItem>> = _pendingDtcList.asStateFlow()
+
+    private val _permanentDtcList = MutableStateFlow<List<DtcItem>>(emptyList())
+    val permanentDtcList: StateFlow<List<DtcItem>> = _permanentDtcList.asStateFlow()
+
+    private val _freezeFrame = MutableStateFlow<FreezeFrame?>(null)
+    val freezeFrame: StateFlow<FreezeFrame?> = _freezeFrame.asStateFlow()
+
+    private val _readiness = MutableStateFlow<ReadinessState?>(null)
+    val readiness: StateFlow<ReadinessState?> = _readiness.asStateFlow()
+
+    private val _vin = MutableStateFlow<String?>(null)
+    val vin: StateFlow<String?> = _vin.asStateFlow()
+
+    private val _supportedPids = MutableStateFlow<Set<String>>(emptySet())
+    val supportedPids: StateFlow<Set<String>> = _supportedPids.asStateFlow()
+
+    private val _isCsvLogging = MutableStateFlow(false)
+    val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
+
+    val activeAlerts: StateFlow<List<ActiveAlert>> = alertEngine.activeAlerts
+
+    val csvLogFile: java.io.File? get() = csvLogger.activeFile
+
+    val connectionState: StateFlow<ConnectionState>
+        get() = transport.connectionState
 
     // Diagnostic / frequency tracking
     private var packetCount = 0
     private var lastHzCalculationTime = System.currentTimeMillis()
     private var currentHz = 0f
+
+    // Trip fuel accounting
+    private var fuelUsedLiters = 0f
+    private var lastFuelSampleAtMs = 0L
 
     inner class ObdServiceBinder : Binder() {
         fun getService(): ObdService = this@ObdService
@@ -116,7 +166,7 @@ class ObdService : Service() {
     override fun onCreate() {
         super.onCreate()
         isRunning = true
-        createNotificationChannel()
+        createNotificationChannels()
         startForeground(NOTIFICATION_ID, buildNotification("OBD Service Initializing..."))
     }
 
@@ -150,16 +200,22 @@ class ObdService : Service() {
 
     /**
      * Connect to target Bluetooth OBD adapter with automatic reconnection.
+     * [ble] selects the transport: BLE GATT for vgate-style adapters,
+     * classic SPP otherwise.
      */
-    fun connectToDevice(device: BluetoothDevice) {
+    fun connectToDevice(device: BluetoothDevice, ble: Boolean = false) {
         activeDevice = device
+        useBle = ble
         reconnectJob?.cancel()
+        transport = if (ble) BleTransport(this) else BluetoothTransport()
         serviceScope.launch {
             val success = transport.connect(device)
             if (success) {
                 rememberDevice(device)
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
                 initializeElm327()
+                discoverVehicleCapabilities()
+                if (prefs().getBoolean(KEY_CSV_AUTOSTART, false)) startCsvLogging()
                 startPollingLoop()
             } else {
                 updateNotification("Connection failed. Retrying...")
@@ -205,11 +261,74 @@ class ObdService : Service() {
         }
     }
 
+    /** Mode 07: pending (not-yet-confirmed) trouble codes. */
+    suspend fun scanPendingDtcs(): List<DtcItem> {
+        return try {
+            val response = transport.sendCommand("07")
+            val parsed = PidDecoders.decodeDtcCodes(response)
+            _pendingDtcList.value = parsed
+            parsed
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Mode 0A: permanent codes that survive a Mode 04 clear. */
+    suspend fun scanPermanentDtcs(): List<DtcItem> {
+        return try {
+            val response = transport.sendCommand("0A")
+            val parsed = PidDecoders.decodeDtcCodes(response)
+            _permanentDtcList.value = parsed
+            parsed
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    /** Mode 02: freeze frame stored with the last confirmed fault. */
+    suspend fun readFreezeFrame(): FreezeFrame? {
+        return try {
+            val response = transport.sendCommand("02")
+            val parsed = PidDecoders.decodeFreezeFrame(response)
+            if (parsed.items.isNotEmpty()) {
+                _freezeFrame.value = parsed
+                parsed
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Mode 01 PID 01: MIL status and readiness monitors. */
+    suspend fun readReadiness(): ReadinessState? {
+        return try {
+            val response = transport.sendCommand("0101")
+            val parsed = PidDecoders.decodeReadiness(response)
+            if (parsed != null) _readiness.value = parsed
+            parsed
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** Mode 09 PID 02: vehicle identification number. */
+    suspend fun readVin(): String? {
+        return try {
+            val response = transport.sendCommand("0902")
+            val vin = PidDecoders.decodeVin(response)
+            if (vin != null) _vin.value = vin
+            vin
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     suspend fun clearDtcCodes(): Boolean {
         return try {
             val response = transport.sendCommand("04")
             if (response.contains("OK") || response.contains("44")) {
                 _dtcList.value = emptyList()
+                _pendingDtcList.value = emptyList()
                 true
             } else {
                 false
@@ -218,6 +337,33 @@ class ObdService : Service() {
             false
         }
     }
+
+    // --- Warning thresholds ---
+
+    fun updateAlertThresholds(thresholds: AlertThresholds) {
+        alertEngine.updateThresholds(thresholds)
+    }
+
+    fun alertThresholds(): AlertThresholds = alertEngine.currentThresholds()
+
+    // --- CSV logging ---
+
+    fun startCsvLogging(): Boolean {
+        val file = csvLogger.start()
+        _isCsvLogging.value = true
+        return file.exists()
+    }
+
+    fun stopCsvLogging() {
+        csvLogger.stop()
+        _isCsvLogging.value = false
+    }
+
+    fun setCsvAutostart(enabled: Boolean) {
+        prefs().edit().putBoolean(KEY_CSV_AUTOSTART, enabled).apply()
+    }
+
+    fun csvAutostart(): Boolean = prefs().getBoolean(KEY_CSV_AUTOSTART, false)
 
     private suspend fun initializeElm327() {
         try {
@@ -236,6 +382,30 @@ class ObdService : Service() {
         } catch (_: Exception) {}
     }
 
+    /**
+     * Queries the ECU for its supported PID bitmaps (0100/0120/0140),
+     * the VIN and the current readiness state right after connecting, so
+     * the UI can adapt instead of polling unsupported PIDs forever.
+     */
+    private suspend fun discoverVehicleCapabilities() {
+        val supported = mutableSetOf<String>()
+        try {
+            for (base in listOf(0x00, 0x20, 0x40)) {
+                val cmd = "01" + String.format("%02X", base)
+                val resp = withTimeoutOrNull(2000) { transport.sendCommand(cmd) }
+                supported += PidDecoders.decodeSupportedPids(resp ?: "", base)
+            }
+            if (supported.isNotEmpty()) _supportedPids.value = supported
+        } catch (_: Exception) {}
+
+        try {
+            readVin()
+        } catch (_: Exception) {}
+        try {
+            readReadiness()
+        } catch (_: Exception) {}
+    }
+
     private fun startPollingLoop() {
         pollingJob?.cancel()
         pollingJob = serviceScope.launch {
@@ -246,6 +416,7 @@ class ObdService : Service() {
             // slower adapters, never reach the later PIDs (fuel, throttle, load,
             // voltage).
             var auxPidCycle = 0
+            lastFuelSampleAtMs = System.currentTimeMillis()
 
             while (isActive) {
                 if (_isPollingPaused.value) {
@@ -274,34 +445,41 @@ class ObdService : Service() {
                     // Estimate gear based on speed and RPM for Kia Sportage 6-speed automatic
                     val gear = estimateGear(speed ?: 0, rpm ?: 0)
 
-                    // Lower-frequency secondary PIDs
+                    // Lower-frequency secondary PIDs (rotation independent of
+                    // the Hz sample counter; only polls PIDs the ECU supports)
                     var coolant = _telemetry.value.coolantTempC
                     var intake = _telemetry.value.intakeTempC
                     var fuel = _telemetry.value.fuelLevelPct
                     var throttle = _telemetry.value.throttlePct
                     var load = _telemetry.value.engineLoadPct
                     var voltage = _telemetry.value.batteryVoltage
+                    var maf = _telemetry.value.mafGs
+                    var stft = _telemetry.value.shortTermFuelTrimPct
+                    var ltft = _telemetry.value.longTermFuelTrimPct
+                    var timing = _telemetry.value.timingAdvanceDeg
 
-                    // Query one auxiliary PID per cycle (rotation independent of
-                    // the Hz sample counter, see auxPidCycle declaration above)
-                    when (auxPidCycle % 6) {
-                        0 -> {
+                    val supported = _supportedPids.value
+
+                    fun pidSupported(pid: String) = supported.isEmpty() || supported.contains(pid)
+
+                    when (auxPidCycle % 10) {
+                        0 -> if (pidSupported("05")) {
                             val resp = transport.sendCommand("0105")
                             coolant = PidDecoders.decodeCoolantTemp(resp) ?: coolant
                         }
-                        1 -> {
+                        1 -> if (pidSupported("0F")) {
                             val resp = transport.sendCommand("010F")
                             intake = PidDecoders.decodeIntakeTemp(resp) ?: intake
                         }
-                        2 -> {
+                        2 -> if (pidSupported("2F")) {
                             val resp = transport.sendCommand("012F")
                             fuel = PidDecoders.decodeFuelLevel(resp) ?: fuel
                         }
-                        3 -> {
+                        3 -> if (pidSupported("11")) {
                             val resp = transport.sendCommand("0111")
                             throttle = PidDecoders.decodeThrottle(resp) ?: throttle
                         }
-                        4 -> {
+                        4 -> if (pidSupported("04")) {
                             val resp = transport.sendCommand("0104")
                             load = PidDecoders.decodeLoad(resp) ?: load
                         }
@@ -309,10 +487,39 @@ class ObdService : Service() {
                             val resp = transport.sendCommand("ATRV")
                             voltage = PidDecoders.decodeBatteryVoltage(resp) ?: voltage
                         }
+                        6 -> if (pidSupported("10")) {
+                            val resp = transport.sendCommand("0110")
+                            maf = PidDecoders.decodeMaf(resp) ?: maf
+                        }
+                        7 -> if (pidSupported("06")) {
+                            val resp = transport.sendCommand("0106")
+                            stft = PidDecoders.decodeShortTermFuelTrim(resp) ?: stft
+                        }
+                        8 -> if (pidSupported("07")) {
+                            val resp = transport.sendCommand("0107")
+                            ltft = PidDecoders.decodeLongTermFuelTrim(resp) ?: ltft
+                        }
+                        9 -> if (pidSupported("0E")) {
+                            val resp = transport.sendCommand("010E")
+                            timing = PidDecoders.decodeTimingAdvance(resp) ?: timing
+                        }
                     }
-                    auxPidCycle = (auxPidCycle + 1) % 6
+                    auxPidCycle = (auxPidCycle + 1) % 10
 
-                    _telemetry.value = ObdTelemetry(
+                    // Fuel economy from MAF: stoich AFR 14.7, gasoline ~0.745 g/ml.
+                    // L/h = maf(g/s) * 3.6 / (14.7 * 0.745); L/100km = L/h / kmh * 100.
+                    var economy: Float? = null
+                    if (maf != null && speed != null && speed > 3) {
+                        val litersPerHour = maf * 3.6f / (14.7f * 0.745f)
+                        economy = litersPerHour / speed * 100f
+                        val dtSec = (now - lastFuelSampleAtMs) / 1000f
+                        if (dtSec in 0f..30f) {
+                            fuelUsedLiters += litersPerHour * dtSec / 3600f
+                        }
+                    }
+                    lastFuelSampleAtMs = now
+
+                    val newTelemetry = ObdTelemetry(
                         speedKmh = speed,
                         rpm = rpm,
                         coolantTempC = coolant,
@@ -321,10 +528,22 @@ class ObdService : Service() {
                         throttlePct = throttle,
                         engineLoadPct = load,
                         batteryVoltage = voltage,
+                        mafGs = maf,
+                        shortTermFuelTrimPct = stft,
+                        longTermFuelTrimPct = ltft,
+                        timingAdvanceDeg = timing,
+                        fuelEconomyL100 = economy,
+                        fuelUsedLiters = fuelUsedLiters,
                         estimatedGear = gear,
                         timestamp = now,
                         sampleRateHz = currentHz
                     )
+
+                    _telemetry.value = newTelemetry
+                    alertEngine.evaluate(newTelemetry)
+                    val criticalAlert = alertEngine.activeAlerts.value.firstOrNull { it.severity == AlertSeverity.CRITICAL }
+                    if (criticalAlert != null) postAlertNotification(criticalAlert)
+                    csvLogger.log(newTelemetry)
 
                     delay(30) // Fast cycle rate
                 } catch (e: Exception) {
@@ -361,6 +580,7 @@ class ObdService : Service() {
                 if (ok) {
                     updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}")
                     initializeElm327()
+                    discoverVehicleCapabilities()
                     startPollingLoop()
                     break
                 }
@@ -383,11 +603,17 @@ class ObdService : Service() {
 
     private fun rememberDevice(device: BluetoothDevice) {
         val address = BluetoothDeviceInfo.address(this, device) ?: return
-        prefs().edit().putString(KEY_LAST_DEVICE, address).apply()
+        prefs().edit()
+            .putString(KEY_LAST_DEVICE, address)
+            .putBoolean(KEY_LAST_DEVICE_IS_BLE, useBle)
+            .apply()
     }
 
     private fun forgetDevice() {
-        prefs().edit().remove(KEY_LAST_DEVICE).apply()
+        prefs().edit()
+            .remove(KEY_LAST_DEVICE)
+            .remove(KEY_LAST_DEVICE_IS_BLE)
+            .apply()
     }
 
     private fun prefs() = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -400,6 +626,7 @@ class ObdService : Service() {
     private fun restoreLastDevice() {
         if (activeDevice != null) return
         val address = prefs().getString(KEY_LAST_DEVICE, null) ?: return
+        val ble = prefs().getBoolean(KEY_LAST_DEVICE_IS_BLE, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -418,12 +645,12 @@ class ObdService : Service() {
             return
         }
         updateNotification("Restoring link to ${BluetoothDeviceInfo.displayName(this, device)}...")
-        connectToDevice(device)
+        connectToDevice(device, ble)
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
                 "Sportage OBD Live Service",
                 NotificationManager.IMPORTANCE_LOW
@@ -431,9 +658,38 @@ class ObdService : Service() {
                 description = "Keeps ELM327 OBD-II streaming active in background"
                 setShowBadge(false)
             }
+            val alertChannel = NotificationChannel(
+                ALERT_CHANNEL_ID,
+                "Vehicle Warning Alerts",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Threshold warnings such as engine overheating"
+            }
             val manager = getSystemService(NotificationManager::class.java)
-            manager?.createNotificationChannel(channel)
+            manager?.createNotificationChannel(serviceChannel)
+            manager?.createNotificationChannel(alertChannel)
         }
+    }
+
+    private fun postAlertNotification(alert: ActiveAlert) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
+            },
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setContentTitle("Vehicle Warning")
+            .setContentText(alert.message)
+            .setSmallIcon(android.R.drawable.stat_notify_error)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .build()
+        manager.notify(ALERT_NOTIFICATION_ID, notification)
     }
 
     private fun buildNotification(statusText: String): Notification {

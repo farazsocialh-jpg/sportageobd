@@ -19,12 +19,12 @@ sealed interface ConnectionState {
     data class Error(val message: String) : ConnectionState
 }
 
-class BluetoothTransport {
+class BluetoothTransport : ElmTransport {
     // Standard Bluetooth Serial Port Profile (SPP) UUID used by ELM327 adapters
     private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
-    val connectionState: StateFlow<ConnectionState> = _connectionState
+    override val connectionState: StateFlow<ConnectionState> = _connectionState
 
     private var socket: BluetoothSocket? = null
     private var inputStream: InputStream? = null
@@ -35,7 +35,7 @@ class BluetoothTransport {
      * specifically for Chinese Android aftermarket head units (TS10, UIS7862, MTK, PX5/PX6).
      */
     @SuppressLint("MissingPermission")
-    suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
+    override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
         _connectionState.value = ConnectionState.Connecting
         BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
 
@@ -93,7 +93,7 @@ class BluetoothTransport {
         }
     }
 
-    suspend fun sendCommand(command: String, timeoutMs: Long = 2500): String = withContext(Dispatchers.IO) {
+    override suspend fun sendCommand(command: String, timeoutMs: Long): String = withContext(Dispatchers.IO) {
         val out = outputStream ?: throw IllegalStateException("Socket is not connected")
         val inStream = inputStream ?: throw IllegalStateException("Socket is not connected")
 
@@ -134,7 +134,7 @@ class BluetoothTransport {
             .trim()
     }
 
-    fun disconnect() {
+    override fun disconnect() {
         try {
             inputStream?.close()
             outputStream?.close()

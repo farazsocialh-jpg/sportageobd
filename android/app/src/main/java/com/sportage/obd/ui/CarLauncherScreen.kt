@@ -20,6 +20,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,7 +46,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
+import com.sportage.obd.service.ActiveAlert
+import com.sportage.obd.service.AlertSeverity
+import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.ui.theme.*
+import com.sportage.obd.viewmodel.ObdViewModel
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -169,11 +176,17 @@ fun CarLauncherScreen(
     onToggleDemoMode: (Boolean) -> Unit,
     isPollingPaused: Boolean = false,
     onTogglePausePolling: () -> Unit = {},
-    onOpenAppDrawer: () -> Unit = {}
+    onOpenAppDrawer: () -> Unit = {},
+    viewModel: ObdViewModel? = null,
+    autoNightDim: Boolean = true,
+    nightDimLevel: Float = 0.55f,
+    onSetAutoNightDim: (Boolean) -> Unit = {},
+    onSetNightDimLevel: (Float) -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp >= configuration.screenHeightDp
+    val activeAlerts = viewModel?.activeAlerts?.collectAsState()?.value ?: emptyList()
 
     var speedUnit by remember { mutableStateOf("km/h") }
     val displaySpeed = if (speed != null) {
@@ -354,6 +367,8 @@ fun CarLauncherScreen(
                         onOpenBluetoothClick = onOpenBluetoothClick
                     )
 
+                    ActiveAlertBanner(activeAlerts)
+
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         when (activePage) {
                             0 -> PermanentHomeSplitView(
@@ -387,14 +402,16 @@ fun CarLauncherScreen(
                                 voltage = voltage,
                                 gear = gear,
                                 speedHistory = speedHistory,
-                                rpmHistory = rpmHistory
+                                rpmHistory = rpmHistory,
+                                viewModel = viewModel
                             )
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
                                 onScan = onScanDtc,
                                 onClear = onClearDtc,
-                                connectionState = connectionState
+                                connectionState = connectionState,
+                                viewModel = viewModel
                             )
                             3 -> TripComputerPage(
                                 distanceKm = tripDistanceKm,
@@ -405,7 +422,8 @@ fun CarLauncherScreen(
                                 speedUnit = speedUnit,
                                 currentLat = currentLat,
                                 currentLon = currentLon,
-                                onReset = onResetTrip
+                                onReset = onResetTrip,
+                                viewModel = viewModel
                             )
                             4 -> MediaRadioPage(
                                 radioFreq = radioFreq,
@@ -440,7 +458,12 @@ fun CarLauncherScreen(
                                 },
                                 isPollingPaused = isPollingPaused,
                                 onTogglePausePolling = onTogglePausePolling,
-                                onOpenAppDrawer = onOpenAppDrawer
+                                onOpenAppDrawer = onOpenAppDrawer,
+                                viewModel = viewModel,
+                                autoNightDim = autoNightDim,
+                                nightDimLevel = nightDimLevel,
+                                onSetAutoNightDim = onSetAutoNightDim,
+                                onSetNightDimLevel = onSetNightDimLevel
                             )
                         }
                     }
@@ -458,6 +481,8 @@ fun CarLauncherScreen(
                     isDemoMode = isDemoMode,
                     onOpenBluetoothClick = onOpenBluetoothClick
                 )
+
+                ActiveAlertBanner(activeAlerts)
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (activePage) {
@@ -492,14 +517,16 @@ fun CarLauncherScreen(
                             voltage = voltage,
                             gear = gear,
                             speedHistory = speedHistory,
-                            rpmHistory = rpmHistory
+                            rpmHistory = rpmHistory,
+                            viewModel = viewModel
                         )
                         2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
                             onScan = onScanDtc,
                             onClear = onClearDtc,
-                            connectionState = connectionState
+                            connectionState = connectionState,
+                            viewModel = viewModel
                         )
                         3 -> TripComputerPage(
                             distanceKm = tripDistanceKm,
@@ -510,7 +537,8 @@ fun CarLauncherScreen(
                             speedUnit = speedUnit,
                             currentLat = currentLat,
                             currentLon = currentLon,
-                            onReset = onResetTrip
+                            onReset = onResetTrip,
+                            viewModel = viewModel
                         )
                         4 -> MediaRadioPage(
                             radioFreq = radioFreq,
@@ -545,7 +573,12 @@ fun CarLauncherScreen(
                             },
                             isPollingPaused = isPollingPaused,
                             onTogglePausePolling = onTogglePausePolling,
-                            onOpenAppDrawer = onOpenAppDrawer
+                            onOpenAppDrawer = onOpenAppDrawer,
+                            viewModel = viewModel,
+                            autoNightDim = autoNightDim,
+                            nightDimLevel = nightDimLevel,
+                            onSetAutoNightDim = onSetAutoNightDim,
+                            onSetNightDimLevel = onSetNightDimLevel
                         )
                     }
                 }
@@ -606,6 +639,45 @@ fun CarLauncherScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+// =========================================================================
+// HELPER: ACTIVE WARNING BANNER (threshold alerts)
+// =========================================================================
+@Composable
+fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
+    if (activeAlerts.isEmpty()) return
+    val critical = activeAlerts.any { it.severity == AlertSeverity.CRITICAL }
+    val color = if (critical) CriticalRed else AmberWarning
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = color.copy(alpha = 0.18f),
+        shape = RoundedCornerShape(0.dp),
+        border = BorderStroke(1.dp, color)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(
+                Icons.Default.Warning,
+                contentDescription = null,
+                tint = color,
+                modifier = Modifier.size(14.dp)
+            )
+            Text(
+                text = activeAlerts.joinToString("  ·  ") { it.message },
+                color = color,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.weight(1f)
+            )
         }
     }
 }
@@ -1420,8 +1492,10 @@ fun GaugesAndGraphsPage(
     voltage: Float?,
     gear: Int,
     speedHistory: List<Pair<Long, Int>>,
-    rpmHistory: List<Pair<Long, Int>>
+    rpmHistory: List<Pair<Long, Int>>,
+    viewModel: ObdViewModel? = null
 ) {
+    val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1541,6 +1615,27 @@ fun GaugesAndGraphsPage(
                 SensorCard(title = "GEAR POSITION", value = if (gear == 0) "P/N" else "D$gear", unit = "AUTO", color = ElectricCyan, modifier = Modifier.weight(1f))
             }
         }
+
+        // Fuel & Air Metering Grid (MAF-based economy sensors)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.28f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "MAF AIR FLOW", value = liveTelemetry?.mafGs?.let { "%.1f".format(it) } ?: "--", unit = "g/s", color = ElectricCyan, modifier = Modifier.weight(1f))
+                SensorCard(title = "TIMING ADVANCE", value = liveTelemetry?.timingAdvanceDeg?.let { "%.1f".format(it) } ?: "--", unit = "°BTDC", color = Color.White, modifier = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "SHORT TERM TRIM", value = liveTelemetry?.shortTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", unit = "%", color = if ((liveTelemetry?.shortTermFuelTrimPct ?: 0f) > 10f || (liveTelemetry?.shortTermFuelTrimPct ?: 0f) < -10f) CriticalRed else TealAccent, modifier = Modifier.weight(1f))
+                SensorCard(title = "LONG TERM TRIM", value = liveTelemetry?.longTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", unit = "%", color = if ((liveTelemetry?.longTermFuelTrimPct ?: 0f) > 10f || (liveTelemetry?.longTermFuelTrimPct ?: 0f) < -10f) CriticalRed else TealAccent, modifier = Modifier.weight(1f))
+            }
+            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SensorCard(title = "INSTANT ECONOMY", value = liveTelemetry?.fuelEconomyL100?.let { "%.1f".format(it) } ?: "--", unit = "L/100km", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
+                SensorCard(title = "TRIP FUEL USED", value = liveTelemetry?.fuelUsedLiters?.let { "%.2f".format(it) } ?: "--", unit = "L", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
+            }
+        }
     }
 }
 
@@ -1583,9 +1678,22 @@ fun DiagnosticsPage(
     isScanning: Boolean,
     onScan: () -> Unit,
     onClear: () -> Unit,
-    connectionState: ConnectionState
+    connectionState: ConnectionState,
+    viewModel: ObdViewModel? = null
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) }
+    val tabs = listOf("Stored (03)", "Pending (07)", "Permanent (0A)", "Freeze Frame", "Readiness")
+
+    val pendingCodes = viewModel?.pendingDtcList?.collectAsState()?.value ?: emptyList()
+    val permanentCodes = viewModel?.permanentDtcList?.collectAsState()?.value ?: emptyList()
+    val freezeFrame = viewModel?.freezeFrame?.collectAsState()?.value
+    val readiness = viewModel?.readiness?.collectAsState()?.value
+    val vin = viewModel?.vin?.collectAsState()?.value
+    val supportedPids = viewModel?.supportedPids?.collectAsState()?.value ?: emptySet()
+    val scope = rememberCoroutineScope()
+
+    var auxScanning by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -1616,11 +1724,19 @@ fun DiagnosticsPage(
                         fontFamily = FontFamily.Monospace
                     )
                     Text(
-                        text = "STANDARD OBD-II MODE 03 & 07 FAULT CODE INSPECTION",
+                        text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS",
                         color = SecondaryText,
                         fontSize = 10.sp,
                         fontFamily = FontFamily.Monospace
                     )
+                    if (vin != null) {
+                        Text(
+                            text = "VIN: $vin",
+                            color = ElectricCyan,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1653,83 +1769,182 @@ fun DiagnosticsPage(
             }
         }
 
-        // DTC Code List or Clean State
-        if (dtcCodes.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f)
-                    .background(Color(0xFF080C14), RoundedCornerShape(10.dp))
-                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
-                    .padding(20.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(44.dp))
-                    Spacer(modifier = Modifier.height(10.dp))
-                    Text("No Diagnostic Trouble Codes Found", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text("ECU reports MIL (Check Engine Light) is OFF. All powertrain monitors normal.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        // Tabs
+        TabRow(
+            selectedTabIndex = selectedTab,
+            containerColor = Color(0xFF090D14),
+            contentColor = ElectricCyan
+        ) {
+            tabs.forEachIndexed { idx, title ->
+                Tab(
+                    selected = selectedTab == idx,
+                    onClick = { selectedTab = idx },
+                    text = {
+                        Text(
+                            title,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = if (selectedTab == idx) ElectricCyan else SecondaryText
+                        )
+                    }
+                )
+            }
+        }
+
+        when (selectedTab) {
+            0 -> DtcListContent(dtcCodes, emptyHint = "No Stored Diagnostic Trouble Codes Found")
+            1 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            auxScanning = true
+                            scope.launch {
+                                viewModel?.scanPendingDtcsNow()
+                                auxScanning = false
+                            }
+                        },
+                        enabled = !auxScanning && viewModel != null,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Scan Pending (07)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+                DtcListContent(pendingCodes, emptyHint = "No Pending Codes · ECU monitors have not confirmed a fault yet")
+            }
+            2 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            auxScanning = true
+                            scope.launch {
+                                viewModel?.scanPermanentDtcsNow()
+                                auxScanning = false
+                            }
+                        },
+                        enabled = !auxScanning && viewModel != null,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Scan Permanent (0A)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+                DtcListContent(permanentCodes, emptyHint = "No Permanent Codes · These survive a Mode 04 clear until the ECU re-verifies the repair")
+            }
+            3 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            auxScanning = true
+                            scope.launch {
+                                viewModel?.readFreezeFrameNow()
+                                auxScanning = false
+                            }
+                        },
+                        enabled = !auxScanning && viewModel != null,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Read Freeze Frame (02)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+                if (freezeFrame == null || freezeFrame.items.isEmpty()) {
+                    EmptyStateBox("No Freeze Frame Stored", "The ECU snapshots engine data when a fault is confirmed. None is currently stored.")
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            Surface(
+                                color = Color(0xFF0A0F17),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, AmberWarning)
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    Spacer(Modifier.height(6.dp))
+                                    freezeFrame.items.forEach {
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(it.label, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            Text(it.value, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(dtcCodes) { dtc ->
-                    Surface(
-                        color = Color(0xFF0A0F17),
-                        shape = RoundedCornerShape(10.dp),
-                        border = BorderStroke(1.dp, if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(12.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(
-                                        text = dtc.code,
-                                        color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Black,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                    Text(
-                                        text = dtc.system,
-                                        color = SecondaryText,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
-                                    )
-                                }
-
-                                Text(
-                                    text = dtc.severity.name,
-                                    color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace,
-                                    modifier = Modifier
-                                        .background(
-                                            (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning).copy(alpha = 0.15f),
-                                            RoundedCornerShape(4.dp)
-                                        )
-                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                )
+            4 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            auxScanning = true
+                            scope.launch {
+                                viewModel?.readReadinessNow()
+                                auxScanning = false
                             }
-
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        },
+                        enabled = !auxScanning && viewModel != null,
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text("Read Readiness (0101)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+                if (readiness == null) {
+                    EmptyStateBox("Readiness Not Read", "Query the ECU to see MIL status and emissions monitor completion before an inspection.")
+                } else {
+                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item {
+                            Surface(
+                                color = Color(0xFF0A0F17),
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, if (readiness.milOn) CriticalRed else TealAccent)
+                            ) {
+                                Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(
+                                            if (readiness.milOn) "CHECK ENGINE LIGHT: ON" else "CHECK ENGINE LIGHT: OFF",
+                                            color = if (readiness.milOn) CriticalRed else TealAccent,
+                                            fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            "Stored codes: ${readiness.storedDtcCount}",
+                                            color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Text("SPARK IGNITION MONITORS (GASOLINE)", color = ElectricCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    readiness.sparkIgnitionMonitors.forEach { m ->
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                            Text(m.name, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            Text(
+                                                if (m.complete) "COMPLETE" else "NOT READY",
+                                                color = if (m.complete) TealAccent else AmberWarning,
+                                                fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (supportedPids.isNotEmpty()) {
+                            item {
+                                Surface(
+                                    color = Color(0xFF0A0F17),
+                                    shape = RoundedCornerShape(10.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF1E293B))
+                                ) {
+                                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                                        Text("ECU SUPPORTED PIDs (${supportedPids.size} discovered)", color = ElectricCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        Spacer(Modifier.height(4.dp))
+                                        Text(
+                                            supportedPids.sorted().joinToString(" "),
+                                            color = SecondaryText,
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -1773,6 +1988,94 @@ fun DiagnosticsPage(
     }
 }
 
+@Composable
+private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
+    if (dtcCodes.isEmpty()) {
+        EmptyStateBox("No Trouble Codes Found", emptyHint)
+    } else {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(dtcCodes) { dtc ->
+                Surface(
+                    color = Color(0xFF0A0F17),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = dtc.code,
+                                    color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Text(
+                                    text = dtc.system,
+                                    color = SecondaryText,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            }
+
+                            Text(
+                                text = dtc.severity.name,
+                                color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier
+                                    .background(
+                                        (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning).copy(alpha = 0.15f),
+                                        RoundedCornerShape(4.dp)
+                                    )
+                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyStateBox(title: String, subtitle: String) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 160.dp)
+            .background(Color(0xFF080C14), RoundedCornerShape(10.dp))
+            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+            .padding(20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(44.dp))
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(subtitle, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+        }
+    }
+}
+
 // =========================================================================
 // SUB-VIEW: TRIP COMPUTER PAGE
 // =========================================================================
@@ -1786,12 +2089,24 @@ fun TripComputerPage(
     speedUnit: String,
     currentLat: Double,
     currentLon: Double,
-    onReset: () -> Unit
+    onReset: () -> Unit,
+    viewModel: ObdViewModel? = null
 ) {
     val hrs = durationSeconds / 3600
     val mins = (durationSeconds % 3600) / 60
     val secs = durationSeconds % 60
     val timeFormatted = String.format(Locale.US, "%02d:%02d:%02d", hrs, mins, secs)
+
+    val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
+    val fuelUsedL = liveTelemetry?.fuelUsedLiters
+    val instantEconomy = liveTelemetry?.fuelEconomyL100
+    // Average economy for the trip = liters used / distance * 100
+    val avgEconomy = if (fuelUsedL != null && distanceKm > 0.5) fuelUsedL / distanceKm * 100.0 else null
+    // Range estimate from remaining tank fuel (62 L Sportage tank) and trip average
+    val tankLiters = 62.0
+    val rangeKm = if (avgEconomy != null && avgEconomy > 0.5 && liveTelemetry?.fuelLevelPct != null) {
+        (tankLiters * liveTelemetry.fuelLevelPct / 100.0) / avgEconomy * 100.0
+    } else null
 
     Column(
         modifier = Modifier
@@ -1857,6 +2172,43 @@ fun TripComputerPage(
                 value = "$maxSpeed",
                 unit = speedUnit.uppercase(),
                 accentColor = CriticalRed,
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        // Fuel Economy Cards (MAF-based)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(0.7f),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            TripCard(
+                title = "AVG ECONOMY",
+                value = avgEconomy?.let { "%.1f".format(it) } ?: "--",
+                unit = "L/100KM",
+                accentColor = Color(0xFF10B981),
+                modifier = Modifier.weight(1f)
+            )
+            TripCard(
+                title = "INSTANT ECONOMY",
+                value = instantEconomy?.let { "%.1f".format(it) } ?: "--",
+                unit = "L/100KM",
+                accentColor = ElectricCyan,
+                modifier = Modifier.weight(1f)
+            )
+            TripCard(
+                title = "TRIP FUEL USED",
+                value = fuelUsedL?.let { "%.2f".format(it) } ?: "--",
+                unit = "LITERS",
+                accentColor = TealAccent,
+                modifier = Modifier.weight(1f)
+            )
+            TripCard(
+                title = "RANGE ESTIMATE",
+                value = rangeKm?.let { "%.0f".format(it) } ?: "--",
+                unit = "KM TO EMPTY",
+                accentColor = AmberWarning,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -2134,11 +2486,22 @@ fun SettingsPage(
     onOpenBluetoothSettings: () -> Unit,
     isPollingPaused: Boolean = false,
     onTogglePausePolling: () -> Unit = {},
-    onOpenAppDrawer: () -> Unit = {}
+    onOpenAppDrawer: () -> Unit = {},
+    viewModel: ObdViewModel? = null,
+    autoNightDim: Boolean = true,
+    nightDimLevel: Float = 0.55f,
+    onSetAutoNightDim: (Boolean) -> Unit = {},
+    onSetNightDimLevel: (Float) -> Unit = {}
 ) {
+    val context = LocalContext.current
+    var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
+    var csvLogging by remember { mutableStateOf(false) }
+    csvLogging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -2269,6 +2632,214 @@ fun SettingsPage(
                         Text("Open Settings", color = Color.LightGray, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                     }
                 }
+            }
+        }
+
+        // 3. Warning Thresholds Card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+
+                ThresholdStepper(
+                    label = "Coolant Overheat Limit",
+                    value = "${thresholds.coolantMaxC}°C",
+                    onMinus = { thresholds = thresholds.copy(coolantMaxC = (thresholds.coolantMaxC - 5).coerceAtLeast(90)); viewModel?.updateAlertThresholds(thresholds) },
+                    onPlus = { thresholds = thresholds.copy(coolantMaxC = (thresholds.coolantMaxC + 5).coerceAtMost(130)); viewModel?.updateAlertThresholds(thresholds) }
+                )
+                ThresholdStepper(
+                    label = "Battery Low Limit",
+                    value = "%.1fV".format(thresholds.batteryMinV),
+                    onMinus = { thresholds = thresholds.copy(batteryMinV = (thresholds.batteryMinV - 0.5f).coerceAtLeast(9f)); viewModel?.updateAlertThresholds(thresholds) },
+                    onPlus = { thresholds = thresholds.copy(batteryMinV = (thresholds.batteryMinV + 0.5f).coerceAtMost(14f)); viewModel?.updateAlertThresholds(thresholds) }
+                )
+                ThresholdStepper(
+                    label = "RPM Redline Limit",
+                    value = "${thresholds.rpmMax}",
+                    onMinus = { thresholds = thresholds.copy(rpmMax = (thresholds.rpmMax - 500).coerceAtLeast(3000)); viewModel?.updateAlertThresholds(thresholds) },
+                    onPlus = { thresholds = thresholds.copy(rpmMax = (thresholds.rpmMax + 500).coerceAtMost(7500)); viewModel?.updateAlertThresholds(thresholds) }
+                )
+                ThresholdStepper(
+                    label = "Speed Limit",
+                    value = "${thresholds.speedMaxKmh} km/h",
+                    onMinus = { thresholds = thresholds.copy(speedMaxKmh = (thresholds.speedMaxKmh - 10).coerceAtLeast(60)); viewModel?.updateAlertThresholds(thresholds) },
+                    onPlus = { thresholds = thresholds.copy(speedMaxKmh = (thresholds.speedMaxKmh + 10).coerceAtMost(220)); viewModel?.updateAlertThresholds(thresholds) }
+                )
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Audible Warning Beeps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Play a tone when a threshold is crossed", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    Switch(
+                        checked = thresholds.audibleAlerts,
+                        onCheckedChange = {
+                            thresholds = thresholds.copy(audibleAlerts = it)
+                            viewModel?.updateAlertThresholds(thresholds)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning, checkedTrackColor = AmberWarning.copy(alpha = 0.4f))
+                    )
+                }
+            }
+        }
+
+        // 4. CSV Data Logging Card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("CSV TELEMETRY LOGGING", color = TealAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Switch(
+                        checked = csvLogging,
+                        onCheckedChange = { enable ->
+                            if (enable) viewModel?.startCsvLogging() else viewModel?.stopCsvLogging()
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.4f))
+                    )
+                }
+
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Auto-Start With Connection", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Begin logging every time the adapter connects", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    var csvAuto by remember { mutableStateOf(viewModel?.csvAutostart() ?: false) }
+                    Switch(
+                        checked = csvAuto,
+                        onCheckedChange = {
+                            csvAuto = it
+                            viewModel?.setCsvAutostart(it)
+                        },
+                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.4f))
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        val file = viewModel?.csvLogFile()
+                        if (file != null && file.exists()) {
+                            try {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(
+                                    context,
+                                    context.packageName + ".fileprovider",
+                                    file
+                                )
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/csv"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(send, "Share OBD Log").apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                })
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Could not share log: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        } else {
+                            Toast.makeText(context, "No active log file. Start logging first.", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, tint = TealAccent, modifier = Modifier.size(13.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Share Current Log", color = TealAccent, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                }
+            }
+        }
+
+        // 5. Night Dimming Card
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("AUTO NIGHT DIMMING", color = Color(0xFF8B5CF6), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                    Switch(
+                        checked = autoNightDim,
+                        onCheckedChange = onSetAutoNightDim,
+                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF8B5CF6), checkedTrackColor = Color(0xFF8B5CF6).copy(alpha = 0.4f))
+                    )
+                }
+
+                if (autoNightDim) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text("BRIGHTNESS", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Slider(
+                            value = 1f - nightDimLevel,
+                            onValueChange = { onSetNightDimLevel(1f - it) },
+                            modifier = Modifier.weight(1f),
+                            colors = SliderDefaults.colors(thumbColor = Color(0xFF8B5CF6), activeTrackColor = Color(0xFF8B5CF6).copy(alpha = 0.5f))
+                        )
+                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThresholdStepper(
+    label: String,
+    value: String,
+    onMinus: () -> Unit,
+    onPlus: () -> Unit
+) {
+    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Button(
+                onClick = onMinus,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text("-", color = AmberWarning, fontWeight = FontWeight.Black, fontSize = 14.sp)
+            }
+            Text(value, color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Button(
+                onClick = onPlus,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                shape = RoundedCornerShape(4.dp),
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+            ) {
+                Text("+", color = AmberWarning, fontWeight = FontWeight.Black, fontSize = 14.sp)
             }
         }
     }
