@@ -64,6 +64,11 @@ class ObdService : Service() {
         const val ACTION_STOP = "com.sportage.obd.action.STOP_SERVICE"
         const val ACTION_PAUSE_POLLING = "com.sportage.obd.action.PAUSE_POLLING"
         const val ACTION_RESUME_POLLING = "com.sportage.obd.action.RESUME_POLLING"
+
+        /** True while the foreground service is alive, so a restarted UI can re-attach to it. */
+        @Volatile
+        var isRunning: Boolean = false
+            private set
     }
 
     private val binder = ObdServiceBinder()
@@ -104,6 +109,7 @@ class ObdService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        isRunning = true
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification("OBD Service Initializing..."))
     }
@@ -393,6 +399,7 @@ class ObdService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        isRunning = false
         stopPolling()
         reconnectJob?.cancel()
         serviceScope.cancel()

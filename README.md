@@ -41,6 +41,9 @@ cockpit instead of a normal home screen.
 
 **Also included**
 
+- **Background streaming** — the RFCOMM socket and the PID loop live in the `connectedDevice`
+  foreground service (`ObdService`), so telemetry keeps flowing while the launcher UI is
+  backgrounded, and a relaunched activity re-attaches to the still-running service.
 - **Pause polling** — one tap stops PID traffic when parked with the ignition off, so the adapter
   does not drain the battery.
 - **Bench demo mode** — a simulated ECU that drives every gauge, graph and DTC path for testing
@@ -87,17 +90,19 @@ Browser support matters here: Web Bluetooth needs Chrome/Edge on desktop or Chro
 
 **Android** (`android/app/src/main/java/com/sportage/obd/`)
 
-- `MainActivity` — owns UI state (`mutableStateOf` telemetry, trip, DTC, polling pause), permissions,
-  GPS listeners and the polling loop; calls `CarLauncherScreen` with plain values.
+- `MainActivity` — binds the service through `ObdViewModel`, mirrors its flows into Compose state,
+  and owns permissions, GPS/trip tracking and the Bluetooth and app-drawer dialogs.
 - `ui/CarLauncherScreen.kt` — the whole cockpit: status strip, split home, gauges, diagnostics, trip,
   media and settings pages.
 - `bluetooth/BluetoothTransport.kt` — RFCOMM socket lifecycle, command write/read-until-`>` framing.
 - `bluetooth/BluetoothDeviceInfo.kt` — permission-checked device name/MAC access.
 - `obd/PidDecoders.kt` — SAE J1979 PID, battery voltage and DTC decoding.
-- `service/ObdService.kt`, `repository/ObdRepository.kt`, `viewmodel/ObdViewModel.kt` — a foreground
-  `connectedDevice` service with pause/resume actions, exponential-backoff reconnect and StateFlow
-  telemetry, framed by an MVVM layer. **These are scaffolded but not yet started by the launcher UI:**
-  today the activity polls in-process, so streaming pauses when the app is backgrounded.
+- `service/ObdService.kt` — foreground `connectedDevice` service that owns the RFCOMM socket and the
+  polling loop, with pause/resume actions, exponential-backoff reconnect, a persistent status
+  notification and StateFlow telemetry.
+- `repository/ObdRepository.kt` + `viewmodel/ObdViewModel.kt` — start/bind (and re-attach to) the
+  service, add bench-demo telemetry and the graph history windows, and expose the flows the launcher
+  renders.
 
 **Web** (`src/`)
 

@@ -36,6 +36,7 @@ class ObdRepository(private val context: Context) {
 
     private var obdService: ObdService? = null
     private var isBound = false
+    private var pendingDevice: BluetoothDevice? = null
 
     private val _telemetry = MutableStateFlow(ObdTelemetry())
     val telemetry: StateFlow<ObdTelemetry> = _telemetry.asStateFlow()
@@ -60,6 +61,12 @@ class ObdRepository(private val context: Context) {
             val binder = service as? ObdService.ObdServiceBinder
             obdService = binder?.getService()
             isBound = true
+
+            // A connect request that arrived before the binding completed is applied now.
+            pendingDevice?.let { device ->
+                pendingDevice = null
+                obdService?.connectToDevice(device)
+            }
 
             // Forward telemetry and states from ObdService
             serviceCollectorJob?.cancel()
@@ -101,16 +108,56 @@ class ObdRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Starts and binds the foreground service. Called on the first connect so the service is only
+     * promoted to the foreground once Bluetooth permissions have been granted.
+     */
     init {
-        startAndBindService()
+        // If the foreground service survived the activity (background streaming), re-attach to it so
+        // the relaunched UI shows live telemetry instead of a disconnected cockpit.
+        if (ObdService.isRunning) {
+            bindService()
+        }
+    }
+
+    private fun bindService() {
+        val intent = Intent(context, ObdService::class.java).apply {
+            action = ObdService.ACTION_START
+        }
+        try {
+            context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        } catch (e: Exception) {
+            _connectionState.value = ConnectionState.Error("Could not attach to OBD service: ${e.message}")
+        }
     }
 
     fun startAndBindService() {
         val intent = Intent(context, ObdService::class.java).apply {
             action = ObdService.ACTION_START
         }
-        ContextCompat.startForegroundService(context, intent)
-        context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        try {
+            ContextCompat.startForegroundService(context, intent)
+            context.bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        } catch (e: Exception) {
+            pendingDevice = null
+            _connectionState.value = ConnectionState.Error("Background OBD service unavailable: ${e.message}")
+        }
+    }
+
+    private fun stopServiceIfRunning() {
+        if (!ObdService.isRunning) return
+        val stopIntent = Intent(context, ObdService::class.java).apply {
+            action = ObdService.ACTION_STOP
+        }
+        try {
+            context.startService(stopIntent)
+        } catch (_: Exception) {}
+    }
+
+    /** Releases the binding, collectors and coroutine scope when the UI goes away for good. */
+    fun close() {
+        unbindService()
+        repositoryJob.cancel()
     }
 
     fun unbindService() {
@@ -120,13 +167,21 @@ class ObdRepository(private val context: Context) {
             } catch (_: Exception) {}
             isBound = false
         }
+        obdService = null
+        serviceCollectorJob?.cancel()
     }
 
     fun connectDevice(device: BluetoothDevice) {
         if (_isDemoMode.value) {
             setDemoMode(false)
         }
-        obdService?.connectToDevice(device)
+        val service = obdService
+        if (service != null) {
+            service.connectToDevice(device)
+        } else {
+            pendingDevice = device
+            startAndBindService()
+        }
     }
 
     fun disconnect() {
@@ -134,6 +189,11 @@ class ObdRepository(private val context: Context) {
         if (_isDemoMode.value) {
             setDemoMode(false)
         }
+        // Nothing is streaming any more, so retire the foreground service and its notification;
+        // the next connect restarts and rebinds it.
+        stopServiceIfRunning()
+        unbindService()
+        _connectionState.value = ConnectionState.Disconnected
     }
 
     fun togglePausePolling(pause: Boolean) {
@@ -150,6 +210,8 @@ class ObdRepository(private val context: Context) {
         demoJob?.cancel()
         if (enable) {
             obdService?.disconnect()
+            stopServiceIfRunning()
+            unbindService()
             _connectionState.value = ConnectionState.Connected(
                 deviceName = "Virtual Bench ECU (2026 Sportage)",
                 address = "BENCH-MPI-AWD",
