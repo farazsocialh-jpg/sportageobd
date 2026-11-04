@@ -239,6 +239,22 @@ class MainActivity : ComponentActivity(), LocationListener {
             toggleDemoMode(false)
         }
         lifecycleScope.launch {
+            if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                ContextCompat.checkSelfPermission(
+                    this@MainActivity,
+                    Manifest.permission.BLUETOOTH_CONNECT
+                ) != PackageManager.PERMISSION_GRANTED
+            ) {
+                Toast.makeText(
+                    this@MainActivity,
+                    "Bluetooth permission is required to connect to an OBD adapter",
+                    Toast.LENGTH_SHORT
+                ).show()
+                checkAndRequestPermissions()
+                return@launch
+            }
+
             logTerminal("INFO", "Initiating connection to ${device.name ?: "Device"} (${device.address})...")
             val connected = transport.connect(device)
             if (connected) {
@@ -260,7 +276,9 @@ class MainActivity : ComponentActivity(), LocationListener {
 
                     startContinuousPolling()
                 } catch (e: Exception) {
+                    disconnectDevice()
                     logTerminal("ERR", "Init failure: ${e.message}")
+                    showBluetoothDialog = true
                     Toast.makeText(this@MainActivity, "Init error: ${e.message}", Toast.LENGTH_SHORT).show()
                 }
             } else {
@@ -279,8 +297,15 @@ class MainActivity : ComponentActivity(), LocationListener {
         liveSpeed = null
         liveRpm = null
         liveCoolant = null
+        liveIntakeTemp = null
+        liveFuelLevel = null
+        liveThrottle = null
+        liveLoad = null
         liveVoltage = null
+        liveGear = 0
         measuredHz = null
+        speedHistory.clear()
+        rpmHistory.clear()
     }
 
     private fun sendTerminalCommand(command: String) {
