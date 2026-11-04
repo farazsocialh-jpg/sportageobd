@@ -54,7 +54,7 @@ cd android
 ```
 Compiled APKs will be located in:
 - `android/app/build/outputs/apk/debug/app-debug.apk`
-- `android/app/build/outputs/apk/release/app-release.apk`
+- `android/app/build/outputs/apk/release/app-release-unsigned.apk` (unsigned: add a signing config to produce a signed release)
 
 ---
 
