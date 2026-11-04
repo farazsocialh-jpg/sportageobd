@@ -47,6 +47,22 @@ jobs:
           path: android/app/build/reports/tests/testDebugUnitTest/
           retention-days: 7
 
+      - name: Restore Release Signing Keystore
+        # Signs the release APK when the ANDROID_KEYSTORE_BASE64 /
+        # ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS / ANDROID_KEY_PASSWORD
+        # repository secrets are configured. Without them the release APK is
+        # built unsigned (installable only via `adb install` with manual signing).
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: ./android
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > release-signing.jks
+          cat > keystore.properties <<EOF
+          storeFile=release-signing.jks
+          storePassword=${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          keyAlias=${{ secrets.ANDROID_KEY_ALIAS }}
+          keyPassword=${{ secrets.ANDROID_KEY_PASSWORD }}
+          EOF
+
       - name: Assemble Debug and Release APKs
         working-directory: ./android
         run: ./gradlew assembleDebug assembleRelease --stacktrace

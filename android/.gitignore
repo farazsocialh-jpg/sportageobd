@@ -10,3 +10,8 @@ build/
 .cxx/
 *.apk
 *.aab
+
+# Release signing - never commit real credentials
+keystore.properties
+*.jks
+*.keystore

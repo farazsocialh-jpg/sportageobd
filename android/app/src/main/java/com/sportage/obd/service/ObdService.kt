@@ -239,6 +239,14 @@ class ObdService : Service() {
     private fun startPollingLoop() {
         pollingJob?.cancel()
         pollingJob = serviceScope.launch {
+            // Independent cycle counter for the auxiliary PID rotation. Deliberately
+            // separate from packetCount: packetCount is reset every second by the
+            // Hz calculation below, which previously caused the aux PID rotation
+            // (packetCount / 2) % 6 to restart from coolant on every reset and, on
+            // slower adapters, never reach the later PIDs (fuel, throttle, load,
+            // voltage).
+            var auxPidCycle = 0
+
             while (isActive) {
                 if (_isPollingPaused.value) {
                     delay(500)
@@ -274,8 +282,9 @@ class ObdService : Service() {
                     var load = _telemetry.value.engineLoadPct
                     var voltage = _telemetry.value.batteryVoltage
 
-                    // Query one auxiliary PID per cycle
-                    when ((packetCount / 2) % 6) {
+                    // Query one auxiliary PID per cycle (rotation independent of
+                    // the Hz sample counter, see auxPidCycle declaration above)
+                    when (auxPidCycle % 6) {
                         0 -> {
                             val resp = transport.sendCommand("0105")
                             coolant = PidDecoders.decodeCoolantTemp(resp) ?: coolant
@@ -301,6 +310,7 @@ class ObdService : Service() {
                             voltage = PidDecoders.decodeBatteryVoltage(resp) ?: voltage
                         }
                     }
+                    auxPidCycle = (auxPidCycle + 1) % 6
 
                     _telemetry.value = ObdTelemetry(
                         speedKmh = speed,
