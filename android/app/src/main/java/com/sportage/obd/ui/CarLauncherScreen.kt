@@ -351,7 +351,10 @@ fun CarLauncherScreen(
                         connectionState = connectionState,
                         measuredHz = measuredHz,
                         isDemoMode = isDemoMode,
-                        onOpenBluetoothClick = onOpenBluetoothClick
+                        onOpenBluetoothClick = onOpenBluetoothClick,
+                        isPollingPaused = isPollingPaused,
+                        onTogglePausePolling = onTogglePausePolling,
+                        onOpenAppDrawer = onOpenAppDrawer
                     )
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
@@ -456,7 +459,10 @@ fun CarLauncherScreen(
                     connectionState = connectionState,
                     measuredHz = measuredHz,
                     isDemoMode = isDemoMode,
-                    onOpenBluetoothClick = onOpenBluetoothClick
+                    onOpenBluetoothClick = onOpenBluetoothClick,
+                    isPollingPaused = isPollingPaused,
+                    onTogglePausePolling = onTogglePausePolling,
+                    onOpenAppDrawer = onOpenAppDrawer
                 )
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
