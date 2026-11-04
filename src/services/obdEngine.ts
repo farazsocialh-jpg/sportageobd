@@ -57,6 +57,10 @@ class RealObdEngine {
   private isPollingActive: boolean = false;
   private pollingAbort: boolean = false;
 
+  // Bench Simulation handles
+  private simTimer: any = null;
+  private simTick: number = 0;
+
   // Telemetry state - starts strictly DISCONNECTED
   private currentTelemetry: LiveTelemetry = {
     rpm: { status: 'DISCONNECTED' },
@@ -320,6 +324,11 @@ class RealObdEngine {
     this.pollingAbort = true;
     this.isPollingActive = false;
 
+    if (this.simTimer) {
+      clearInterval(this.simTimer);
+      this.simTimer = null;
+    }
+
     if (this.gattServer && this.gattServer.connected) {
       this.gattServer.disconnect();
     }
@@ -338,6 +347,111 @@ class RealObdEngine {
 
     this.log('INFO', 'Disconnected from ELM327.');
     this.setConnection('DISCONNECTED');
+  }
+
+  /**
+   * Start a high-fidelity bench simulation for testing all gauges, graphs, DTCs and UI
+   */
+  public async startBenchSimulation(adapterName: string = 'OBDII (Kia Sportage 2.0 MPI)'): Promise<boolean> {
+    await this.disconnect();
+    this.setConnection('PAIRING');
+    this.log('INFO', `Connecting to ${adapterName}...`);
+    await new Promise(r => setTimeout(r, 400));
+
+    this.setConnection('INITIALIZING_ADAPTER');
+    this.log('TX', 'ATZ');
+    this.log('RX', 'ELM327 v1.5');
+    this.log('TX', 'ATE0');
+    this.log('RX', 'OK');
+    this.log('TX', 'ATSP0');
+    this.log('RX', 'OK');
+    this.log('TX', '0100');
+    this.log('RX', '41 00 BE 3F B8 13');
+    this.log('TX', 'ATRV');
+    this.log('RX', '14.2V');
+
+    this.adapterInfo = {
+      id: 'sim_sportage_adapter',
+      name: adapterName,
+      transportType: 'BLUETOOTH_BLE',
+      elmVersion: 'ELM327 v1.5 (Kia CAN 11/500)',
+      protocol: 'ISO 15765-4 (CAN 11-bit, 500 kbaud)',
+      voltage: 14.2,
+      lastPacketTime: Date.now(),
+      packetsReceived: 12
+    };
+
+    this.activeDtcs = [
+      {
+        code: 'P0420',
+        status: 'STORED',
+        description: 'Catalyst System Efficiency Below Threshold (Bank 1)',
+        timestamp: Date.now()
+      }
+    ];
+
+    this.setConnection('CONNECTED');
+    this.log('INFO', 'OBD2 Link Established! Streaming live vehicle parameters...');
+    this.startSimulationLoop();
+    return true;
+  }
+
+  private startSimulationLoop() {
+    if (this.simTimer) clearInterval(this.simTimer);
+    this.simTick = 0;
+
+    this.simTimer = setInterval(() => {
+      if (this.connectionState !== 'CONNECTED') {
+        if (this.simTimer) clearInterval(this.simTimer);
+        return;
+      }
+
+      this.simTick += 1;
+      const t = this.simTick * 0.1;
+
+      // Realistic driving telemetry simulation
+      const baseSpeed = 48;
+      const speedFluctuation = Math.sin(t * 0.5) * 16 + Math.cos(t * 0.2) * 5;
+      const speed = Math.max(0, Math.round(baseSpeed + speedFluctuation));
+
+      // RPM correlated with speed and gear shifts
+      const rpm = Math.round(800 + (speed * 32) + Math.sin(t * 1.5) * 120);
+      const coolant = Math.min(92, Math.round(86 + Math.sin(t * 0.05) * 4));
+      const intake = Math.round(29 + Math.cos(t * 0.03) * 3);
+      const load = Math.min(85, Math.max(15, Number((24 + (speed / 3) + Math.sin(t) * 8).toFixed(1))));
+      const throttle = Math.min(90, Math.max(10, Number((18 + (speed / 3.5) + Math.cos(t) * 6).toFixed(1))));
+      const voltage = Number((14.1 + Math.sin(t * 0.8) * 0.2).toFixed(1));
+      const fuel = 72;
+
+      this.currentTelemetry = {
+        rpm: { status: 'LIVE', value: rpm, unit: 'rpm', timestamp: Date.now() },
+        speed: { status: 'LIVE', value: speed, unit: 'km/h', timestamp: Date.now() },
+        coolantTemp: { status: 'LIVE', value: coolant, unit: '°C', timestamp: Date.now() },
+        intakeTemp: { status: 'LIVE', value: intake, unit: '°C', timestamp: Date.now() },
+        engineLoad: { status: 'LIVE', value: load, unit: '%', timestamp: Date.now() },
+        throttlePosition: { status: 'LIVE', value: throttle, unit: '%', timestamp: Date.now() },
+        stftBank1: { status: 'LIVE', value: 1.2, unit: '%', timestamp: Date.now() },
+        ltftBank1: { status: 'LIVE', value: -0.8, unit: '%', timestamp: Date.now() },
+        map: { status: 'LIVE', value: 38, unit: 'kPa', timestamp: Date.now() },
+        maf: { status: 'LIVE', value: 4.8, unit: 'g/s', timestamp: Date.now() },
+        timingAdvance: { status: 'LIVE', value: 14.5, unit: '°', timestamp: Date.now() },
+        batteryVoltage: { status: 'LIVE', value: voltage, unit: 'V', timestamp: Date.now() },
+        fuelLevel: { status: 'LIVE', value: fuel, unit: '%', timestamp: Date.now() },
+        gear: 0
+      };
+
+      this.calculateGear();
+      this.adapterInfo.lastPacketTime = Date.now();
+      this.adapterInfo.packetsReceived += 2;
+      this.adapterInfo.voltage = voltage;
+
+      if (this.simTick % 10 === 0) {
+        this.log('TX', '010C 010D');
+        this.log('RX', `41 0C ${((rpm * 4) >> 8).toString(16).padStart(2, '0')} ${(rpm * 4 & 0xFF).toString(16).padStart(2, '0')} 41 0D ${speed.toString(16).padStart(2, '0')}`);
+      }
+
+      this.notifyTelemetry();
+    }, 150);
   }
 
   /**
@@ -383,6 +497,32 @@ class RealObdEngine {
 
     const commandWithCr = cmd.trim() + '\r';
     this.log('TX', cmd.trim());
+
+    if (this.simTimer) {
+      const upper = cmd.trim().toUpperCase();
+      let reply = 'OK';
+      if (upper === 'ATZ') reply = 'ELM327 v1.5';
+      else if (upper.startsWith('ATRV')) reply = `${(this.adapterInfo.voltage || 14.2).toFixed(1)}V`;
+      else if (upper.startsWith('AT')) reply = 'OK';
+      else if (upper === '0100') reply = '41 00 BE 3F B8 13';
+      else if (upper === '010C') {
+        const rpm = this.currentTelemetry.rpm.status === 'LIVE' ? this.currentTelemetry.rpm.value : 1800;
+        reply = `41 0C ${((rpm * 4) >> 8).toString(16).padStart(2, '0')} ${(rpm * 4 & 0xFF).toString(16).padStart(2, '0')}`;
+      } else if (upper === '010D') {
+        const spd = this.currentTelemetry.speed.status === 'LIVE' ? this.currentTelemetry.speed.value : 50;
+        reply = `41 0D ${spd.toString(16).padStart(2, '0')}`;
+      } else if (upper === '0105') {
+        const c = this.currentTelemetry.coolantTemp.status === 'LIVE' ? this.currentTelemetry.coolantTemp.value : 88;
+        reply = `41 05 ${(c + 40).toString(16).padStart(2, '0')}`;
+      } else if (upper === '03') {
+        reply = '43 01 04 20';
+      } else if (upper === '04') {
+        this.activeDtcs = [];
+        reply = '44';
+      }
+      this.log('RX', reply);
+      return reply;
+    }
 
     return new Promise(async (resolve, reject) => {
       this.pendingResolver = resolve;

@@ -1297,7 +1297,7 @@ fun SensorCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(title, color = SecondaryText, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-            Row(verticalAlignment = Alignment.Baseline, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(value, color = color, fontSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
                 Text(unit, color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
             }

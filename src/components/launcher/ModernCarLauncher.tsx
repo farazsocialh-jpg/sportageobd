@@ -379,6 +379,8 @@ export const ModernCarLauncher: React.FC = () => {
         onClose={() => setIsConnectModalOpen(false)}
         connectionState={connectionState}
         adapterInfo={adapterInfo}
+        onOpenGauges={() => setActivePage('GAUGES')}
+        onOpenDiagnostics={() => setIsDiagnosticsModalOpen(true)}
       />
 
       {/* MODAL 2: Vehicle Diagnostics & DTC Code Reader */}
