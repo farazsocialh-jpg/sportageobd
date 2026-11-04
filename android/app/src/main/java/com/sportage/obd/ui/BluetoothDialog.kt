@@ -1,9 +1,13 @@
 package com.sportage.obd.ui
 
 import android.annotation.SuppressLint
+import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -56,6 +60,73 @@ fun BluetoothDialog(
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) } // 0: Devices, 1: Terminal, 2: Help
     var commandInput by remember { mutableStateOf("") }
+
+    val discoveredDevices = remember { mutableStateListOf<BluetoothDevice>() }
+    var isScanningNearby by remember { mutableStateOf(false) }
+
+    fun startNearbyScan() {
+        try {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            if (adapter != null && adapter.isEnabled) {
+                discoveredDevices.clear()
+                if (adapter.isDiscovering) {
+                    adapter.cancelDiscovery()
+                }
+                adapter.startDiscovery()
+                isScanningNearby = true
+            }
+        } catch (_: Exception) {}
+    }
+
+    DisposableEffect(isOpen) {
+        if (!isOpen) return@DisposableEffect onDispose {}
+
+        val receiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                when (intent?.action) {
+                    BluetoothDevice.ACTION_FOUND -> {
+                        val device: BluetoothDevice? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                        } else {
+                            @Suppress("DEPRECATION")
+                            intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
+                        }
+                        if (device != null && !device.name.isNullOrBlank()) {
+                            val addr = device.address
+                            if (discoveredDevices.none { it.address == addr } && pairedDevices.none { it.address == addr }) {
+                                discoveredDevices.add(device)
+                            }
+                        }
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_STARTED -> {
+                        isScanningNearby = true
+                    }
+                    BluetoothAdapter.ACTION_DISCOVERY_FINISHED -> {
+                        isScanningNearby = false
+                    }
+                }
+            }
+        }
+
+        val filter = IntentFilter().apply {
+            addAction(BluetoothDevice.ACTION_FOUND)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
+            addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
+        }
+        context.registerReceiver(receiver, filter)
+
+        // Trigger discovery automatically if paired devices is empty or error occurred
+        if (pairedDevices.isEmpty() || connectionState is ConnectionState.Error) {
+            startNearbyScan()
+        }
+
+        onDispose {
+            try {
+                BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
+                context.unregisterReceiver(receiver)
+            } catch (_: Exception) {}
+        }
+    }
 
     Dialog(
         onDismissRequest = onClose,
@@ -168,16 +239,60 @@ fun BluetoothDialog(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // TAB 0: DEVICES
+                // TAB 0: DEVICES & DISCOVERY
                 if (selectedTab == 0) {
                     Column(modifier = Modifier.weight(1f)) {
+                        // Error banner if connection failed
+                        if (connectionState is ConnectionState.Error) {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 10.dp),
+                                color = CriticalRed.copy(alpha = 0.15f),
+                                shape = RoundedCornerShape(8.dp),
+                                border = BorderStroke(1.dp, CriticalRed.copy(alpha = 0.5f))
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(10.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Default.ErrorOutline, contentDescription = null, tint = CriticalRed, modifier = Modifier.size(20.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "ADAPTER CONNECTION FAILED",
+                                            color = CriticalRed,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                        Text(
+                                            text = (connectionState as ConnectionState.Error).message + " · Select an adapter below to pair and connect.",
+                                            color = Color.LightGray,
+                                            fontSize = 10.sp,
+                                            fontFamily = FontFamily.Monospace
+                                        )
+                                    }
+                                    Button(
+                                        onClick = { startNearbyScan() },
+                                        colors = ButtonDefaults.buttonColors(containerColor = CriticalRed),
+                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                        shape = RoundedCornerShape(6.dp)
+                                    ) {
+                                        Text("Scan", fontSize = 10.sp, color = Color.White, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+                            }
+                        }
+
+                        // Toolbar
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "FOUND ${pairedDevices.size} PAIRED BLUETOOTH DEVICES",
+                                text = "DEVICES: ${pairedDevices.size} PAIRED · ${discoveredDevices.size} DISCOVERED",
                                 color = SecondaryText,
                                 fontSize = 10.sp,
                                 fontFamily = FontFamily.Monospace
@@ -185,14 +300,32 @@ fun BluetoothDialog(
 
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Button(
+                                    onClick = { startNearbyScan() },
+                                    enabled = !isScanningNearby,
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    if (isScanningNearby) {
+                                        CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Scanning...", fontSize = 10.sp, color = ElectricCyan, fontFamily = FontFamily.Monospace)
+                                    } else {
+                                        Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(12.dp), tint = ElectricCyan)
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Scan Nearby", fontSize = 10.sp, color = ElectricCyan, fontFamily = FontFamily.Monospace)
+                                    }
+                                }
+
+                                Button(
                                     onClick = onRefreshDevices,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
-                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = ElectricCyan)
+                                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.LightGray)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Refresh", fontSize = 10.sp, color = ElectricCyan, fontFamily = FontFamily.Monospace)
+                                    Text("Refresh", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
                                 }
 
                                 Button(
@@ -209,52 +342,32 @@ fun BluetoothDialog(
                                 ) {
                                     Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.White)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Pair New in Settings", fontSize = 10.sp, color = Color.White, fontFamily = FontFamily.Monospace)
+                                    Text("System Settings", fontSize = 10.sp, color = Color.White, fontFamily = FontFamily.Monospace)
                                 }
                             }
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        if (pairedDevices.isEmpty()) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f)
-                                    .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
-                                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
-                                    .padding(20.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text("No Paired Bluetooth Devices Found", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text("Please plug your ELM327 adapter into the OBD2 port, open Android Bluetooth Settings, and pair (PIN: 1234 or 0000).", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    Button(
-                                        onClick = {
-                                            try {
-                                                context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS).apply {
-                                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                                })
-                                            } catch (_: Exception) {}
-                                        },
-                                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
-                                        shape = RoundedCornerShape(8.dp)
-                                    ) {
-                                        Text("Open Bluetooth Settings", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                                    }
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Section: Paired Devices
+                            if (pairedDevices.isNotEmpty()) {
+                                item {
+                                    Text(
+                                        text = "PAIRED BLUETOOTH ADAPTERS",
+                                        color = SecondaryText,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
                                 }
-                            }
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .weight(1f),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+
                                 items(pairedDevices) { device ->
                                     val devName = device.name ?: "Unknown Bluetooth Device"
                                     val isObd = devName.lowercase().contains("obd") ||
@@ -317,7 +430,7 @@ fun BluetoothDialog(
                                                                 modifier = Modifier
                                                                     .background(ElectricCyan.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                                                                     .padding(horizontal = 4.dp, vertical = 2.dp)
-                                                            )
+                                                                )
                                                         }
                                                     }
                                                     Text(
@@ -355,6 +468,148 @@ fun BluetoothDialog(
                                                         fontSize = 11.sp,
                                                         fontFamily = FontFamily.Monospace
                                                     )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Section: Discovered Nearby Devices
+                            if (discoveredDevices.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "NEARBY DISCOVERED ADAPTERS (TAP TO PAIR & CONNECT)",
+                                        color = ElectricCyan,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        fontFamily = FontFamily.Monospace,
+                                        modifier = Modifier.padding(vertical = 4.dp)
+                                    )
+                                }
+
+                                items(discoveredDevices) { device ->
+                                    val devName = device.name ?: "Nearby Bluetooth Device"
+                                    val isObd = devName.lowercase().contains("obd") ||
+                                            devName.lowercase().contains("elm") ||
+                                            devName.lowercase().contains("vgate") ||
+                                            devName.lowercase().contains("carista")
+
+                                    Surface(
+                                        color = Color(0xFF101826),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = BorderStroke(1.dp, if (isObd) ElectricCyan.copy(alpha = 0.6f) else Color(0xFF1E293B))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                Surface(
+                                                    color = Color(0xFF1E293B),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Icon(
+                                                        Icons.Default.BluetoothSearching,
+                                                        contentDescription = null,
+                                                        tint = if (isObd) ElectricCyan else Color.LightGray,
+                                                        modifier = Modifier
+                                                            .padding(8.dp)
+                                                            .size(20.dp)
+                                                    )
+                                                }
+
+                                                Column {
+                                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                        Text(
+                                                            text = devName,
+                                                            color = Color.White,
+                                                            fontSize = 13.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace
+                                                        )
+                                                        Text(
+                                                            text = "NEARBY",
+                                                            color = AmberWarning,
+                                                            fontSize = 9.sp,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontFamily = FontFamily.Monospace,
+                                                            modifier = Modifier
+                                                                .background(AmberWarning.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
+                                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = "MAC: ${device.address}",
+                                                        color = SecondaryText,
+                                                        fontSize = 10.sp,
+                                                        fontFamily = FontFamily.Monospace
+                                                    )
+                                                }
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    try {
+                                                        device.createBond()
+                                                    } catch (_: Exception) {}
+                                                    onConnectDevice(device)
+                                                },
+                                                enabled = connectionState !is ConnectionState.Connecting,
+                                                colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                                shape = RoundedCornerShape(6.dp),
+                                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Pair & Connect",
+                                                    color = Color(0xFF05070B),
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Empty state if both are empty
+                            if (pairedDevices.isEmpty() && discoveredDevices.isEmpty()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
+                                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                                            .padding(24.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            if (isScanningNearby) {
+                                                CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(36.dp))
+                                                Spacer(modifier = Modifier.height(10.dp))
+                                                Text("Scanning for Nearby Bluetooth Adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                                Text("Ensure adapter is plugged into OBD2 port with vehicle ignition ON.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            } else {
+                                                Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                                                Spacer(modifier = Modifier.height(8.dp))
+                                                Text("No OBD2 Adapters Detected", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text("Plug ELM327 into the vehicle's OBD2 port and tap Scan Nearby.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                Spacer(modifier = Modifier.height(12.dp))
+                                                Button(
+                                                    onClick = { startNearbyScan() },
+                                                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ) {
+                                                    Text("Scan for Adapters", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
                                                 }
                                             }
                                         }

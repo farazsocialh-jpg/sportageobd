@@ -22,6 +22,11 @@
     <!-- Foreground service to keep OBD streaming active when switching to Waze/Maps -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Query all packages for Home Car Launcher App Drawer -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
@@ -37,6 +42,10 @@
         <package android:name="com.syu.radio" />
         <package android:name="com.microntek.radio" />
         <package android:name="com.android.fmradio" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
         <intent>
             <action android:name="android.intent.action.VIEW" />
             <data android:scheme="waze" />
@@ -63,6 +72,12 @@
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+
+        <!-- ObdService: Android 14+ connectedDevice Foreground Service -->
+        <service
+            android:name=".service.ObdService"
+            android:foregroundServiceType="connectedDevice"
+            android:exported="false" />
 
         <activity
             android:name=".MainActivity"

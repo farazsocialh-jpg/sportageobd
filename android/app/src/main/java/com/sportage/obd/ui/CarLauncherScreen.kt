@@ -166,7 +166,10 @@ fun CarLauncherScreen(
     onResetTrip: () -> Unit,
     onSetDefaultLauncher: () -> Unit,
     isDemoMode: Boolean,
-    onToggleDemoMode: (Boolean) -> Unit
+    onToggleDemoMode: (Boolean) -> Unit,
+    isPollingPaused: Boolean = false,
+    onTogglePausePolling: () -> Unit = {},
+    onOpenAppDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -275,6 +278,7 @@ fun CarLauncherScreen(
                         DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
                         DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
                         DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
+                        DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
                         DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
                     }
 
@@ -433,7 +437,10 @@ fun CarLauncherScreen(
                                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                         })
                                     } catch (_: Exception) {}
-                                }
+                                },
+                                isPollingPaused = isPollingPaused,
+                                onTogglePausePolling = onTogglePausePolling,
+                                onOpenAppDrawer = onOpenAppDrawer
                             )
                         }
                     }
@@ -535,7 +542,10 @@ fun CarLauncherScreen(
                                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     })
                                 } catch (_: Exception) {}
-                            }
+                            },
+                            isPollingPaused = isPollingPaused,
+                            onTogglePausePolling = onTogglePausePolling,
+                            onOpenAppDrawer = onOpenAppDrawer
                         )
                     }
                 }
@@ -556,6 +566,7 @@ fun CarLauncherScreen(
                     DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
                     DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
                     DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
+                    DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
                     DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
                     IconButton(
                         onClick = onOpenBluetoothClick,
@@ -695,7 +706,7 @@ fun TopCockpitStatusStrip(
                     text = when (connectionState) {
                         is ConnectionState.Connected -> if (measuredHz != null) "ELM327 CONNECTED (${"%.1f".format(measuredHz)}Hz)" else "ELM327 CONNECTED"
                         is ConnectionState.Connecting -> "PAIRING ELM327..."
-                        is ConnectionState.Error -> "ADAPTER ERROR"
+                        is ConnectionState.Error -> "ADAPTER ERROR (TAP TO SCAN)"
                         else -> if (isDemoMode) "BENCH DEMO ACTIVE" else "TAP TO CONNECT OBD"
                     },
                     color = when (connectionState) {
@@ -709,6 +720,40 @@ fun TopCockpitStatusStrip(
                     fontFamily = FontFamily.Monospace,
                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                 )
+            }
+
+            // Pause OBD Polling Toggle (for Engine Off / Battery Saving)
+            Surface(
+                modifier = Modifier.clickable { onTogglePausePolling() },
+                color = if (isPollingPaused) AmberWarning.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                shape = RoundedCornerShape(4.dp),
+                border = BorderStroke(1.dp, if (isPollingPaused) AmberWarning else Color.Transparent)
+            ) {
+                Text(
+                    text = if (isPollingPaused) "OBD PAUSED (IGNITION OFF)" else "PAUSE OBD",
+                    color = if (isPollingPaused) AmberWarning else Color.LightGray,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+            }
+
+            // App Drawer Quick Button
+            Surface(
+                modifier = Modifier.clickable { onOpenAppDrawer() },
+                color = ElectricCyan.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(4.dp),
+                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.4f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(11.dp))
+                    Text("APPS", color = ElectricCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
             }
         }
     }
@@ -2084,7 +2129,10 @@ fun SettingsPage(
     onSetDefaultLauncher: () -> Unit,
     isDemoMode: Boolean,
     onToggleDemoMode: (Boolean) -> Unit,
-    onOpenBluetoothSettings: () -> Unit
+    onOpenBluetoothSettings: () -> Unit,
+    isPollingPaused: Boolean = false,
+    onTogglePausePolling: () -> Unit = {},
+    onOpenAppDrawer: () -> Unit = {}
 ) {
     Column(
         modifier = Modifier
@@ -2156,6 +2204,38 @@ fun SettingsPage(
                     ) {
                         Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                     }
+                }
+
+                // Installed Apps Drawer
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Installed App Drawer", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Browse and launch all head unit installed apps", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Button(
+                        onClick = onOpenAppDrawer,
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Open Apps", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                }
+
+                // Pause OBD Polling Toggle (Ignition Off / Save Battery)
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Column {
+                        Text("Pause OBD Polling (Engine Off)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+
+                    Switch(
+                        checked = isPollingPaused,
+                        onCheckedChange = { onTogglePausePolling() },
+                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning, checkedTrackColor = AmberWarning.copy(alpha = 0.4f))
+                    )
                 }
 
                 // Bench Test / Demo Telemetry

@@ -26,6 +26,7 @@ import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.obd.PidDecoders
+import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
 import com.sportage.obd.ui.TerminalLog
@@ -50,6 +51,8 @@ class MainActivity : ComponentActivity(), LocationListener {
 
     // Bluetooth Dialog State
     private var showBluetoothDialog by mutableStateOf(false)
+    private var showAppDrawer by mutableStateOf(false)
+    private var isPollingPaused by mutableStateOf(false)
     private var pairedDevicesList = mutableStateListOf<BluetoothDevice>()
     private val terminalLogs = mutableStateListOf<TerminalLog>()
     private var isDemoMode by mutableStateOf(false)
@@ -111,7 +114,9 @@ class MainActivity : ComponentActivity(), LocationListener {
         // Handle Back button: Return to Home if on secondary page; do not exit launcher on Home
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                if (showBluetoothDialog) {
+                if (showAppDrawer) {
+                    showAppDrawer = false
+                } else if (showBluetoothDialog) {
                     showBluetoothDialog = false
                 } else if (activePage != 0) {
                     activePage = 0
@@ -157,7 +162,17 @@ class MainActivity : ComponentActivity(), LocationListener {
                     onResetTrip = { resetTrip() },
                     onSetDefaultLauncher = { promptSetDefaultLauncher() },
                     isDemoMode = isDemoMode,
-                    onToggleDemoMode = { toggleDemoMode(it) }
+                    onToggleDemoMode = { toggleDemoMode(it) },
+                    isPollingPaused = isPollingPaused,
+                    onTogglePausePolling = {
+                        isPollingPaused = !isPollingPaused
+                        if (isPollingPaused) {
+                            Toast.makeText(this@MainActivity, "OBD Polling Paused (Ignition Off Mode)", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(this@MainActivity, "OBD Polling Resumed", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onOpenAppDrawer = { showAppDrawer = true }
                 )
 
                 // Bluetooth Connection & Terminal Modal
@@ -173,6 +188,12 @@ class MainActivity : ComponentActivity(), LocationListener {
                     terminalLogs = terminalLogs,
                     isDemoMode = isDemoMode,
                     onToggleDemoMode = { toggleDemoMode(it) }
+                )
+
+                // All Installed Applications Drawer Modal
+                AppDrawerDialog(
+                    isOpen = showAppDrawer,
+                    onClose = { showAppDrawer = false }
                 )
             }
         }
@@ -244,6 +265,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             } else {
                 logTerminal("ERR", "Failed to connect to ${device.address}")
+                showBluetoothDialog = true
+                Toast.makeText(this@MainActivity, "Failed to connect to ${device.name ?: "device"}. Select another adapter.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -284,6 +307,10 @@ class MainActivity : ComponentActivity(), LocationListener {
             var framesInWindow = 0
 
             while (isActive && transport.connectionState.value is ConnectionState.Connected) {
+                if (isPollingPaused) {
+                    delay(500)
+                    continue
+                }
                 try {
                     val now = System.currentTimeMillis()
 
