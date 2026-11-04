@@ -24,8 +24,13 @@ export const SleekNavigationCockpit: React.FC<SleekNavigationCockpitProps> = ({
     lat: 25.2854,
     lon: 51.5310
   });
+  // Stable map coordinates to avoid iframe reload churn during active driving
+  const [mapCenter, setMapCenter] = useState<{ lat: number; lon: number }>({
+    lat: 25.2854,
+    lon: 51.5310
+  });
   const [heading, setHeading] = useState<number>(34);
-  const [speedLimit, setSpeedLimit] = useState<number>(100);
+  const [speedAlertThreshold, setSpeedAlertThreshold] = useState<number>(100);
 
   // Active navigation route state - starts with NO route selected!
   const [activeDestination, setActiveDestination] = useState<string | null>(null);
@@ -37,16 +42,15 @@ export const SleekNavigationCockpit: React.FC<SleekNavigationCockpitProps> = ({
     if (typeof navigator !== 'undefined' && navigator.geolocation) {
       const watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          setCoords({
-            lat: Number(pos.coords.latitude.toFixed(5)),
-            lon: Number(pos.coords.longitude.toFixed(5))
-          });
+          const lat = Number(pos.coords.latitude.toFixed(5));
+          const lon = Number(pos.coords.longitude.toFixed(5));
+          setCoords({ lat, lon });
           if (pos.coords.heading !== null && !isNaN(pos.coords.heading)) {
             setHeading(Math.round(pos.coords.heading));
           }
         },
         () => {},
-        { enableHighAccuracy: true, maximumAge: 2000 }
+        { enableHighAccuracy: true, maximumAge: 3000 }
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
@@ -75,11 +79,11 @@ export const SleekNavigationCockpit: React.FC<SleekNavigationCockpitProps> = ({
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  // Embed Live Waze map centered on current coordinates
-  const wazeEmbedUrl = `https://embed.waze.com/iframe?zoom=15&lat=${coords.lat}&lon=${coords.lon}&ct=livemap&pin=1`;
+  // Embed Live Waze map centered on stable coordinates (re-centered only on explicit click)
+  const wazeEmbedUrl = `https://embed.waze.com/iframe?zoom=15&lat=${mapCenter.lat}&lon=${mapCenter.lon}&ct=livemap&pin=1`;
 
   const displaySpeed = speedKmH !== null ? speedKmH : 0;
-  const isOverspeed = displaySpeed > speedLimit;
+  const isOverspeed = speedAlertThreshold > 0 && displaySpeed > speedAlertThreshold;
 
   return (
     <div className="w-full h-full flex flex-col bg-[#0B1017] border border-slate-800 rounded-2xl overflow-hidden shadow-2xl relative select-none">
@@ -216,14 +220,14 @@ export const SleekNavigationCockpit: React.FC<SleekNavigationCockpitProps> = ({
 
         {/* Floating Top-Left Speed Limit Sign & Vehicle Speed Badge */}
         <div className="absolute top-2.5 left-2.5 z-10 flex flex-col gap-2 pointer-events-auto">
-          {/* Circular Road Speed Limit Sign */}
+          {/* Circular Road Speed Alert Sign */}
           <div 
-            onClick={() => setSpeedLimit(l => (l === 100 ? 120 : l === 120 ? 80 : 100))}
+            onClick={() => setSpeedAlertThreshold(t => (t === 80 ? 100 : t === 100 ? 120 : t === 120 ? 140 : t === 140 ? 0 : 80))}
             className="w-11 h-11 rounded-full bg-white border-[3.5px] border-[#E02424] flex items-center justify-center shadow-xl cursor-pointer hover:scale-105 transition-transform"
-            title="Road Speed Limit (Tap to toggle: 80 / 100 / 120 km/h)"
+            title="Speed Alert Threshold (Tap to cycle: 80 / 100 / 120 / 140 km/h / OFF)"
           >
             <span className="text-sm font-black font-['Chakra_Petch'] text-slate-950">
-              {speedLimit}
+              {speedAlertThreshold > 0 ? speedAlertThreshold : '--'}
             </span>
           </div>
 
@@ -252,9 +256,9 @@ export const SleekNavigationCockpit: React.FC<SleekNavigationCockpitProps> = ({
           </div>
 
           <button
-            onClick={() => {}}
-            className="w-8 h-8 rounded-full bg-[#0E1722]/90 hover:bg-slate-800 border border-slate-700/80 text-slate-300 flex items-center justify-center shadow-lg transition-transform hover:scale-105"
-            title="Center on Vehicle GPS"
+            onClick={() => setMapCenter({ lat: coords.lat, lon: coords.lon })}
+            className="w-8 h-8 rounded-full bg-[#0E1722]/90 hover:bg-slate-800 border border-slate-700/80 text-cyan-400 flex items-center justify-center shadow-lg transition-transform hover:scale-105"
+            title="Re-center Map on Vehicle GPS"
           >
             <LocateFixed className="w-4 h-4" />
           </button>

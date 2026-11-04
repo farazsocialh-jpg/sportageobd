@@ -64,6 +64,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var liveLoad by mutableStateOf<Float?>(null)
     private var liveVoltage by mutableStateOf<Float?>(null)
     private var liveGear by mutableStateOf<Int>(0)
+    private var measuredHz by mutableStateOf<Float?>(null)
 
     // Real-time speed & RPM history for live graphing
     private val speedHistory = mutableStateListOf<Pair<Long, Int>>()
@@ -125,6 +126,7 @@ class MainActivity : ComponentActivity(), LocationListener {
             SportageObdTheme {
                 CarLauncherScreen(
                     connectionState = connState,
+                    measuredHz = measuredHz,
                     speed = liveSpeed,
                     rpm = liveRpm,
                     coolant = liveCoolant,
@@ -255,6 +257,7 @@ class MainActivity : ComponentActivity(), LocationListener {
         liveRpm = null
         liveCoolant = null
         liveVoltage = null
+        measuredHz = null
     }
 
     private fun sendTerminalCommand(command: String) {
@@ -277,9 +280,21 @@ class MainActivity : ComponentActivity(), LocationListener {
         pollingJob?.cancel()
         pollingJob = lifecycleScope.launch {
             var loopCount = 0
+            var lastFpsTime = System.currentTimeMillis()
+            var framesInWindow = 0
+
             while (isActive && transport.connectionState.value is ConnectionState.Connected) {
                 try {
                     val now = System.currentTimeMillis()
+
+                    // Measure actual polling rate
+                    framesInWindow++
+                    val elapsedWindow = now - lastFpsTime
+                    if (elapsedWindow >= 1000) {
+                        measuredHz = (framesInWindow * 1000f) / elapsedWindow
+                        framesInWindow = 0
+                        lastFpsTime = now
+                    }
 
                     // 1. Speed (010D)
                     val speedRes = transport.sendCommand("010D", 600)
@@ -300,10 +315,10 @@ class MainActivity : ComponentActivity(), LocationListener {
                         if (rpmHistory.size > 80) rpmHistory.removeAt(0)
                     }
 
-                    // Gear calculation
+                    // Gear calculation (estimated ratio, only when rolling)
                     val s = liveSpeed ?: 0
                     val r = liveRpm ?: 0
-                    if (s < 2) {
+                    if (s < 5) {
                         liveGear = 0
                     } else {
                         val ratio = if (s > 0) r / s else 0
@@ -341,7 +356,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     }
 
                     loopCount++
-                    delay(100) // 10Hz sampling
+                    delay(30) // Gentle throttle to maintain fast response while preventing bus saturation
                 } catch (_: Exception) {
                     delay(250)
                 }
@@ -436,6 +451,7 @@ class MainActivity : ComponentActivity(), LocationListener {
             liveRpm = null
             liveCoolant = null
             liveVoltage = null
+            measuredHz = null
         }
     }
 
@@ -445,6 +461,7 @@ class MainActivity : ComponentActivity(), LocationListener {
             var simSpeed = 45
             var simRpm = 1850
             var speedDelta = 1
+            measuredHz = 8.3f
             liveCoolant = 89
             liveIntakeTemp = 28
             liveFuelLevel = 65

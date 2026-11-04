@@ -80,9 +80,9 @@ export const SplitGaugesDisplay: React.FC<SplitGaugesDisplayProps> = ({
         </div>
 
         <div className="flex items-center gap-1.5">
-          {/* Gear Selector */}
+          {/* Gear Selector - Indicated as estimated ratio */}
           <div className="px-2.5 py-0.5 rounded-lg bg-[#0E1722] border border-cyan-500/30 text-cyan-300 font-['Chakra_Petch'] font-bold text-xs">
-            {gear === 0 ? 'P / N' : `GEAR [ D${gear} ]`}
+            {gear === 0 || (speed ?? 0) < 5 ? 'GEAR: P / N' : `GEAR (EST.): D${gear}`}
           </div>
 
           {/* Mode switch (3D Highway vs Dual Dials) */}
@@ -105,6 +105,14 @@ export const SplitGaugesDisplay: React.FC<SplitGaugesDisplayProps> = ({
           </button>
         </div>
       </div>
+
+      {/* BENCH DEMO BANNER IF ACTIVE */}
+      {protocol === 'BENCH_SIMULATION' && (
+        <div className="bg-amber-500/15 border border-amber-500/40 rounded-lg px-2.5 py-1 text-center font-mono text-[10px] font-bold text-amber-300 flex items-center justify-center gap-1.5 shrink-0 my-0.5">
+          <span>⚠️</span>
+          <span>BENCH DEMO ACTIVE · SIMULATED CAN TELEMETRY (NOT VEHICLE ECU)</span>
+        </div>
+      )}
 
       {/* 2. CENTER DISPLAY: 3D HIGHWAY COCKPIT OR DUAL DIALS */}
       <div className="flex-1 w-full relative flex items-center justify-center overflow-hidden my-1">
