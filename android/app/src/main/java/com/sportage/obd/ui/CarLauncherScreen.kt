@@ -1068,10 +1068,34 @@ fun LiveMapSurface(
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 val isOnlineMap = mapProvider == "OPENSTREETMAP_EMBED"
 
+                // NATIVE FALLBACK LAYER: drawn with Compose Canvas, so it renders even if the
+                // head unit's WebView is broken or disabled. The WebView sits on top with a
+                // transparent background; if it stays dead, this layer is what the driver sees.
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val gridColor = Color(0xFF122033)
+                    val step = size.width / 8f
+                    var x = 0f
+                    while (x <= size.width) {
+                        drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 1f)
+                        x += step
+                    }
+                    var y = 0f
+                    while (y <= size.height) {
+                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1f)
+                        y += step
+                    }
+                    // Position marker at the center (last known fix).
+                    val c = Offset(size.width / 2f, size.height / 2f)
+                    drawCircle(Color(0xFF33CCFF), radius = 26f, center = c, alpha = 0.18f)
+                    drawCircle(Color(0xFF33CCFF), radius = 12f, center = c)
+                    drawCircle(Color(0xFF05070B), radius = 4f, center = c)
+                }
+
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
                         WebView(ctx).apply {
+                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
@@ -1338,7 +1362,7 @@ fun LiveMapSurface(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "GPS ACTIVE · CONTINUOUS CAR MAPPING",
+                    text = "GPS ACTIVE · MAP ${com.sportage.obd.MainActivity.APP_BUILD_TAG}",
                     color = SecondaryText,
                     fontSize = 9.sp,
                     fontFamily = FontFamily.Monospace

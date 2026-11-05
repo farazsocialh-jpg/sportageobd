@@ -9,6 +9,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.provider.Settings
+import androidx.core.content.ContextCompat
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -266,7 +267,17 @@ fun BluetoothDialog(
             addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED)
             addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED)
         }
-        context.registerReceiver(receiver, filter)
+        // RECEIVER_NOT_EXPORTED: some Chinese head-unit ROMs throw SecurityException when a
+        // receiver is registered without an export flag on targetSdk 35 - that crash killed
+        // the app the moment the Bluetooth dialog opened.
+        try {
+            ContextCompat.registerReceiver(
+                context,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (_: Exception) {}
 
         // Discovery is NEVER started automatically. On Android head units (TS10 / UIS7862 /
         // MTK) an app-initiated discovery makes the unit's Bluetooth stack refresh and
@@ -324,9 +335,11 @@ fun BluetoothDialog(
         }
 
         try {
-            context.registerReceiver(
+            ContextCompat.registerReceiver(
+                context,
                 bondReceiver,
-                IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
             )
         } catch (_: Exception) {}
 
@@ -1134,8 +1147,8 @@ fun BluetoothDialog(
                     }
                 }
 
-                // TAB 2: TROUBLESHOOTING
-                if (selectedTab == 2) {
+                // TAB 3: TROUBLESHOOTING
+                if (selectedTab == 3) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

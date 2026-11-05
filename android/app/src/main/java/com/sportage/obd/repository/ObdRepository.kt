@@ -259,16 +259,23 @@ class ObdRepository(private val context: Context) {
     }
 
     fun connectDevice(device: BluetoothDevice, ble: Boolean = false) {
-        if (_isDemoMode.value) {
-            setDemoMode(false)
-        }
-        val service = obdService
-        if (service != null) {
-            service.connectToDevice(device, ble)
-        } else {
-            pendingDevice = device
-            pendingDeviceIsBle = ble
-            startAndBindService()
+        try {
+            if (_isDemoMode.value) {
+                setDemoMode(false)
+            }
+            val service = obdService
+            if (service != null) {
+                service.connectToDevice(device, ble)
+            } else {
+                pendingDevice = device
+                pendingDeviceIsBle = ble
+                startAndBindService()
+            }
+        } catch (e: Exception) {
+            // Some head-unit Bluetooth stacks throw instead of failing gracefully when the
+            // RFCOMM socket cannot be opened. Surface it as an error state instead of crashing.
+            _connectionState.value =
+                ConnectionState.Error("Connect failed: ${e.localizedMessage ?: e.javaClass.simpleName}")
         }
     }
 

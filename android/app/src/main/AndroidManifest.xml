@@ -53,6 +53,7 @@
     </queries>
 
     <application
+        android:name=".SportageObdApp"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:label="Sportage Launcher"

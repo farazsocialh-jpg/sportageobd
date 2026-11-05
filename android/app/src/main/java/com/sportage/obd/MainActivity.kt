@@ -34,6 +34,7 @@ import com.sportage.obd.ui.theme.SportageObdTheme
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,6 +50,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
 class MainActivity : ComponentActivity(), LocationListener {
+
+    companion object {
+        const val APP_BUILD_TAG = "2026-11-05.a"
+    }
 
     private val viewModel: ObdViewModel by viewModels()
     private var locationManager: LocationManager? = null
@@ -116,6 +121,8 @@ class MainActivity : ComponentActivity(), LocationListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        showPreviousCrashReport()
 
         // targetSdk 35 forces edge-to-edge on Android 15, which drew the cockpit strip underneath
         // the status bar. Opt in explicitly with transparent bars, then pad the root layout with the
@@ -285,6 +292,28 @@ class MainActivity : ComponentActivity(), LocationListener {
         terminalLogs.add(TerminalLog(direction, text, timeStr))
         if (terminalLogs.size > 200) {
             terminalLogs.removeAt(0)
+        }
+    }
+
+    private fun showPreviousCrashReport() {
+        try {
+            val file = File(filesDir, "last_crash.txt")
+            if (!file.exists()) return
+            val report = file.readText().trim().take(1800)
+            file.renameTo(File(filesDir, "last_crash_read.txt"))
+            android.util.Log.e("SportageOBD", "Previous crash report:\n$report")
+            logTerminal("ERR", "=== PREVIOUS APP CRASH (build $APP_BUILD_TAG) ===")
+            report.lineSequence().take(24).forEach { line ->
+                logTerminal("ERR", line.take(160))
+            }
+            logTerminal("ERR", "=== END OF CRASH REPORT - send a screenshot of this terminal ===")
+            Toast.makeText(
+                this,
+                "App crashed last time. Open Bluetooth > RAW TERMINAL tab to see the reason.",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            android.util.Log.w("SportageOBD", "crash report read failed", e)
         }
     }
 
