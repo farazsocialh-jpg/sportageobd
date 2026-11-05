@@ -155,6 +155,10 @@ class ObdService : Service() {
     private var fuelUsedLiters = 0f
     private var lastFuelSampleAtMs = 0L
 
+    // Critical-alert notifications are throttled: the polling loop runs at ~30 Hz and used to
+    // re-post the same warning on every iteration.
+    private var lastAlertNotificationAtMs = 0L
+
     inner class ObdServiceBinder : Binder() {
         fun getService(): ObdService = this@ObdService
     }
@@ -207,9 +211,27 @@ class ObdService : Service() {
         activeDevice = device
         useBle = ble
         reconnectJob?.cancel()
+        stopPolling()
+
+        // Release the previous link before swapping transports. An SPP adapter accepts a single
+        // client, so a socket left open here made every later connect fail with "socket busy".
+        try {
+            transport.disconnect()
+        } catch (_: Exception) {}
+
         transport = if (ble) BleTransport(this) else BluetoothTransport()
         serviceScope.launch {
-            val success = transport.connect(device)
+            // transport.connect() can throw (permission revoked mid-dialog, adapter unplugged);
+            // an uncaught exception in this launch would terminate the process.
+            val success = try {
+                transport.connect(device)
+            } catch (e: SecurityException) {
+                updateNotification("Bluetooth permission is required to connect")
+                false
+            } catch (e: Exception) {
+                updateNotification("Connection failed: ${e.localizedMessage ?: "Bluetooth error"}")
+                false
+            }
             if (success) {
                 rememberDevice(device)
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
@@ -542,7 +564,12 @@ class ObdService : Service() {
                     _telemetry.value = newTelemetry
                     alertEngine.evaluate(newTelemetry)
                     val criticalAlert = alertEngine.activeAlerts.value.firstOrNull { it.severity == AlertSeverity.CRITICAL }
-                    if (criticalAlert != null) postAlertNotification(criticalAlert)
+                    if (criticalAlert != null && now - lastAlertNotificationAtMs >= 60_000L) {
+                        lastAlertNotificationAtMs = now
+                        postAlertNotification(criticalAlert)
+                    } else if (criticalAlert == null) {
+                        lastAlertNotificationAtMs = 0L
+                    }
                     csvLogger.log(newTelemetry)
 
                     delay(30) // Fast cycle rate
@@ -576,7 +603,13 @@ class ObdService : Service() {
                 if (!isActive || activeDevice == null) break
 
                 updateNotification("Reconnecting to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}...")
-                val ok = transport.connect(target)
+                val ok = try {
+                    transport.connect(target)
+                } catch (_: SecurityException) {
+                    false
+                } catch (_: Exception) {
+                    false
+                }
                 if (ok) {
                     updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}")
                     initializeElm327()

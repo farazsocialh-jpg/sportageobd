@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.ui.theme.*
 
@@ -60,6 +61,10 @@ fun BluetoothDialog(
     val context = LocalContext.current
     var selectedTab by remember { mutableStateOf(0) } // 0: Devices, 1: Terminal, 2: Help
     var commandInput by remember { mutableStateOf("") }
+
+    // Deferred pairing state for the "Pair & Connect" button.
+    var pendingPairDevice by remember { mutableStateOf<BluetoothDevice?>(null) }
+    var pendingPairFailed by remember { mutableStateOf<String?>(null) }
 
     val discoveredDevices = remember { mutableStateListOf<BluetoothDevice>() }
     var isScanningNearby by remember { mutableStateOf(false) }
@@ -128,9 +133,15 @@ fun BluetoothDialog(
                             @Suppress("DEPRECATION")
                             intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE)
                         }
-                        if (device != null && !device.name.isNullOrBlank()) {
-                            val addr = device.address
-                            if (discoveredDevices.none { it.address == addr } && pairedDevices.none { it.address == addr }) {
+                        if (device != null) {
+                            // Reading name/address needs BLUETOOTH_CONNECT on Android 12+; a raw
+                            // read here threw inside a BroadcastReceiver and killed the process.
+                            val name = BluetoothDeviceInfo.displayName(context, device, "")
+                            val addr = BluetoothDeviceInfo.address(context, device)
+                            if (name.isNotBlank() && addr != null &&
+                                discoveredDevices.none { BluetoothDeviceInfo.address(context, it) == addr } &&
+                                pairedDevices.none { BluetoothDeviceInfo.address(context, it) == addr }
+                            ) {
                                 discoveredDevices.add(device)
                             }
                         }
@@ -164,6 +175,46 @@ fun BluetoothDialog(
             } catch (_: Exception) {}
             try {
                 BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner?.stopScan(bleScanCallback)
+            } catch (_: Exception) {}
+        }
+    }
+
+    // Watches the device being paired so the RFCOMM connect only starts once bonding completes.
+    DisposableEffect(pendingPairDevice) {
+        val device = pendingPairDevice
+        if (device == null) return@DisposableEffect onDispose {}
+
+        val bondReceiver = object : BroadcastReceiver() {
+            override fun onReceive(c: Context?, intent: Intent?) {
+                if (intent?.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+
+                @Suppress("DEPRECATION")
+                val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
+
+                when (bondState) {
+                    BluetoothDevice.BOND_BONDED -> {
+                        pendingPairDevice = null
+                        pendingPairFailed = null
+                        onConnectDevice(device, false)
+                    }
+                    BluetoothDevice.BOND_NONE -> {
+                        pendingPairDevice = null
+                        pendingPairFailed = "Pairing was cancelled or did not complete. Tap to retry."
+                    }
+                }
+            }
+        }
+
+        try {
+            context.registerReceiver(
+                bondReceiver,
+                IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+            )
+        } catch (_: Exception) {}
+
+        onDispose {
+            try {
+                context.unregisterReceiver(bondReceiver)
             } catch (_: Exception) {}
         }
     }
@@ -409,14 +460,15 @@ fun BluetoothDialog(
                                 }
 
                                 items(pairedDevices) { device ->
-                                    val devName = device.name ?: "Unknown Bluetooth Device"
+                                    val devName = BluetoothDeviceInfo.displayName(context, device, "Unknown Bluetooth Device")
                                     val isObd = devName.lowercase().contains("obd") ||
                                             devName.lowercase().contains("elm") ||
                                             devName.lowercase().contains("vgate") ||
                                             devName.lowercase().contains("carista")
 
+                                    val deviceAddress = BluetoothDeviceInfo.address(context, device)
                                     val isCurrentConnected = connectionState is ConnectionState.Connected &&
-                                            (connectionState as ConnectionState.Connected).address == device.address
+                                            (connectionState as ConnectionState.Connected).address == deviceAddress
 
                                     Surface(
                                         color = if (isCurrentConnected) Color(0xFF0E2822) else Color(0xFF0E1520),
@@ -474,7 +526,7 @@ fun BluetoothDialog(
                                                         }
                                                     }
                                                     Text(
-                                                        text = "MAC: ${device.address}",
+                                                        text = BluetoothDeviceInfo.address(context, device)?.let { "MAC: $it" } ?: "MAC unavailable",
                                                         color = SecondaryText,
                                                         fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -530,7 +582,7 @@ fun BluetoothDialog(
                                 }
 
                                 items(discoveredDevices) { device ->
-                                    val devName = device.name ?: "Nearby Bluetooth Device"
+                                    val devName = BluetoothDeviceInfo.displayName(context, device, "Nearby Bluetooth Device")
                                     val isObd = devName.lowercase().contains("obd") ||
                                             devName.lowercase().contains("elm") ||
                                             devName.lowercase().contains("vgate") ||
@@ -587,7 +639,7 @@ fun BluetoothDialog(
                                                         )
                                                     }
                                                     Text(
-                                                        text = "MAC: ${device.address}",
+                                                        text = BluetoothDeviceInfo.address(context, device)?.let { "MAC: $it" } ?: "MAC unavailable",
                                                         color = SecondaryText,
                                                         fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -597,18 +649,44 @@ fun BluetoothDialog(
 
                                             Button(
                                                 onClick = {
+                                                    pendingPairFailed = null
+                                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                                                        try {
+                                                            val permission = android.Manifest.permission.BLUETOOTH_CONNECT
+                                                            @Suppress("DEPRECATION")
+                                                            val granted = context.checkCallingOrSelfPermission(permission) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                                                            if (!granted) {
+                                                                pendingPairFailed = "Bluetooth connection permission is required before pairing."
+                                                                return@Button
+                                                            }
+                                                        } catch (_: SecurityException) {
+                                                            pendingPairFailed = "Bluetooth connection permission is required before pairing."
+                                                            return@Button
+                                                        }
+                                                    }
+
                                                     try {
                                                         device.createBond()
-                                                    } catch (_: Exception) {}
-                                                    onConnectDevice(device, false)
+                                                    } catch (bondError: Exception) {
+                                                        pendingPairFailed = "Pairing request failed: ${bondError.localizedMessage?.takeIf { it.isNotBlank() } ?: "unknown error"}"
+                                                        return@Button
+                                                    }
+
+                                                    // Wait for bond completion before attempting RFCOMM.
+                                                    pendingPairDevice = device
                                                 },
-                                                enabled = connectionState !is ConnectionState.Connecting,
+                                                enabled = connectionState !is ConnectionState.Connecting &&
+                                                        pendingPairDevice == null,
                                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                                                 shape = RoundedCornerShape(6.dp),
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Text(
-                                                    text = "Pair & Connect",
+                                                    text = when {
+                                                        pendingPairFailed != null -> "Retry Pair"
+                                                        pendingPairDevice != null -> "Pairing..."
+                                                        else -> "Pair & Connect"
+                                                    },
                                                     color = Color(0xFF05070B),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,
@@ -763,7 +841,7 @@ fun BluetoothDialog(
                                         ) {
                                             Column {
                                                 Text(
-                                                    text = device.name ?: "BLE OBD Adapter",
+                                                    text = BluetoothDeviceInfo.displayName(context, device, "BLE OBD Adapter"),
                                                     color = Color.White,
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,

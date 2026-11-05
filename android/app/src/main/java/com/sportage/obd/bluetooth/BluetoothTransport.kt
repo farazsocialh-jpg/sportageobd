@@ -131,9 +131,9 @@ class BluetoothTransport : ElmTransport {
             inStream.read()
         }
 
-        // ELM327 commands must terminate with Carriage Return ('\\r')
-        val formatted = command.trim() + "\\r"
-        out.write(formatted.toByteArray(Charsets.US_ASCII))
+        // ELM327 commands must terminate with a carriage return (0x0D), not the two characters
+        // backslash + 'r'. Elm327Command.format() appends the real CR byte.
+        out.write(Elm327Command.format(command).toByteArray(Charsets.US_ASCII))
         out.flush()
 
         // Read until prompt '>' is received
@@ -156,11 +156,7 @@ class BluetoothTransport : ElmTransport {
             }
         }
 
-        buffer.toString()
-            .replace("\\r", " ")
-            .replace("\\n", " ")
-            .replace(">", "")
-            .trim()
+        Elm327Command.cleanResponse(buffer.toString())
     }
 
     override fun disconnect() {

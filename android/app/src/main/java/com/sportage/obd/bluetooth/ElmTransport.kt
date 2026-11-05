@@ -17,3 +17,22 @@ interface ElmTransport {
 
     fun disconnect()
 }
+
+/**
+ * ELM327 wire framing shared by every transport.
+ *
+ * A command must end with a real carriage return (0x0D). A literal backslash followed by 'r'
+ * leaves the line unterminated, so the adapter never answers and every read times out.
+ */
+object Elm327Command {
+
+    /** Terminates [command] with the carriage return the ELM327 expects. */
+    fun format(command: String): String = command.trim() + "\r"
+
+    /** Strips the ELM prompt and collapses line endings into single spaces. */
+    fun cleanResponse(raw: String): String = raw
+        .replace('\r', ' ')
+        .replace('\n', ' ')
+        .replace(">", "")
+        .trim()
+}

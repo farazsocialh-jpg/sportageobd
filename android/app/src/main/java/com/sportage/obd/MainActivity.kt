@@ -16,7 +16,9 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
@@ -39,7 +41,10 @@ import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 
@@ -90,17 +95,32 @@ class MainActivity : ComponentActivity(), LocationListener {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val btGranted = permissions.entries
-            .filter { it.key.contains("BLUETOOTH") }
-            .all { it.value }
+        val btEntries = permissions.entries.filter { it.key.contains("BLUETOOTH") }
+        val btGranted = btEntries.all { it.value }
         if (btGranted) {
             refreshPairedDevices()
+        } else if (btEntries.isNotEmpty()) {
+            // Silence here looked like "no adapters found"; tell the driver what actually happened.
+            Toast.makeText(
+                this,
+                "Bluetooth permission denied - OBD adapters cannot be scanned or connected",
+                Toast.LENGTH_LONG
+            ).show()
         }
         initLocationTracking()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // targetSdk 35 forces edge-to-edge on Android 15, which drew the cockpit strip underneath
+        // the status bar. Opt in explicitly with transparent bars, then pad the root layout with the
+        // system bar insets below.
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+        )
+
         locationManager = getSystemService(Context.LOCATION_SERVICE) as? LocationManager
 
         autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
@@ -164,6 +184,12 @@ class MainActivity : ComponentActivity(), LocationListener {
             SportageObdTheme {
                 val isNight = isSystemInDarkTheme()
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // Inset the dashboard so the status bar / navigation bar never cover controls.
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .windowInsetsPadding(WindowInsets.safeDrawing)
+                    ) {
                     CarLauncherScreen(
                         connectionState = connState,
                         measuredHz = measuredHz,
@@ -213,6 +239,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                             uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
                         }
                     )
+                    }
 
                     // Night dimming overlay: darkens the whole dashboard after dark.
                     // Non-interactive, so all controls stay touchable underneath.
@@ -377,6 +404,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                 if (isTripActive) {
                     tripDurationSeconds = (System.currentTimeMillis() - tripStartTime) / 1000
                     val currentSpd = liveSpeed ?: currentGpsSpeed ?: 0
+                    if (currentSpd > tripMaxSpeed) tripMaxSpeed = currentSpd
                     if (currentSpd > 0) {
                         // distance = speed * time
                         tripDistanceKm += (currentSpd.toDouble() / 3600.0)

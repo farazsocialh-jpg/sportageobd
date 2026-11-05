@@ -1,6 +1,9 @@
 package com.sportage.obd
 
+import com.sportage.obd.bluetooth.Elm327Command
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -11,9 +14,25 @@ class Elm327CommandTest {
 
     @Test
     fun testCommandFormatting_CarriageReturnTermination() {
-        val cmd = "010C"
-        val formatted = cmd.trim() + "\r"
-        assertEquals("010C\r", formatted)
+        // Exercises the production formatter, not a copy of it.
+        val framed = Elm327Command.format("010C")
+        assertEquals("010C\r", framed)
+        assertTrue("Framed command must end with the 0x0D byte", framed.last() == '\r')
+        assertFalse(
+            "A literal backslash-r must never reach the adapter",
+            framed.contains("\\r")
+        )
+    }
+
+    @Test
+    fun testCommandFormatting_TrimsSurroundingWhitespace() {
+        assertEquals("ATZ\r", Elm327Command.format("  ATZ \n"))
+    }
+
+    @Test
+    fun testCleanResponse_StripsPromptAndLineEndings() {
+        val cleaned = Elm327Command.cleanResponse("SEARCHING...\r\r41 0C 1A F8\r\r>")
+        assertEquals("SEARCHING...  41 0C 1A F8", cleaned)
     }
 
     @Test

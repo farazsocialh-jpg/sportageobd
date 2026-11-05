@@ -19,6 +19,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -55,6 +56,21 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+/** Desktop UA: the Waze embed only renders for desktop-class clients; the mobile UA gets an app wall. */
+private const val WAZE_EMBED_USER_AGENT =
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+
+/** Mobile Chrome UA for the local Leaflet map so tiles are served at the right scale. */
+private const val MOBILE_MAP_USER_AGENT =
+    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+
+/**
+ * Waze live-map URL that actually renders inside a WebView. The /live-map/directions page
+ * redirects to the Play Store / app wall on a mobile UA, which is what produced a blank surface.
+ */
+private fun wazeLiveMapUrl(lat: Double, lon: Double): String =
+    "https://embed.waze.com/iframe?zoom=15&lat=$lat&lon=$lon&ct=livemap&locale=en"
 
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
@@ -278,9 +294,10 @@ fun CarLauncherScreen(
                         .fillMaxHeight()
                         .background(Color(0xFF070B12))
                         .border(BorderStroke(1.dp, Color(0xFF1E293B)))
+                        .verticalScroll(rememberScrollState())
                         .padding(vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -590,8 +607,9 @@ fun CarLauncherScreen(
                         .height(54.dp)
                         .background(Color(0xFF070B12))
                         .border(BorderStroke(1.dp, Color(0xFF1E293B)))
+                        .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     DockButton(icon = Icons.Default.Home, label = "Home", isSelected = activePage == 0, accentColor = ElectricCyan, onClick = { onNavigatePage(0) })
@@ -701,11 +719,12 @@ fun TopCockpitStatusStrip(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(32.dp)
+            .heightIn(min = 32.dp)
             .background(Color(0xFF090D14))
             .border(BorderStroke(1.dp, Color(0xFF1E293B)))
-            .padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.SpaceBetween,
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 10.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -948,6 +967,7 @@ fun LiveMapSurface(
 ) {
     var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "WAZE_EMBED"
     var currentLoadedProvider by remember { mutableStateOf<String?>(null) }
+    var mapError by remember { mutableStateOf<String?>(null) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
 
     // Base Leaflet HTML rendered once - exposes updateVehicleLocation function for zero-flicker pan/marker
@@ -960,6 +980,12 @@ fun LiveMapSurface(
             <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+            <script>
+                // Fallback CDN so a blocked unpkg request does not leave a blank map surface
+                if (!window.L) {
+                    document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
+                }
+            </script>
             <style>
                 body, html, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #070B12; }
                 .car-marker {
@@ -972,13 +998,22 @@ fun LiveMapSurface(
         <body>
             <div id="map"></div>
             <script>
-                var map = L.map('map', { zoomControl: false, attributionControl: false })
+                var map = null;
+                var carMarker = null;
+                if (typeof L === 'undefined') {
+                    document.getElementById('map').innerHTML =
+                        '<div style="color:#94A3B8;font:12px monospace;padding:18px;text-align:center">' +
+                        'Map library unavailable - check the head unit internet connection.<br>' +
+                        'GPS: ' + '$currentLat' + ', ' + '$currentLon' + '</div>';
+                } else {
+                map = L.map('map', { zoomControl: false, attributionControl: false })
                     .setView([$currentLat, $currentLon], 15);
                 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
                     maxZoom: 19, subdomains: 'abcd'
                 }).addTo(map);
                 var carIcon = L.divIcon({ className: 'car-marker', iconSize: [22, 22] });
-                var carMarker = L.marker([$currentLat, $currentLon], { icon: carIcon }).addTo(map);
+                carMarker = L.marker([$currentLat, $currentLon], { icon: carIcon }).addTo(map);
+                }
 
                 window.updateVehicleLocation = function(lat, lon) {
                     if (map) {
@@ -1083,19 +1118,49 @@ fun LiveMapSurface(
                                 cacheMode = WebSettings.LOAD_DEFAULT
                                 allowFileAccess = true
                                 allowContentAccess = true
-                                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
+                                userAgentString = if (mapProvider == "OSM_DARK") MOBILE_MAP_USER_AGENT else WAZE_EMBED_USER_AGENT
+                                useWideViewPort = true
+                                loadWithOverviewMode = true
                             }
                             webChromeClient = object : WebChromeClient() {
                                 override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
                                     callback?.invoke(origin, true, false)
                                 }
                             }
-                            webViewClient = WebViewClient()
+                            webViewClient = object : WebViewClient() {
+                                override fun onPageFinished(view: WebView?, url: String?) {
+                                    super.onPageFinished(view, url)
+                                    if (mapProvider == "OSM_DARK") mapError = null
+                                }
+
+                                override fun onReceivedError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    error: WebResourceError?
+                                ) {
+                                    if (request?.isForMainFrame == true && mapProvider != "OSM_DARK") {
+                                        mapError = "Waze map unavailable (${error?.description ?: "network error"}). Showing offline map."
+                                        mapProvider = "OSM_DARK"
+                                    }
+                                }
+
+                                override fun onReceivedHttpError(
+                                    view: WebView?,
+                                    request: WebResourceRequest?,
+                                    errorResponse: android.webkit.WebResourceResponse?
+                                ) {
+                                    val status = errorResponse?.statusCode ?: 0
+                                    if (request?.isForMainFrame == true && status >= 400 && mapProvider != "OSM_DARK") {
+                                        mapError = "Waze map blocked (HTTP $status). Showing offline map."
+                                        mapProvider = "OSM_DARK"
+                                    }
+                                }
+                            }
 
                             if (mapProvider == "OSM_DARK") {
                                 loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
                             } else {
-                                loadUrl("https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1")
+                                loadUrl(wazeLiveMapUrl(currentLat, currentLon))
                             }
                             currentLoadedProvider = mapProvider
                         }
@@ -1104,9 +1169,11 @@ fun LiveMapSurface(
                         if (mapProvider != currentLoadedProvider) {
                             currentLoadedProvider = mapProvider
                             if (mapProvider == "OSM_DARK") {
+                                webView.settings.userAgentString = MOBILE_MAP_USER_AGENT
                                 webView.loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
                             } else {
-                                webView.loadUrl("https://embed.waze.com/iframe?zoom=15&lat=$currentLat&lon=$currentLon&ct=livemap&pin=1")
+                                webView.settings.userAgentString = WAZE_EMBED_USER_AGENT
+                                webView.loadUrl(wazeLiveMapUrl(currentLat, currentLon))
                             }
                         } else if (mapProvider == "OSM_DARK") {
                             // Smooth marker update without reloading HTML or network requests!
@@ -1117,6 +1184,26 @@ fun LiveMapSurface(
                         }
                     }
                 )
+
+                // Non-blocking map notice replaced the old silent blank WebView
+                mapError?.let { message ->
+                    Surface(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .padding(top = 8.dp),
+                        color = AmberWarning.copy(alpha = 0.92f),
+                        shape = RoundedCornerShape(6.dp)
+                    ) {
+                        Text(
+                            text = message,
+                            color = Color(0xFF05070B),
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
 
                 // Floating Road Speed Alert Sign & Speed Badge (Top Left of Map)
                 Row(

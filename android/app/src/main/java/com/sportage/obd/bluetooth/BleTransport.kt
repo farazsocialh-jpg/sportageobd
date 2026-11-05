@@ -44,33 +44,53 @@ class BleTransport(private val context: Context) : ElmTransport {
     private val gattCallback = object : BluetoothGattCallback() {
 
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
-                g.discoverServices()
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
-                if (status != BluetoothGatt.GATT_SUCCESS) {
-                    _connectionState.value = ConnectionState.Error("BLE link lost (status $status)")
-                } else {
-                    _connectionState.value = ConnectionState.Disconnected
+            // GATT callbacks arrive on a binder thread: an escaping SecurityException here kills
+            // the process, so every branch is guarded.
+            try {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
+                    g.discoverServices()
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+                    if (status != BluetoothGatt.GATT_SUCCESS) {
+                        _connectionState.value = ConnectionState.Error("BLE link lost (status $status)")
+                    } else {
+                        _connectionState.value = ConnectionState.Disconnected
+                    }
+                    val awaiter = responseAwaiter
+                    responseAwaiter = null
+                    awaiter?.invoke("")
                 }
-                val awaiter = responseAwaiter
-                responseAwaiter = null
-                awaiter?.invoke("")
+            } catch (_: SecurityException) {
+                _connectionState.value = ConnectionState.Error(
+                    "Bluetooth permission was revoked. Grant Nearby devices and reconnect."
+                )
+            } catch (_: Exception) {
+                _connectionState.value = ConnectionState.Error("BLE link error")
             }
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) {
-                _connectionState.value = ConnectionState.Error("BLE service discovery failed")
-                return
-            }
-            if (configureCharacteristics(g)) {
-                _connectionState.value = ConnectionState.Connected(
-                    deviceName = g.device.name ?: "ELM327 BLE",
-                    address = g.device.address,
-                    protocol = "ISO 15765-4 (CAN 11/500) via BLE"
+            try {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    _connectionState.value = ConnectionState.Error("BLE service discovery failed")
+                    return
+                }
+                if (configureCharacteristics(g)) {
+                    // Reading name/address needs BLUETOOTH_CONNECT; use the guarded accessors so a
+                    // revoked permission cannot crash inside this callback.
+                    _connectionState.value = ConnectionState.Connected(
+                        deviceName = BluetoothDeviceInfo.displayName(context, g.device, "ELM327 BLE"),
+                        address = BluetoothDeviceInfo.address(context, g.device) ?: "unknown",
+                        protocol = "ISO 15765-4 (CAN 11/500) via BLE"
+                    )
+                } else {
+                    _connectionState.value = ConnectionState.Error("Adapter has no known ELM327 BLE service")
+                }
+            } catch (_: SecurityException) {
+                _connectionState.value = ConnectionState.Error(
+                    "Bluetooth permission was revoked. Grant Nearby devices and reconnect."
                 )
-            } else {
-                _connectionState.value = ConnectionState.Error("Adapter has no known ELM327 BLE service")
+            } catch (_: Exception) {
+                _connectionState.value = ConnectionState.Error("BLE service discovery failed")
             }
         }
 
@@ -148,7 +168,24 @@ class BleTransport(private val context: Context) : ElmTransport {
     @SuppressLint("MissingPermission")
     override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
         _connectionState.value = ConnectionState.Connecting
-        val g = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+
+        // connectGatt throws SecurityException when BLUETOOTH_CONNECT is missing and
+        // IllegalArgumentException for a malformed device handle; both used to escape the service
+        // coroutine and crash the app.
+        val g = try {
+            device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        } catch (_: SecurityException) {
+            null
+        } catch (_: Exception) {
+            null
+        }
+
+        if (g == null) {
+            _connectionState.value = ConnectionState.Error(
+                "Bluetooth permission is required for a BLE link. Grant Nearby devices and retry."
+            )
+            return@withContext false
+        }
         gatt = g
 
         val finalState = try {
@@ -181,13 +218,10 @@ class BleTransport(private val context: Context) : ElmTransport {
                 withTimeout(timeoutMs) {
                     suspendCancellableCoroutine { cont ->
                         val awaiter: (String) -> Unit = { raw ->
-                            cont.resume(
-                                raw.replace("\r", " ").replace("\n", " ")
-                                    .replace(">", "").trim()
-                            )
+                            cont.resume(Elm327Command.cleanResponse(raw))
                         }
                         responseAwaiter = awaiter
-                        val data = (command.trim() + "\r").toByteArray(Charsets.US_ASCII)
+                        val data = Elm327Command.format(command).toByteArray(Charsets.US_ASCII)
                         @Suppress("DEPRECATION")
                         ch.value = data
                         gatt?.writeCharacteristic(ch)

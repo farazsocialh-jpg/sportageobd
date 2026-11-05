@@ -10,16 +10,42 @@ android {
     namespace = "com.sportage.obd"
     compileSdk = 35
 
-    // Release signing credentials are loaded from android/keystore.properties
-    // (never committed - see keystore.properties.example). If that file is
-    // absent, the release build falls back to unsigned output, matching the
-    // previous behavior, so local builds keep working without a keystore.
+    // Release signing credentials are read from the environment first (CI) and then from
+    // android/keystore.properties (local machines). Neither is ever committed.
+    // With no credentials at all the release build stays unsigned instead of failing, so
+    // ordinary local builds keep working without a keystore.
     val keystoreProps = Properties()
     val keystorePropsFile = rootProject.file("keystore.properties")
-    val hasReleaseKeystore = keystorePropsFile.exists()
-    if (hasReleaseKeystore) {
+    if (keystorePropsFile.exists()) {
         keystorePropsFile.inputStream().use { keystoreProps.load(it) }
     }
+
+    val envKeystorePath = System.getenv("SPORTAGE_KEYSTORE_FILE")
+    val releaseStoreFile = when {
+        !envKeystorePath.isNullOrBlank() -> rootProject.file(envKeystorePath)
+        !keystoreProps.getProperty("storeFile").isNullOrBlank() ->
+            rootProject.file(keystoreProps.getProperty("storeFile")!!)
+        else -> null
+    }
+    val releaseStorePassword =
+        System.getenv("SPORTAGE_KEYSTORE_PASSWORD") ?: keystoreProps.getProperty("storePassword")
+    val releaseKeyAlias =
+        System.getenv("SPORTAGE_KEY_ALIAS") ?: keystoreProps.getProperty("keyAlias")
+    val releaseKeyPassword =
+        System.getenv("SPORTAGE_KEY_PASSWORD") ?: keystoreProps.getProperty("keyPassword")
+
+    val hasReleaseKeystore = releaseStoreFile?.exists() == true &&
+        !releaseStorePassword.isNullOrBlank() &&
+        !releaseKeyAlias.isNullOrBlank() &&
+        !releaseKeyPassword.isNullOrBlank()
+
+    logger.lifecycle(
+        if (hasReleaseKeystore) {
+            "Release signing: ENABLED (${releaseStoreFile!!.name})"
+        } else {
+            "Release signing: no credentials - assembleRelease will produce an UNSIGNED apk"
+        }
+    )
 
     defaultConfig {
         applicationId = "com.sportage.obd"
@@ -37,13 +63,14 @@ android {
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
-                val storeFilePath = keystoreProps.getProperty("storeFile")
-                if (storeFilePath != null) {
-                    storeFile = keystorePropsFile.parentFile.resolve(storeFilePath)
-                }
-                storePassword = keystoreProps.getProperty("storePassword")
-                keyAlias = keystoreProps.getProperty("keyAlias")
-                keyPassword = keystoreProps.getProperty("keyPassword")
+                storeFile = releaseStoreFile
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+                // minSdk is 28, so APK Signature Scheme v2 alone is enough; JAR (v1) signing
+                // only matters below Android 7.0 and AGP does not emit it above minSdk 24.
+                enableV1Signing = false
+                enableV2Signing = true
             }
         }
     }
