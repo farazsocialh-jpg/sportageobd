@@ -41,6 +41,115 @@ data class TerminalLog(
     val time: String
 )
 
+/**
+ * Defensive classification for the connect action on a paired (or discovered) device.
+ *
+ * The Android Bluetooth stack can still list a device as bonded even after it has gone
+ * unreachable (powered off, out of range, unpaired on the adapter side). Tapping such a
+ * device must not drive the app straight into a connect attempt that can throw or crash.
+ *
+ * This does not change map behaviour (CarLauncherScreen.kt / launchWazeApp) — it only makes
+ * the Bluetooth dialog refuse to start a connect when the target device is clearly unavailable.
+ */
+object BluetoothDeviceConnectGuard {
+    /** Reasons a device should not be connected from the UI right now. */
+    sealed class UnavailableReason {
+        data class MissingAddress(val device: BluetoothDevice) : UnavailableReason()
+        data class MissingName(val device: BluetoothDevice) : UnavailableReason()
+        data class AlreadyConnected(val device: BluetoothDevice, val currentAddress: String) : UnavailableReason()
+        data class AlreadyConnecting(val device: BluetoothDevice) : UnavailableReason()
+        data class AdapterOff(val device: BluetoothDevice) : UnavailableReason()
+        data class NotBonded(val device: BluetoothDevice) : UnavailableReason()
+
+        val shortMessage: String
+            get() = when (this) {
+                is MissingAddress -> "device has no address"
+                is MissingName -> "device name unavailable"
+                is AlreadyConnected -> "already connected to this adapter"
+                is AlreadyConnecting -> "connection already in progress"
+                is AdapterOff -> "Bluetooth is off"
+                is NotBonded -> "device is not paired"
+            }
+
+        fun detailMessage(deviceLabel: String): String =
+            "$shortMessage (device $deviceLabel)"
+    }
+
+    /**
+     * True when a paired device is safe to pass into the connect path from the UI.
+     *
+     * Requires a non-null [context] because reading a device address/name needs it (and on
+     * Android 12+ needs BLUETOOTH_CONNECT). When the context is unavailable the guard treats
+     * the device as not connectable rather than crashing.
+     */
+    fun canConnectTo(
+        device: BluetoothDevice,
+        connectionState: ConnectionState,
+        context: Context
+    ): Pair<Boolean, UnavailableReason?> {
+        if (context == null) {
+            return Pair(false, UnavailableReason.MissingAddress(device))
+        }
+
+        val address = BluetoothDeviceInfo.address(context, device)
+        if (address.isNullOrBlank()) {
+            return Pair(false, UnavailableReason.MissingAddress(device))
+        }
+
+        val name = BluetoothDeviceInfo.displayName(context, device, "")
+        if (name.isBlank()) {
+            return Pair(false, UnavailableReason.MissingName(device))
+        }
+
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null || !adapter.isEnabled) {
+            return Pair(false, UnavailableReason.AdapterOff(device))
+        }
+
+        if (connectionState is ConnectionState.Connected) {
+            val currentAddress = (connectionState as ConnectionState.Connected).address
+            if (currentAddress.equals(address, ignoreCase = true)) {
+                return Pair(false, UnavailableReason.AlreadyConnected(device, currentAddress))
+            }
+        }
+
+        if (connectionState is ConnectionState.Connecting) {
+            // Do not start a second connect while one is already in flight.
+            return Pair(false, UnavailableReason.AlreadyConnecting(device))
+        }
+
+        // If the device is not bonded, the UI should not offer classic RFCOMM connect.
+        if (device.bondState != BluetoothDevice.BOND_BONDED) {
+            return Pair(false, UnavailableReason.NotBonded(device))
+        }
+
+        return Pair(true, null)
+    }
+
+    /**
+     * Human-readable label for an unavailable device, used only in error messages.
+     *
+     * Uses the same permission-safe accessors as the rest of the dialog, so this never throws
+     * even when BLUETOOTH_CONNECT has not been granted yet.
+     */
+    fun deviceLabel(context: Context, device: BluetoothDevice): String {
+        val address = BluetoothDeviceInfo.address(context, device)
+        val name = BluetoothDeviceInfo.displayName(context, device, "")
+        return buildString {
+            if (name.isNotBlank()) append(name)
+            if (name.isNotBlank()) append(" (")
+            if (!address.isNullOrBlank()) append("MAC: $address")
+            if (name.isNotBlank()) append(")")
+        }.ifBlank { "unknown device" }
+    }
+}
+
+private fun ConnectionState.isConnecting(): Boolean =
+    this is ConnectionState.Connecting
+
+private fun ConnectionState.currentAddress(): String? =
+    if (this is ConnectionState.Connected) (this as ConnectionState.Connected).address else null
+
 @SuppressLint("MissingPermission")
 @Composable
 fun BluetoothDialog(
@@ -195,7 +304,17 @@ fun BluetoothDialog(
                     BluetoothDevice.BOND_BONDED -> {
                         pendingPairDevice = null
                         pendingPairFailed = null
-                        onConnectDevice(device, false)
+                        val (canConnect, reason) = BluetoothDeviceConnectGuard.canConnectTo(
+                            device = device,
+                            connectionState = connectionState,
+                            context = context
+                        )
+                        if (canConnect) {
+                            onConnectDevice(device, false)
+                        } else {
+                            val label = BluetoothDeviceConnectGuard.deviceLabel(context, device)
+                            pendingPairFailed = "Paired, but unavailable to connect: ${reason?.detailMessage(label) ?: "unknown"}"
+                        }
                     }
                     BluetoothDevice.BOND_NONE -> {
                         pendingPairDevice = null
@@ -468,7 +587,21 @@ fun BluetoothDialog(
 
                                     val deviceAddress = BluetoothDeviceInfo.address(context, device)
                                     val isCurrentConnected = connectionState is ConnectionState.Connected &&
-                                            (connectionState as ConnectionState.Connected).address == deviceAddress
+                                            connectionState.currentAddress()?.equals(deviceAddress, ignoreCase = true) == true
+
+                                    val (canConnect, unavailableReason) = BluetoothDeviceConnectGuard.canConnectTo(
+                                        device = device,
+                                        connectionState = connectionState,
+                                        context = context
+                                    )
+                                    val isConnectDisabled = !canConnect || connectionState.isConnecting()
+                                    val connectButtonLabel = when {
+                                        connectionState.isConnecting() -> "Connecting..."
+                                        !canConnect && unavailableReason != null -> {
+                                            "Unavailable: ${unavailableReason.shortMessage}"
+                                        }
+                                        else -> "Connect"
+                                    }
 
                                     Surface(
                                         color = if (isCurrentConnected) Color(0xFF0E2822) else Color(0xFF0E1520),
@@ -526,7 +659,7 @@ fun BluetoothDialog(
                                                         }
                                                     }
                                                     Text(
-                                                        text = BluetoothDeviceInfo.address(context, device)?.let { "MAC: $it" } ?: "MAC unavailable",
+                                                        text = deviceAddress?.let { "MAC: $it" } ?: "MAC unavailable",
                                                         color = SecondaryText,
                                                         fontSize = 10.sp,
                                                         fontFamily = FontFamily.Monospace
@@ -546,7 +679,7 @@ fun BluetoothDialog(
                                             } else {
                                                 Button(
                                                     onClick = { onConnectDevice(device, false) },
-                                                    enabled = connectionState !is ConnectionState.Connecting,
+                                                    enabled = canConnect && !connectionState.isConnecting(),
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = if (isObd) ElectricCyan else Color(0xFF1E293B)
                                                     ),
@@ -554,7 +687,7 @@ fun BluetoothDialog(
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                                 ) {
                                                     Text(
-                                                        text = if (connectionState is ConnectionState.Connecting) "Connecting..." else "Connect",
+                                                        text = connectButtonLabel,
                                                         color = if (isObd) Color(0xFF05070B) else Color.White,
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 11.sp,
