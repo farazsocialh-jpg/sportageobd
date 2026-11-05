@@ -31,23 +31,23 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install SDK packages
-        run: |
-          sdkmanager --install \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+        with:
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+          accept-android-sdk-licenses: true
+          log-accepted-android-sdk-licenses: true
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-events: 1000
+          cache-read-only: false
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
@@ -100,7 +100,19 @@ jobs:
       - name: Collect APKs
         run: |
           mkdir -p "$GITHUB_WORKSPACE/out"
-          find app/build/outputs/apk -name "*.apk" -exec cp {} "$GITHUB_WORKSPACE/out/" \;
+          # Deterministic artifact set: one debug APK + one release APK.
+          for f in \
+            app/build/outputs/apk/debug/app-debug.apk \
+            app/build/outputs/apk/release/app-release.apk \
+            app/build/outputs/apk/release/app-release-unsigned.apk; do
+            if [ -f "$f" ]; then
+              cp "$f" "$GITHUB_WORKSPACE/out/"
+            fi
+          done
+          if [ -z "$(ls -A "$GITHUB_WORKSPACE/out" 2>/dev/null)" ]; then
+            echo "::error::No APKs found under app/build/outputs/apk" >&2
+            exit 1
+          fi
           ls -lh "$GITHUB_WORKSPACE/out"
 
       - name: Upload APKs
