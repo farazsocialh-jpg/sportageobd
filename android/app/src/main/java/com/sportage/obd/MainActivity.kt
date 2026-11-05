@@ -62,6 +62,10 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var pairedDevicesList = mutableStateListOf<BluetoothDevice>()
     private val terminalLogs = mutableStateListOf<TerminalLog>()
 
+    // Single-flight lock for adapter connect requests (see connectToDevice).
+    @Volatile
+    private var connectInFlight = false
+
     // Live Telemetry state (authoritative values)
     private var liveSpeed by mutableStateOf<Int?>(null)
     private var liveRpm by mutableStateOf<Int?>(null)
@@ -312,17 +316,43 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     private fun connectToDevice(device: BluetoothDevice, ble: Boolean = false) {
-        if (viewModel.isDemoMode.value) {
-            viewModel.setDemoMode(false)
+        // Single-flight guard: rapid double taps (or taps on several rows while the state
+        // flow has not caught up yet) used to fire several concurrent connects and pair
+        // attempts at once. Only one connect may be in flight.
+        if (connectInFlight) {
+            logTerminal("INFO", "A connection attempt is already in progress - please wait.")
+            return
         }
-        logTerminal("INFO", "Connecting to ${BluetoothDeviceInfo.label(this, device)}${if (ble) " via BLE GATT" else ""} through the background OBD service...")
-        // Starts (if needed) and binds ObdService, which owns the transport link and polling loop,
-        // so telemetry keeps streaming after this activity is backgrounded or destroyed.
-        viewModel.connectDevice(device, ble)
+        connectInFlight = true
+        try {
+            if (viewModel.isDemoMode.value) {
+                viewModel.setDemoMode(false)
+            }
+            logTerminal("INFO", "Connecting to ${BluetoothDeviceInfo.label(this, device)}${if (ble) " via BLE GATT" else ""} through the background OBD service...")
+            // Starts (if needed) and binds ObdService, which owns the transport link and polling loop,
+            // so telemetry keeps streaming after this activity is backgrounded or destroyed.
+            viewModel.connectDevice(device, ble)
+        } catch (e: Exception) {
+            // Nothing in the connect path may ever kill the process; surface it instead.
+            logTerminal("ERR", "Connection request failed: ${e.localizedMessage ?: "unexpected error"}")
+            Toast.makeText(this, "Connection request failed: ${e.localizedMessage ?: "unexpected error"}", Toast.LENGTH_LONG).show()
+        } finally {
+            // Give the state flow a moment to reach Connecting so the dialog disables its
+            // buttons, then release the single-flight lock. A slow adapter no longer allows
+            // a second tap to stack another connect on top of the first.
+            lifecycleScope.launch {
+                delay(1200)
+                connectInFlight = false
+            }
+        }
     }
 
     private fun disconnectDevice() {
-        viewModel.disconnect()
+        try {
+            viewModel.disconnect()
+        } catch (e: Exception) {
+            logTerminal("ERR", "Disconnect failed: ${e.localizedMessage ?: "unexpected error"}")
+        }
         logTerminal("INFO", "Disconnected from adapter.")
         liveSpeed = null
         liveRpm = null

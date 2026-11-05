@@ -102,55 +102,26 @@ val SPORTAGE_RADIO_PRESETS = listOf(
 )
 
 /**
- * Bulletproof Waze & Navigation launcher for Android 11+ (API 30-35)
+ * Bulletproof maps launcher for Android 11+ (API 30-35).
+ *
+ * Waze was removed on purpose: opening the external app kept interrupting the OBD link
+ * on the head unit, and the waze:// deep links are no longer referenced anywhere. The
+ * launcher now opens the current location in Google Maps when installed, then in any
+ * other installed maps app via a standard geo: URI, and finally in the browser through
+ * OpenStreetMap - which needs no app, no API key and no account.
  */
-fun launchWazeApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
+fun launchMapsApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
     val pm = context.packageManager
+    val hasCoords = lat != null && lon != null
 
-    // 1. Direct package launch if Waze is installed
+    // 1. Google Maps app: exact coordinates (or a searched place) at street-level zoom
     try {
-        val launchIntent = pm.getLaunchIntentForPackage("com.waze")
-        if (launchIntent != null) {
-            val deepLinkUri = when {
-                !query.isNullOrBlank() -> Uri.parse("waze://?q=${Uri.encode(query)}&navigate=yes")
-                lat != null && lon != null -> Uri.parse("waze://?ll=$lat,$lon&navigate=yes")
-                else -> Uri.parse("waze://")
-            }
-            val intent = Intent(Intent.ACTION_VIEW, deepLinkUri).apply {
-                setPackage("com.waze")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            try {
-                context.startActivity(intent)
-                return
-            } catch (_: Exception) {
-                launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                context.startActivity(launchIntent)
-                return
-            }
+        val mapsUri = when {
+            !query.isNullOrBlank() -> Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+            hasCoords -> Uri.parse("geo:$lat,$lon?z=17&q=$lat,$lon (Current Location)")
+            else -> Uri.parse("geo:0,0?z=15")
         }
-    } catch (_: Exception) {}
-
-    // 2. Generic waze:// URI
-    try {
-        val uri = when {
-            !query.isNullOrBlank() -> Uri.parse("waze://?q=${Uri.encode(query)}&navigate=yes")
-            lat != null && lon != null -> Uri.parse("waze://?ll=$lat,$lon&navigate=yes")
-            else -> Uri.parse("waze://")
-        }
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-        return
-    } catch (_: Exception) {}
-
-    // 3. Fallback to Google Maps navigation if available
-    try {
-        val mapsIntent = Intent(Intent.ACTION_VIEW, Uri.parse(
-            if (!query.isNullOrBlank()) "google.navigation:q=${Uri.encode(query)}"
-            else "geo:${lat ?: 25.2854},${lon ?: 51.5310}?z=15"
-        )).apply {
+        val mapsIntent = Intent(Intent.ACTION_VIEW, mapsUri).apply {
             setPackage("com.google.android.apps.maps")
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
@@ -160,19 +131,35 @@ fun launchWazeApp(context: Context, lat: Double? = null, lon: Double? = null, qu
         }
     } catch (_: Exception) {}
 
-    // 4. Web browser fallback with Waze Live navigation URL
+    // 2. Any other installed maps app (HERE, Sygic, OsmAnd, Maps.me, ...) via a generic geo: URI
+    try {
+        val geoUri = when {
+            !query.isNullOrBlank() -> Uri.parse("geo:0,0?q=${Uri.encode(query)}")
+            hasCoords -> Uri.parse("geo:$lat,$lon?z=17")
+            else -> Uri.parse("geo:0,0?z=15")
+        }
+        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        if (geoIntent.resolveActivity(pm) != null) {
+            context.startActivity(geoIntent)
+            return
+        }
+    } catch (_: Exception) {}
+
+    // 3. Web browser fallback: OpenStreetMap centred on the current location
     try {
         val webUri = when {
-            !query.isNullOrBlank() -> Uri.parse("https://waze.com/ul?q=${Uri.encode(query)}&navigate=yes")
-            lat != null && lon != null -> Uri.parse("https://waze.com/ul?ll=$lat,$lon&navigate=yes")
-            else -> Uri.parse("https://waze.com/ul")
+            !query.isNullOrBlank() -> Uri.parse("https://www.openstreetmap.org/search?query=${Uri.encode(query)}")
+            hasCoords -> Uri.parse("https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon")
+            else -> Uri.parse("https://www.openstreetmap.org/#map=15/25.2854/51.5310")
         }
         val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }
         context.startActivity(webIntent)
     } catch (e: Exception) {
-        Toast.makeText(context, "Please install Waze from Google Play Store", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "No maps app or browser available to show the location", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -423,7 +410,7 @@ fun CarLauncherScreen(
                                 connectionState = connectionState,
                                 measuredHz = measuredHz,
                                 isDemoMode = isDemoMode,
-                                onOpenFullWaze = { launchWazeApp(context, currentLat, currentLon) }
+                                onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
                             )
                             1 -> GaugesAndGraphsPage(
                                 speed = displaySpeed,
@@ -538,7 +525,7 @@ fun CarLauncherScreen(
                             connectionState = connectionState,
                             measuredHz = measuredHz,
                             isDemoMode = isDemoMode,
-                            onOpenFullWaze = { launchWazeApp(context, currentLat, currentLon) }
+                            onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
                         )
                         1 -> GaugesAndGraphsPage(
                             speed = displaySpeed,
@@ -894,7 +881,7 @@ fun PermanentHomeSplitView(
     connectionState: ConnectionState,
     measuredHz: Float?,
     isDemoMode: Boolean,
-    onOpenFullWaze: () -> Unit
+    onOpenFullMap: () -> Unit
 ) {
     if (isLandscape) {
         // Landscape: Adaptive Dominant Live Map Pane (approx 58-64%) + Persistent OBD Pane (approx 36-42%)
@@ -913,7 +900,7 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     speed = speed,
                     speedUnit = speedUnit,
-                    onOpenFullWaze = onOpenFullWaze
+                    onOpenFullMap = onOpenFullMap
                 )
             }
 
@@ -948,7 +935,7 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     speed = speed,
                     speedUnit = speedUnit,
-                    onOpenFullWaze = onOpenFullWaze
+                    onOpenFullMap = onOpenFullMap
                 )
             }
 
@@ -973,7 +960,7 @@ fun PermanentHomeSplitView(
 }
 
 // =========================================================================
-// SUB-VIEW: LIVE MAP SURFACE (Non-Reloading Dynamic Map & Full Waze Launcher)
+// SUB-VIEW: LIVE MAP SURFACE (Non-Reloading Dynamic Map & External Maps Launcher)
 // =========================================================================
 @Composable
 fun LiveMapSurface(
@@ -981,13 +968,13 @@ fun LiveMapSurface(
     currentLon: Double,
     speed: Int?,
     speedUnit: String,
-    onOpenFullWaze: () -> Unit
+    onOpenFullMap: () -> Unit
 ) {
     var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "OPENSTREETMAP_EMBED"
     var currentLoadedProvider by remember { mutableStateOf<String?>(null) }
     var mapError by remember { mutableStateOf<String?>(null) }
-    var wazeLoading by remember { mutableStateOf(false) }
-    var wazeRetryCount by remember { mutableStateOf(0) }
+    var mapLoading by remember { mutableStateOf(false) }
+    var mapRetryCount by remember { mutableStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
 
     // Base Leaflet HTML rendered once - exposes updateVehicleLocation function for zero-flicker pan/marker
@@ -1087,7 +1074,7 @@ fun LiveMapSurface(
                             if (mapProvider == "OSM_DARK") {
                                 mapProvider = "OPENSTREETMAP_EMBED"
                                 mapError = null
-                                wazeRetryCount = 0
+                                mapRetryCount = 0
                             } else {
                                 mapProvider = "OSM_DARK"
                                 mapError = null
@@ -1109,7 +1096,7 @@ fun LiveMapSurface(
 
                     // Open full online map in the device's navigation app (Primary Non-Negotiable Action)
                     Surface(
-                        modifier = Modifier.clickable { onOpenFullWaze() },
+                        modifier = Modifier.clickable { onOpenFullMap() },
                         color = Color(0xFF33CCFF),
                         shape = RoundedCornerShape(4.dp)
                     ) {
@@ -1163,7 +1150,7 @@ fun LiveMapSurface(
                                     if (mapProvider == "OSM_DARK") {
                                         mapError = null
                                     } else if (mapProvider == "OPENSTREETMAP_EMBED") {
-                                        wazeLoading = false
+                                        mapLoading = false
                                     }
                                 }
 
@@ -1200,12 +1187,12 @@ fun LiveMapSurface(
                                 webView.settings.userAgentString = MOBILE_MAP_USER_AGENT
                                 webView.loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
                                 // Reset online-map-specific transient state when leaving the embed.
-                                wazeLoading = false
-                                wazeRetryCount = 0
+                                mapLoading = false
+                                mapRetryCount = 0
                             } else {
                                 webView.settings.userAgentString = ONLINE_MAP_EMBED_USER_AGENT
-                                wazeLoading = true
-                                wazeRetryCount = wazeRetryCount.coerceAtMost(1)
+                                mapLoading = true
+                                mapRetryCount = mapRetryCount.coerceAtMost(1)
                                 loadOnlineMapUrl(webView, currentLat, currentLon)
                             }
                         } else if (mapProvider == "OSM_DARK") {
@@ -1223,7 +1210,7 @@ fun LiveMapSurface(
                 )
 
                 // Loading overlay shown only while the online map is still loading its embed.
-                if (isOnlineMap && wazeLoading) {
+                if (isOnlineMap && mapLoading) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = DarkSurface.copy(alpha = 0.85f),
@@ -1280,8 +1267,8 @@ fun LiveMapSurface(
                             TextButton(
                                 onClick = {
                                     mapError = null
-                                    wazeLoading = true
-                                    wazeRetryCount = (wazeRetryCount + 1).coerceAtMost(3)
+                                    mapLoading = true
+                                    mapRetryCount = (mapRetryCount + 1).coerceAtMost(3)
                                     // Trigger a reload by pretending we switched back to the online embed.
                                     currentLoadedProvider = ""
                                     mapProvider = "OPENSTREETMAP_EMBED"
@@ -1367,12 +1354,12 @@ fun LiveMapSurface(
                     }
                 }
 
-                // Floating Action Button: Open Turn-by-Turn in Waze
+                // Floating Action Button: Open the current location in a maps app
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(10.dp)
-                        .clickable { onOpenFullWaze() },
+                        .clickable { onOpenFullMap() },
                     color = Color(0xFF33CCFF),
                     shape = RoundedCornerShape(8.dp),
                     shadowElevation = 6.dp

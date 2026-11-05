@@ -222,7 +222,9 @@ class ObdService : Service() {
         transport = if (ble) BleTransport(this) else BluetoothTransport()
         serviceScope.launch {
             // transport.connect() can throw (permission revoked mid-dialog, adapter unplugged);
-            // an uncaught exception in this launch would terminate the process.
+            // an uncaught exception in this launch would terminate the process. Everything
+            // after the connect is also guarded: a failed init/polling start must surface as
+            // a connection error, never as a crash.
             val success = try {
                 transport.connect(device)
             } catch (e: SecurityException) {
@@ -233,12 +235,14 @@ class ObdService : Service() {
                 false
             }
             if (success) {
-                rememberDevice(device)
+                try {
+                    rememberDevice(device)
+                } catch (_: Exception) {}
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
                 initializeElm327()
                 discoverVehicleCapabilities()
                 if (prefs().getBoolean(KEY_CSV_AUTOSTART, false)) startCsvLogging()
-                startPollingLoop()
+                    startPollingLoop()
             } else {
                 updateNotification("Connection failed. Retrying...")
                 scheduleReconnect()
@@ -746,8 +750,12 @@ class ObdService : Service() {
     }
 
     private fun updateNotification(statusText: String) {
-        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-        manager?.notify(NOTIFICATION_ID, buildNotification(statusText))
+        // Some head-unit ROMs throw from notify() (missing POST_NOTIFICATIONS handling,
+        // broken NotificationManager); a status update must never kill the service.
+        try {
+            val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
+            manager?.notify(NOTIFICATION_ID, buildNotification(statusText))
+        } catch (_: Exception) {}
     }
 
     override fun onDestroy() {

@@ -164,7 +164,7 @@ fun AppDrawerDialog(
                     onValueChange = { searchQuery = it },
                     placeholder = {
                         Text(
-                            "Search apps (e.g. Waze, Spotify, Radio, Maps)...",
+                            "Search apps (e.g. Maps, Spotify, Radio)...",
                             fontSize = 12.sp,
                             color = Color.Gray,
                             fontFamily = FontFamily.Monospace

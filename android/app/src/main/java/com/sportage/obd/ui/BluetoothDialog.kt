@@ -48,27 +48,23 @@ data class TerminalLog(
  * unreachable (powered off, out of range, unpaired on the adapter side). Tapping such a
  * device must not drive the app straight into a connect attempt that can throw or crash.
  *
- * This does not change map behaviour (CarLauncherScreen.kt / launchWazeApp) — it only makes
+ * This does not change map behaviour (CarLauncherScreen.kt / launchMapsApp) — it only makes
  * the Bluetooth dialog refuse to start a connect when the target device is clearly unavailable.
  */
 object BluetoothDeviceConnectGuard {
     /** Reasons a device should not be connected from the UI right now. */
     sealed class UnavailableReason {
         data class MissingAddress(val device: BluetoothDevice) : UnavailableReason()
-        data class MissingName(val device: BluetoothDevice) : UnavailableReason()
         data class AlreadyConnected(val device: BluetoothDevice, val currentAddress: String) : UnavailableReason()
         data class AlreadyConnecting(val device: BluetoothDevice) : UnavailableReason()
         data class AdapterOff(val device: BluetoothDevice) : UnavailableReason()
-        data class NotBonded(val device: BluetoothDevice) : UnavailableReason()
 
         val shortMessage: String
             get() = when (this) {
                 is MissingAddress -> "device has no address"
-                is MissingName -> "device name unavailable"
                 is AlreadyConnected -> "already connected to this adapter"
                 is AlreadyConnecting -> "connection already in progress"
                 is AdapterOff -> "Bluetooth is off"
-                is NotBonded -> "device is not paired"
             }
 
         fun detailMessage(deviceLabel: String): String =
@@ -78,7 +74,12 @@ object BluetoothDeviceConnectGuard {
     /**
      * True when a paired device is safe to pass into the connect path from the UI.
      *
-     * Requires a non-null [context] because reading a device address/name needs it (and on
+     * Deliberately does NOT reject devices with a null/blank cached name or a transient
+     * bond state: many ELM327 adapters report no name while idle, and refusing them made
+     * the "Connect" button permanently disabled for valid paired adapters. A failed connect
+     * now surfaces as a ConnectionState.Error in the dialog instead of blocking the button.
+     *
+     * Requires a non-null [context] because reading a device address needs it (and on
      * Android 12+ needs BLUETOOTH_CONNECT). When the context is unavailable the guard treats
      * the device as not connectable rather than crashing.
      */
@@ -96,11 +97,6 @@ object BluetoothDeviceConnectGuard {
             return Pair(false, UnavailableReason.MissingAddress(device))
         }
 
-        val name = BluetoothDeviceInfo.displayName(context, device, "")
-        if (name.isBlank()) {
-            return Pair(false, UnavailableReason.MissingName(device))
-        }
-
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null || !adapter.isEnabled) {
             return Pair(false, UnavailableReason.AdapterOff(device))
@@ -116,11 +112,6 @@ object BluetoothDeviceConnectGuard {
         if (connectionState is ConnectionState.Connecting) {
             // Do not start a second connect while one is already in flight.
             return Pair(false, UnavailableReason.AlreadyConnecting(device))
-        }
-
-        // If the device is not bonded, the UI should not offer classic RFCOMM connect.
-        if (device.bondState != BluetoothDevice.BOND_BONDED) {
-            return Pair(false, UnavailableReason.NotBonded(device))
         }
 
         return Pair(true, null)
@@ -216,6 +207,9 @@ fun BluetoothDialog(
     }
 
     fun startNearbyScan() {
+        // Explicit, user-initiated scan only (never automatic). Any in-flight RFCOMM
+        // connect is aborted first: discovery and socket connects cannot run together
+        // on most Android Bluetooth stacks and doing both made connects fail instantly.
         try {
             val adapter = BluetoothAdapter.getDefaultAdapter()
             if (adapter != null && adapter.isEnabled) {
@@ -226,6 +220,8 @@ fun BluetoothDialog(
                 adapter.startDiscovery()
                 isScanningNearby = true
             }
+        } catch (_: SecurityException) {
+            // BLUETOOTH_SCAN not granted: stay silent, the paired list still works.
         } catch (_: Exception) {}
     }
 
@@ -272,10 +268,13 @@ fun BluetoothDialog(
         }
         context.registerReceiver(receiver, filter)
 
-        // Trigger discovery automatically if paired devices is empty or error occurred
-        if (pairedDevices.isEmpty() || connectionState is ConnectionState.Error) {
-            startNearbyScan()
-        }
+        // Discovery is NEVER started automatically. On Android head units (TS10 / UIS7862 /
+        // MTK) an app-initiated discovery makes the unit's Bluetooth stack refresh and
+        // re-pair EVERY cached device, which looked like "pairing with all devices" and
+        // crashed the app. Scanning is strictly opt-in via the "Scan Nearby" button, and
+        // an error state no longer triggers a background scan that would also kill any
+        // RFCOMM connect attempt already in flight.
+        // To scan: the driver taps "Scan Nearby" / "Scan for Adapters" explicitly.
 
         onDispose {
             try {
@@ -310,7 +309,7 @@ fun BluetoothDialog(
                             context = context
                         )
                         if (canConnect) {
-                            onConnectDevice(device, false)
+                            runCatching { onConnectDevice(device, false) }
                         } else {
                             val label = BluetoothDeviceConnectGuard.deviceLabel(context, device)
                             pendingPairFailed = "Paired, but unavailable to connect: ${reason?.detailMessage(label) ?: "unknown"}"
@@ -678,7 +677,9 @@ fun BluetoothDialog(
                                                 }
                                             } else {
                                                 Button(
-                                                    onClick = { onConnectDevice(device, false) },
+                                                    // runCatching: even if the connect path throws
+                                                    // (aggressive head-unit ROMs), the app must survive.
+                                                    onClick = { runCatching { onConnectDevice(device, false) } },
                                                     enabled = canConnect && !connectionState.isConnecting(),
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = if (isObd) ElectricCyan else Color(0xFF1E293B)
@@ -981,14 +982,17 @@ fun BluetoothDialog(
                                                     fontFamily = FontFamily.Monospace
                                                 )
                                                 Text(
-                                                    text = "MAC: ${device.address}",
+                                                    // Raw device.address throws SecurityException on
+                                                    // Android 12+ when BLUETOOTH_CONNECT is missing; the
+                                                    // guarded accessor never throws.
+                                                    text = "MAC: ${BluetoothDeviceInfo.address(context, device) ?: "unavailable"}",
                                                     color = SecondaryText,
                                                     fontSize = 10.sp,
                                                     fontFamily = FontFamily.Monospace
                                                 )
                                             }
                                             Button(
-                                                onClick = { onConnectDevice(device, true) },
+                                                onClick = { runCatching { onConnectDevice(device, true) } },
                                                 enabled = connectionState !is ConnectionState.Connecting,
                                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                                                 shape = RoundedCornerShape(6.dp),
