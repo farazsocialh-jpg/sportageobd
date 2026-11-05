@@ -32,7 +32,8 @@ object BluetoothDeviceInfo {
         val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
-        return if (granted) (device.name ?: fallback) else fallback
+        return if (granted) try { device.name?.takeIf { it.isNotBlank() } ?: fallback }
+        catch (_: SecurityException) { fallback } else fallback
     }
 
     /**
@@ -42,20 +43,14 @@ object BluetoothDeviceInfo {
         val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
             context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
             PackageManager.PERMISSION_GRANTED
-        return if (granted) device.address else null
+        return if (granted) try { device.address } catch (_: SecurityException) { null } else null
     }
 
     /**
      * Human readable "Name (MAC)" label, or a generic label when metadata is unavailable.
      */
     fun label(context: Context, device: BluetoothDevice): String {
-        val granted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) ==
-            PackageManager.PERMISSION_GRANTED
-        return if (granted) {
-            "${device.name ?: "Device"} (${device.address})"
-        } else {
-            "Bluetooth device"
-        }
+        val address = address(context, device) ?: return "Bluetooth device"
+        return "${displayName(context, device, "Device")} ($address)"
     }
 }

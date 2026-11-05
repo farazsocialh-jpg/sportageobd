@@ -162,6 +162,11 @@ class AlertEngine(private val context: Context) {
         _activeAlerts.value = emptyList()
     }
 
+    fun close() {
+        clear()
+        toneGenerator.release()
+    }
+
     companion object {
         private const val BEEP_COOLDOWN_MS = 15_000L
         private const val RESUME_MS = 120_000L

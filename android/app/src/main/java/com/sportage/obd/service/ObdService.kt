@@ -22,11 +22,13 @@ import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 import com.sportage.obd.bluetooth.BluetoothTransport
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.bluetooth.ElmTransport
+import com.sportage.obd.bluetooth.TransportStateRelay
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -36,8 +38,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
 
@@ -101,6 +104,9 @@ class ObdService : Service() {
     private var useBle = false
     private var pollingJob: Job? = null
     private var reconnectJob: Job? = null
+    private var connectJob: Job? = null
+    private val stateRelay = TransportStateRelay(serviceScope)
+    @Volatile private var connectionGeneration = 0L
 
     // Created lazily in onCreate: constructing these as field initializers runs during
     // service instantiation, BEFORE Android attaches the service Context. That crashed the
@@ -148,8 +154,7 @@ class ObdService : Service() {
 
     val csvLogFile: java.io.File? get() = csvLogger?.activeFile
 
-    val connectionState: StateFlow<ConnectionState>
-        get() = transport.connectionState
+    val connectionState: StateFlow<ConnectionState> = stateRelay.state
 
     // Diagnostic / frequency tracking
     private var packetCount = 0
@@ -214,8 +219,7 @@ class ObdService : Service() {
             }
             when (intent.action) {
                 ACTION_STOP -> {
-                    stopPolling()
-                    transport.disconnect()
+                    disconnect()
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf()
                     return START_NOT_STICKY
@@ -242,11 +246,21 @@ class ObdService : Service() {
      * [ble] selects the transport: BLE GATT for vgate-style adapters,
      * classic SPP otherwise.
      */
-    fun connectToDevice(device: BluetoothDevice, ble: Boolean = false) {
+    @Synchronized
+    fun connectToDevice(device: BluetoothDevice, ble: Boolean = false): Boolean {
+        // The service, not a delayed UI flag, is the single-flight authority.
+        if (connectJob?.isActive == true || connectionState.value is ConnectionState.Connecting) return false
+        val address = BluetoothDeviceInfo.address(this, device)
+        if (address == null) {
+            stateRelay.publish(ConnectionState.Error("Nearby devices permission is required."))
+            return false
+        }
+        val generation = ++connectionGeneration
         activeDevice = device
         useBle = ble
         reconnectJob?.cancel()
         stopPolling()
+        stateRelay.detach()
 
         // Release the previous link before swapping transports. An SPP adapter accepts a single
         // client, so a socket left open here made every later connect fail with "socket busy".
@@ -255,13 +269,27 @@ class ObdService : Service() {
         } catch (_: Exception) {}
 
         transport = if (ble) BleTransport(this) else BluetoothTransport()
-        serviceScope.launch {
+        val link = transport
+        stateRelay.attach(link.connectionState, address)
+        _telemetry.value = ObdTelemetry()
+        _supportedPids.value = emptySet()
+        _vin.value = null
+        _readiness.value = null
+        _dtcList.value = emptyList()
+        _pendingDtcList.value = emptyList()
+        _permanentDtcList.value = emptyList()
+        _freezeFrame.value = null
+        _isPollingPaused.value = false
+        alertEngine?.clear()
+        connectJob = serviceScope.launch {
             // transport.connect() can throw (permission revoked mid-dialog, adapter unplugged);
             // an uncaught exception in this launch would terminate the process. Everything
             // after the connect is also guarded: a failed init/polling start must surface as
             // a connection error, never as a crash.
             val success = try {
-                transport.connect(device)
+                link.connect(device)
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: SecurityException) {
                 updateNotification("Bluetooth permission is required to connect")
                 false
@@ -269,28 +297,55 @@ class ObdService : Service() {
                 updateNotification("Connection failed: ${e.localizedMessage ?: "Bluetooth error"}")
                 false
             }
+            currentCoroutineContext().ensureActive()
+            if (generation != connectionGeneration || link !== transport) {
+                link.disconnect()
+                return@launch
+            }
             if (success) {
                 try {
                     rememberDevice(device)
                 } catch (_: Exception) {}
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
-                initializeElm327()
-                discoverVehicleCapabilities()
-                if (prefs().getBoolean(KEY_CSV_AUTOSTART, false)) startCsvLogging()
+                try {
+                    initializeElm327()
+                    discoverVehicleCapabilities()
+                    currentCoroutineContext().ensureActive()
+                    if (generation != connectionGeneration) return@launch
+                    if (prefs().getBoolean(KEY_CSV_AUTOSTART, false)) startCsvLogging()
                     startPollingLoop()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    link.disconnect()
+                    stateRelay.publish(ConnectionState.Error("Adapter initialization failed: ${e.message}"))
+                }
             } else {
-                updateNotification("Connection failed. Retrying...")
-                scheduleReconnect()
+                // A laptop/car stereo is often paired but is not an ELM adapter.
+                // Failed manual attempts must stop, not reconnect forever.
+                if (connectionState.value !is ConnectionState.Error) {
+                    stateRelay.publish(ConnectionState.Error("Could not connect to the selected OBD adapter."))
+                }
+                updateNotification("Connection failed. Select the OBD adapter to retry.")
             }
         }
+        return true
     }
 
+    @Synchronized
     fun disconnect() {
+        connectionGeneration++
         activeDevice = null
         forgetDevice()
         reconnectJob?.cancel()
+        connectJob?.cancel()
+        connectJob = null
         stopPolling()
+        stateRelay.detach()
         transport.disconnect()
+        _telemetry.value = ObdTelemetry()
+        stopCsvLogging()
+        alertEngine?.clear()
         updateNotification("Disconnected")
     }
 
@@ -300,6 +355,7 @@ class ObdService : Service() {
     }
 
     fun resumePolling() {
+        if (connectionState.value !is ConnectionState.Connected || connectJob?.isActive == true) return
         _isPollingPaused.value = false
         if (pollingJob == null || pollingJob?.isActive == false) {
             startPollingLoop()
@@ -440,7 +496,7 @@ class ObdService : Service() {
             delay(50)
             transport.sendCommand("ATSP0")    // Auto protocol detect (matches CAN 11/500 for Sportage)
             delay(100)
-        } catch (_: Exception) {}
+        } catch (e: CancellationException) { throw e }
     }
 
     /**
@@ -457,14 +513,14 @@ class ObdService : Service() {
                 supported += PidDecoders.decodeSupportedPids(resp ?: "", base)
             }
             if (supported.isNotEmpty()) _supportedPids.value = supported
-        } catch (_: Exception) {}
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
 
         try {
             readVin()
-        } catch (_: Exception) {}
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
         try {
             readReadiness()
-        } catch (_: Exception) {}
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
     }
 
     private fun startPollingLoop() {
@@ -479,7 +535,7 @@ class ObdService : Service() {
             var auxPidCycle = 0
             lastFuelSampleAtMs = System.currentTimeMillis()
 
-            while (isActive) {
+            while (isActive && activeDevice != null) {
                 if (_isPollingPaused.value) {
                     delay(500)
                     continue
@@ -613,6 +669,7 @@ class ObdService : Service() {
 
                     delay(30) // Fast cycle rate
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     if (isActive && activeDevice != null) {
                         scheduleReconnect()
                         break
@@ -633,9 +690,12 @@ class ObdService : Service() {
         reconnectJob = serviceScope.launch {
             var attempt = 0
             val target = activeDevice ?: return@launch
-            while (isActive && activeDevice != null) {
+            val generation = connectionGeneration
+            val link = transport
+            link.disconnect()
+            while (isActive && activeDevice == target && generation == connectionGeneration && attempt < 5) {
                 attempt++
-                val backoffSec = min(16, 1 shl (attempt - 1))
+                val backoffSec = min(16, 1 shl min(4, attempt - 1))
                 updateNotification("Reconnecting in ${backoffSec}s (Attempt $attempt)...")
                 delay(backoffSec * 1000L)
 
@@ -643,19 +703,34 @@ class ObdService : Service() {
 
                 updateNotification("Reconnecting to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}...")
                 val ok = try {
-                    transport.connect(target)
+                    link.connect(target)
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (_: SecurityException) {
                     false
                 } catch (_: Exception) {
                     false
                 }
+                currentCoroutineContext().ensureActive()
+                if (generation != connectionGeneration) return@launch
                 if (ok) {
-                    updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}")
-                    initializeElm327()
-                    discoverVehicleCapabilities()
-                    startPollingLoop()
-                    break
+                    try {
+                        updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, target)}")
+                        initializeElm327()
+                        discoverVehicleCapabilities()
+                        currentCoroutineContext().ensureActive()
+                        if (generation != connectionGeneration) return@launch
+                        startPollingLoop()
+                        break
+                    } catch (e: CancellationException) { throw e }
+                    catch (e: Exception) {
+                        link.disconnect()
+                        stateRelay.publish(ConnectionState.Error("Adapter setup failed: ${e.message}"))
+                    }
                 }
+            }
+            if (attempt >= 5 && connectionState.value !is ConnectionState.Connected) {
+                stateRelay.publish(ConnectionState.Error("Adapter unavailable after 5 retries. Tap Connect to retry."))
             }
         }
     }
@@ -798,7 +873,11 @@ class ObdService : Service() {
         isRunning = false
         stopPolling()
         reconnectJob?.cancel()
+        connectJob?.cancel()
+        stateRelay.detach()
         serviceScope.cancel()
         transport.disconnect()
+        csvLogger?.stop()
+        alertEngine?.close()
     }
 }

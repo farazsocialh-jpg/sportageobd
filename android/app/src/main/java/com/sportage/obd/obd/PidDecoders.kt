@@ -269,33 +269,29 @@ object PidDecoders {
         if (!containsVin && !response.uppercase().contains("49")) return null
 
         // Strip "0:", "1:" ... line prefixes, spaces and the ELM prompt
-        val hex = response.lineSequence()
-            .map { it.replace(Regex("^[0-9a-fA-F]\\s*:\\s*"), "") }
-            .joinToString("")
+        val hex = response
+            // cleanResponse may have already flattened CR/LF; row markers
+            // therefore need removing anywhere, not only at line starts.
+            .replace(Regex("[0-9a-fA-F]\\s*:\\s*"), "")
             .replace(">", "")
             .replace(" ", "")
             .replace(Regex("[^0-9A-Fa-f]"), "")
 
-        // Find every "49 02 xx" frame start, keep payload after the 49 02 xx
-        val sb = StringBuilder()
-        var i = 0
-        while (i < hex.length - 5) {
-            if (hex[i] == '4' && hex[i + 1] == '9' && hex[i + 2] == '0' && hex[i + 3] == '2') {
-                val dataStart = i + 6 // skip "4902" + one count byte
-                var j = dataStart
-                while (j + 2 <= hex.length) {
-                    val b = hex.substring(j, j + 2).toIntOrNull(16) ?: break
-                    if (b in 32..126) {
-                        sb.append(b.toChar())
-                        j += 2
-                    } else break
-                }
-                break // first frame sequence is the VIN
+        // Each continuation has another 49 02 sequence header. Do not decode
+        // that header as printable VIN characters ("I") or stop at its 02 byte.
+        val normalized = hex.uppercase()
+        val frames = Regex("4902[0-9A-F]{2}").findAll(normalized).toList()
+        val vin = buildString {
+            frames.forEachIndexed { index, frame ->
+                val end = frames.getOrNull(index + 1)?.range?.first ?: normalized.length
+                normalized.substring(frame.range.last + 1, end).chunked(2)
+                    .filter { it.length == 2 }.forEach { byte ->
+                        val char = byte.toIntOrNull(16)?.toChar()
+                        if (char != null && (char in 'A'..'Z' || char in '0'..'9')) append(char)
+                    }
             }
-            i++
         }
-        val vin = sb.toString().trim()
-        return if (vin.length >= 11) vin else null
+        return vin.takeIf { it.length == 17 }
     }
 
     /**
@@ -304,36 +300,37 @@ object PidDecoders {
     fun decodeReadiness(response: String): ReadinessState? {
         val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
         val idx = clean.indexOf("4101")
-        if (idx == -1 || clean.length < idx + 10) return null
+        if (idx == -1 || clean.length < idx + 12) return null
 
         val a = clean.substring(idx + 4, idx + 6).toInt(16)
         val b = clean.substring(idx + 6, idx + 8).toInt(16)
-        val c = clean.substring(idx + 8, idx + 10).toInt(16)
+        val d = clean.substring(idx + 10, idx + 12).toInt(16)
 
         val milOn = (a and 0x80) != 0
         val dtcCount = a and 0x7F
 
-        // Bits set to 1 = monitor has NOT completed (SAE J1979).
+        // B's low bits and byte C indicate support, not incomplete status.
+        // B bits 4–6 and byte D carry the incomplete flags.
         val spark = listOf(
-            ReadinessMonitor("Misfire", (b and 0x01) == 0),
-            ReadinessMonitor("Fuel System", (b and 0x02) == 0),
-            ReadinessMonitor("Components", (b and 0x04) == 0),
-            ReadinessMonitor("Catalyst", (c and 0x01) == 0),
-            ReadinessMonitor("Heated Catalyst", (c and 0x02) == 0),
-            ReadinessMonitor("Evaporative System", (c and 0x04) == 0),
-            ReadinessMonitor("O2 Sensor", (c and 0x08) == 0),
-            ReadinessMonitor("O2 Sensor Heater", (c and 0x10) == 0),
-            ReadinessMonitor("Secondary Air", (c and 0x20) == 0),
-            ReadinessMonitor("EGR", (c and 0x40) == 0)
+            ReadinessMonitor("Misfire", (b and 0x10) == 0),
+            ReadinessMonitor("Fuel System", (b and 0x20) == 0),
+            ReadinessMonitor("Components", (b and 0x40) == 0),
+            ReadinessMonitor("Catalyst", (d and 0x01) == 0),
+            ReadinessMonitor("Heated Catalyst", (d and 0x02) == 0),
+            ReadinessMonitor("Evaporative System", (d and 0x04) == 0),
+            ReadinessMonitor("O2 Sensor", (d and 0x20) == 0),
+            ReadinessMonitor("O2 Sensor Heater", (d and 0x40) == 0),
+            ReadinessMonitor("Secondary Air", (d and 0x08) == 0),
+            ReadinessMonitor("EGR", (d and 0x80) == 0)
         )
         val compression = listOf(
-            ReadinessMonitor("Misfire", (b and 0x01) == 0),
-            ReadinessMonitor("Fuel System", (b and 0x02) == 0),
-            ReadinessMonitor("Components", (b and 0x04) == 0),
-            ReadinessMonitor("NOx Trap", (c and 0x08) == 0),
-            ReadinessMonitor("Particulate Filter", (c and 0x20) == 0),
-            ReadinessMonitor("EGR", (c and 0x40) == 0),
-            ReadinessMonitor("Boost Pressure", (c and 0x80) == 0)
+            ReadinessMonitor("Misfire", (b and 0x10) == 0),
+            ReadinessMonitor("Fuel System", (b and 0x20) == 0),
+            ReadinessMonitor("Components", (b and 0x40) == 0),
+            ReadinessMonitor("NOx Trap", (d and 0x02) == 0),
+            ReadinessMonitor("Particulate Filter", (d and 0x40) == 0),
+            ReadinessMonitor("EGR", (d and 0x80) == 0),
+            ReadinessMonitor("Boost Pressure", (d and 0x08) == 0)
         )
         return ReadinessState(milOn, dtcCount, spark, compression)
     }
@@ -378,7 +375,7 @@ object PidDecoders {
         val seen = mutableSetOf<String>()
         while (true) {
             val idx = clean.indexOf("42", searchFrom)
-            if (idx == -1 || idx + 8 > clean.length) break
+            if (idx == -1 || idx + 6 > clean.length) break
             searchFrom = idx + 2
 
             val pid = clean.substring(idx + 2, idx + 4)
@@ -393,7 +390,7 @@ object PidDecoders {
                 "0C" -> if (b != null) FreezeFrameItem("Engine RPM", "${((a * 256) + b) / 4}") else null
                 "0D" -> FreezeFrameItem("Vehicle Speed", "${a} km/h")
                 "0F" -> FreezeFrameItem("Intake Air Temp", "${a - 40}°C")
-                "10" -> if (b != null) FreezeFrameItem("MAF Air Flow", String.format("%.1f g/s", ((a * 256) + b) / 100f)) else null
+                "10" -> if (b != null) FreezeFrameItem("MAF Air Flow", String.format(java.util.Locale.getDefault(), "%.1f g/s", ((a * 256) + b) / 100f)) else null
                 "11" -> FreezeFrameItem("Throttle Position", "${a * 100 / 255}%")
                 "2F" -> FreezeFrameItem("Fuel Level", "${a * 100 / 255}%")
                 else -> null

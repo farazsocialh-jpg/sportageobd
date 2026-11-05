@@ -669,8 +669,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
 /* Background is transparent so the native Compose fallback map underneath shows through
    until real OSM tiles have loaded. If tiles never load, the offline overlay covers this. */
 body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: transparent; overflow: hidden; }
-#map { position: absolute; inset: 0; }
-#offline { position: absolute; inset: 0; display: none; background:
+#map { position: absolute; top: 0; right: 0; bottom: 0; left: 0; width: 100%; height: 100%; }
+#map.dark-map .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.7); }
+#offline { position: absolute; top: 0; right: 0; bottom: 0; left: 0; display: block; z-index: 700; background:
     linear-gradient(#0B1220 1px, transparent 1px) 0 0 / 46px 46px,
     linear-gradient(90deg, #0B1220 1px, transparent 1px) 0 0 / 46px 46px,
     radial-gradient(circle at 50% 42%, #0E1A2E 0%, #070B12 70%);
@@ -695,7 +696,7 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: trans
 <body>
 <div id="map"></div>
 <div id="offline">
-    <div class="banner">OFFLINE MAP MODE &middot; TILES UNAVAILABLE</div>
+<div class="banner" id="mapNotice">LOADING MAP &middot; INTERNET NEEDED FOR STREETS</div>
     <div class="ring"></div>
     <div class="crosshair"></div>
     <div class="info">CURRENT POSITION<br><b id="offlineCoords">--</b></div>
@@ -711,25 +712,41 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: trans
 </script>
 <script>
 (function () {
-    var startLat = 25.2854, startLon = 51.5310; // Doha baseline until GPS bridge updates it
-    var map = null, carMarker = null, activeLayer = null, providerIndex = 0, offline = false;
-    var loadedTiles = 0, errorTiles = 0, probeTimer = null;
+    var params = new URLSearchParams(window.location.search);
+    var startLat = Number(params.get('lat') || 25.2854);
+    var startLon = Number(params.get('lon') || 51.5310);
+    var map = null, carMarker = null, activeLayer = null, providerIndex = 0;
+    var loadedTiles = 0, errorTiles = 0, probeTimer = null, retryTimer = null, generation = 0;
+    var theme = params.get('theme') === 'light' ? 'light' : 'dark';
+    var providers = [];
+    window.mapReady = false;
 
-    // Tile providers tried in order. If one fails (blocked CDN / no internet),
-    // the next is tried automatically; if all fail, offline mode renders.
-    var providers = [
-        { name: 'CARTO DARK', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', sub: 'abcd', max: 19 },
-        { name: 'OSM',        url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',              sub: 'abc', max: 19 },
-        { name: 'CARTO LIGHT',url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', sub: 'abcd', max: 19 }
-    ];
+    function validCoords(lat, lon) {
+        return typeof lat === 'number' && typeof lon === 'number' &&
+            isFinite(lat) && isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    }
+    if (!validCoords(startLat, startLon)) { startLat = 25.2854; startLon = 51.5310; }
+
+    function tileProviders() {
+        // CARTO can return an HTTP-200 "API KEY REQUIRED" image, defeating
+        // tileerror-based failover. Use the verified no-key OSM source for
+        // both styles, and darken ONLY the tile pane locally (not the marker).
+        return [{
+            name: theme === 'dark' ? 'OSM DARK' : 'OPENSTREETMAP',
+            url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            sub: 'abc', attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>'
+        }];
+    }
 
     function setStatus(t) { var el = document.getElementById('status'); if (el) el.textContent = t; }
 
-    function showOffline() {
-        offline = true;
-        document.getElementById('map').style.display = 'none';
+    function showOffline(message) {
         document.getElementById('offline').style.display = 'block';
+        document.getElementById('mapNotice').textContent = message || 'NO STREET TILES · CHECK INTERNET · RETRYING';
         updateCoordsText(startLat, startLon);
+        clearTimeout(retryTimer);
+        // Recover without restarting the app when a phone hotspot comes back.
+        retryTimer = setTimeout(function () { if (map) loadProvider(0); }, 30000);
     }
 
     function updateCoordsText(lat, lon) {
@@ -738,56 +755,98 @@ body, html { margin: 0; padding: 0; width: 100%; height: 100%; background: trans
     }
 
     function buildMap() {
-        map = L.map('map', { zoomControl: false, attributionControl: false, zoomSnap: 0.5 })
+        map = L.map('map', { zoomControl: false, attributionControl: true, zoomSnap: 0.5 })
             .setView([startLat, startLon], 15);
+        map.attributionControl.setPrefix(false);
+        map.attributionControl.setPosition('bottomleft');
         carMarker = L.marker([startLat, startLon], {
+            title: 'Vehicle position', alt: 'Vehicle position',
             icon: L.divIcon({ className: 'car-marker', iconSize: [22, 22] })
         }).addTo(map);
+        providers = tileProviders();
         loadProvider(0);
+        window.mapReady = true;
+        window.addEventListener('resize', function () { map.invalidateSize(false); });
+        setTimeout(function () { map.invalidateSize(false); }, 100);
     }
 
     function loadProvider(i) {
+        var token = ++generation;
         providerIndex = i;
         loadedTiles = 0; errorTiles = 0;
+        clearTimeout(retryTimer);
         if (activeLayer) { map.removeLayer(activeLayer); activeLayer = null; }
         if (probeTimer) { clearTimeout(probeTimer); probeTimer = null; }
         var p = providers[i];
-        activeLayer = L.tileLayer(p.url, { maxZoom: p.max, subdomains: p.sub }).addTo(map);
+        document.getElementById('map').classList.toggle('dark-map', theme === 'dark');
+        activeLayer = L.tileLayer(p.url, { maxZoom: 19, subdomains: p.sub, attribution: p.attribution });
         setStatus('TILES: ' + p.name);
-        activeLayer.on('tileload', function () { loadedTiles++; });
+        activeLayer.on('loading', function () {
+            if (token !== generation) return;
+            loadedTiles = 0; errorTiles = 0;
+            clearTimeout(probeTimer);
+            probeTimer = setTimeout(function () {
+                if (token === generation && loadedTiles === 0) nextProvider();
+            }, 5000);
+        });
+        activeLayer.on('tileload', function () {
+            if (token !== generation) return;
+            loadedTiles++;
+            clearTimeout(probeTimer);
+            clearTimeout(retryTimer);
+            document.getElementById('offline').style.display = 'none';
+            setStatus(p.name);
+        });
         activeLayer.on('tileerror', function () {
+            if (token !== generation) return;
             errorTiles++;
             if (loadedTiles === 0 && errorTiles >= 4) nextProvider();
         });
-        // If nothing at all loaded within 8 seconds, try the next provider.
+        // Attach handlers BEFORE adding the layer, including cached tile events.
+        activeLayer.addTo(map);
+        clearTimeout(probeTimer);
         probeTimer = setTimeout(function () {
-            if (loadedTiles === 0) nextProvider();
-        }, 8000);
+            if (token === generation && loadedTiles === 0) nextProvider();
+        }, 5000);
     }
 
     function nextProvider() {
         if (providerIndex + 1 < providers.length) {
             loadProvider(providerIndex + 1);
-        } else if (!offline) {
+        } else {
             showOffline();
             setStatus('TILES: OFFLINE');
         }
     }
 
-    if (typeof L === 'undefined') {
-        showOffline();
-    } else {
-        buildMap();
-    }
+    updateCoordsText(startLat, startLon);
 
     // Bridge: called from Kotlin on every GPS update. Pans the map / moves the marker,
     // and keeps the offline coordinate readout current.
     window.updateVehicleLocation = function (lat, lon) {
+        if (!validCoords(lat, lon)) return;
+        var moved = lat !== startLat || lon !== startLon;
         startLat = lat; startLon = lon;
-        if (map && !offline) { map.panTo([lat, lon], { animate: true, duration: 1.0 }); }
-        if (carMarker && !offline) { carMarker.setLatLng([lat, lon]); }
-        if (offline) { updateCoordsText(lat, lon); }
+        if (map && moved) { map.panTo([lat, lon], { animate: true, duration: 0.5 }); }
+        if (carMarker && moved) { carMarker.setLatLng([lat, lon]); }
+        updateCoordsText(lat, lon);
     };
+    window.setMapTheme = function (next) {
+        next = next === 'light' ? 'light' : 'dark';
+        if (theme === next) return;
+        theme = next;
+        providers = tileProviders();
+        if (map) loadProvider(0);
+    };
+    window.addEventListener('online', function () { if (map) loadProvider(0); });
+    window.addEventListener('error', function () { showOffline('MAP ERROR · UPDATE ANDROID SYSTEM WEBVIEW'); });
+    try {
+        if (typeof L === 'undefined') showOffline('MAP ENGINE UNAVAILABLE · UPDATE ANDROID SYSTEM WEBVIEW');
+        else buildMap();
+    } catch (error) {
+        showOffline('MAP ERROR · UPDATE ANDROID SYSTEM WEBVIEW');
+        console.error(error);
+    }
 })();
 </script>
 </body>

@@ -1,5 +1,8 @@
 package com.sportage.obd.ui
 
+import com.sportage.obd.bluetooth.rowState
+import kotlinx.coroutines.delay
+
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
@@ -89,17 +92,13 @@ object BluetoothDeviceConnectGuard {
         connectionState: ConnectionState,
         context: Context
     ): Pair<Boolean, UnavailableReason?> {
-        if (context == null) {
-            return Pair(false, UnavailableReason.MissingAddress(device))
-        }
-
         val address = BluetoothDeviceInfo.address(context, device)
         if (address.isNullOrBlank()) {
             return Pair(false, UnavailableReason.MissingAddress(device))
         }
 
         val adapter = BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null || !adapter.isEnabled) {
+        if (adapter == null || runCatching { !adapter.isEnabled }.getOrDefault(true)) {
             return Pair(false, UnavailableReason.AdapterOff(device))
         }
 
@@ -143,6 +142,7 @@ private fun ConnectionState.currentAddress(): String? =
     if (this is ConnectionState.Connected) (this as ConnectionState.Connected).address else null
 
 @SuppressLint("MissingPermission")
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BluetoothDialog(
     isOpen: Boolean,
@@ -172,6 +172,8 @@ fun BluetoothDialog(
 
     val bleDevices = remember { mutableStateListOf<BluetoothDevice>() }
     var isScanningBle by remember { mutableStateOf(false) }
+    val latestConnectionState by rememberUpdatedState(connectionState)
+    val latestConnect by rememberUpdatedState(onConnectDevice)
     val bleScanCallback = remember {
         object : android.bluetooth.le.ScanCallback() {
             override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult) {
@@ -191,6 +193,7 @@ fun BluetoothDialog(
     }
 
     fun startBleScan() {
+        if (latestConnectionState is ConnectionState.Connecting || pendingPairDevice != null) return
         try {
             val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
             val scanner = adapter.bluetoothLeScanner ?: return
@@ -208,6 +211,8 @@ fun BluetoothDialog(
     }
 
     fun startNearbyScan() {
+        if (latestConnectionState is ConnectionState.Connecting || pendingPairDevice != null) return
+        stopBleScan()
         // Explicit, user-initiated scan only (never automatic). Any in-flight RFCOMM
         // connect is aborted first: discovery and socket connects cannot run together
         // on most Android Bluetooth stacks and doing both made connects fail instantly.
@@ -218,12 +223,30 @@ fun BluetoothDialog(
                 if (adapter.isDiscovering) {
                     adapter.cancelDiscovery()
                 }
-                adapter.startDiscovery()
-                isScanningNearby = true
+                isScanningNearby = adapter.startDiscovery()
             }
         } catch (_: SecurityException) {
             // BLUETOOTH_SCAN not granted: stay silent, the paired list still works.
         } catch (_: Exception) {}
+    }
+
+    fun connectSelected(device: BluetoothDevice, ble: Boolean) {
+        stopBleScan()
+        runCatching { BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery() }
+        isScanningNearby = false
+        latestConnect(device, ble)
+    }
+
+    LaunchedEffect(isScanningBle) {
+        if (isScanningBle) { delay(15_000); stopBleScan() }
+    }
+
+    LaunchedEffect(pendingPairDevice) {
+        if (pendingPairDevice != null) {
+            delay(30_000)
+            pendingPairDevice = null
+            pendingPairFailed = "Pairing timed out. Check the adapter PIN in Bluetooth Settings."
+        }
     }
 
     DisposableEffect(isOpen) {
@@ -275,7 +298,7 @@ fun BluetoothDialog(
                 context,
                 receiver,
                 filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED
+                ContextCompat.RECEIVER_EXPORTED
             )
         } catch (_: Exception) {}
 
@@ -306,6 +329,11 @@ fun BluetoothDialog(
         val bondReceiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context?, intent: Intent?) {
                 if (intent?.action != BluetoothDevice.ACTION_BOND_STATE_CHANGED) return
+                @Suppress("DEPRECATION")
+                val changed = intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+                val expectedAddress = BluetoothDeviceInfo.address(context, device) ?: return
+                if (changed == null || !expectedAddress.equals(
+                        BluetoothDeviceInfo.address(context, changed), ignoreCase = true)) return
 
                 @Suppress("DEPRECATION")
                 val bondState = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.ERROR)
@@ -316,11 +344,12 @@ fun BluetoothDialog(
                         pendingPairFailed = null
                         val (canConnect, reason) = BluetoothDeviceConnectGuard.canConnectTo(
                             device = device,
-                            connectionState = connectionState,
+                            connectionState = latestConnectionState,
                             context = context
                         )
                         if (canConnect) {
-                            runCatching { onConnectDevice(device, false) }
+                            onRefreshDevices()
+                            runCatching { connectSelected(device, false) }
                         } else {
                             val label = BluetoothDeviceConnectGuard.deviceLabel(context, device)
                             pendingPairFailed = "Paired, but unavailable to connect: ${reason?.detailMessage(label) ?: "unknown"}"
@@ -339,9 +368,20 @@ fun BluetoothDialog(
                 context,
                 bondReceiver,
                 IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED),
-                ContextCompat.RECEIVER_NOT_EXPORTED
+                ContextCompat.RECEIVER_EXPORTED
             )
-        } catch (_: Exception) {}
+            // Register first: a fast bond completion must not race receiver installation.
+            if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                pendingPairDevice = null
+                connectSelected(device, false)
+            } else if (!device.createBond()) {
+                pendingPairDevice = null
+                pendingPairFailed = "Pairing request was rejected. Try Android Bluetooth Settings."
+            }
+        } catch (e: Exception) {
+            pendingPairDevice = null
+            pendingPairFailed = "Pairing failed: ${e.localizedMessage}"
+        }
 
         onDispose {
             try {
@@ -390,7 +430,7 @@ fun BluetoothDialog(
                                     .size(20.dp)
                             )
                         }
-                        Column {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
                                 text = "BLUETOOTH OBD2 INTERFACE",
                                 color = Color.White,
@@ -428,6 +468,12 @@ fun BluetoothDialog(
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))
+
+                if (connectionState is ConnectionState.Connecting) {
+                    TextButton(onClick = onDisconnect) {
+                        Text("Cancel connection", color = CriticalRed, fontSize = 12.sp)
+                    }
+                }
 
                 // Segmented Tabs: DEVICES | TERMINAL | TROUBLESHOOTING
                 Row(
@@ -508,10 +554,9 @@ fun BluetoothDialog(
                         }
 
                         // Toolbar
-                        Row(
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
                             Text(
                                 text = "DEVICES: ${pairedDevices.size} PAIRED · ${discoveredDevices.size} DISCOVERED",
@@ -520,10 +565,10 @@ fun BluetoothDialog(
                                 fontFamily = FontFamily.Monospace
                             )
 
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Button(
                                     onClick = { startNearbyScan() },
-                                    enabled = !isScanningNearby,
+                                    enabled = !isScanningNearby && connectionState !is ConnectionState.Connecting && pendingPairDevice == null,
                                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(6.dp)
@@ -591,6 +636,7 @@ fun BluetoothDialog(
                                 }
 
                                 items(pairedDevices) { device ->
+                                    val rowState = connectionState.rowState(BluetoothDeviceInfo.address(context, device))
                                     val devName = BluetoothDeviceInfo.displayName(context, device, "Unknown Bluetooth Device")
                                     val isObd = devName.lowercase().contains("obd") ||
                                             devName.lowercase().contains("elm") ||
@@ -601,25 +647,12 @@ fun BluetoothDialog(
                                     val isCurrentConnected = connectionState is ConnectionState.Connected &&
                                             connectionState.currentAddress()?.equals(deviceAddress, ignoreCase = true) == true
 
-                                    // Only ONE device is ever connecting - mark just that row,
-                                    // not every row (that looked like "connecting to all devices").
-                                    val connectingAddress = (connectionState as? ConnectionState.Connecting)?.address
-                                    val isThisConnecting = connectingAddress != null &&
-                                            connectingAddress.equals(deviceAddress, ignoreCase = true)
-
-                                    val (canConnect, unavailableReason) = BluetoothDeviceConnectGuard.canConnectTo(
+                                    val (canConnect, _) = BluetoothDeviceConnectGuard.canConnectTo(
                                         device = device,
                                         connectionState = connectionState,
                                         context = context
                                     )
-                                    val isConnectDisabled = !canConnect || (connectingAddress != null && !isThisConnecting)
-                                    val connectButtonLabel = when {
-                                        isThisConnecting -> "Connecting..."
-                                        !canConnect && unavailableReason != null -> {
-                                            "Unavailable: ${unavailableReason.shortMessage}"
-                                        }
-                                        else -> "Connect"
-                                    }
+                                    val connectButtonLabel = rowState.label
 
                                     Surface(
                                         color = if (isCurrentConnected) Color(0xFF0E2822) else Color(0xFF0E1520),
@@ -637,6 +670,7 @@ fun BluetoothDialog(
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Row(
+                                                modifier = Modifier.weight(1f),
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
@@ -654,12 +688,15 @@ fun BluetoothDialog(
                                                     )
                                                 }
 
-                                                Column {
+                                                Column(modifier = Modifier.weight(1f)) {
                                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                                         Text(
                                                             text = devName,
                                                             color = Color.White,
                                                             fontSize = 13.sp,
+                                                            maxLines = 1,
+                                                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f, fill = false),
                                                             fontWeight = FontWeight.Bold,
                                                             fontFamily = FontFamily.Monospace
                                                         )
@@ -698,8 +735,8 @@ fun BluetoothDialog(
                                                 Button(
                                                     // runCatching: even if the connect path throws
                                                     // (aggressive head-unit ROMs), the app must survive.
-                                                    onClick = { runCatching { onConnectDevice(device, false) } },
-                                                    enabled = canConnect && !connectionState.isConnecting(),
+                                                    onClick = { runCatching { connectSelected(device, device.type == BluetoothDevice.DEVICE_TYPE_LE) } },
+                                                    enabled = canConnect && rowState.enabled && pendingPairDevice == null,
                                                     colors = ButtonDefaults.buttonColors(
                                                         containerColor = if (isObd) ElectricCyan else Color(0xFF1E293B)
                                                     ),
@@ -818,14 +855,9 @@ fun BluetoothDialog(
                                                         }
                                                     }
 
-                                                    try {
-                                                        device.createBond()
-                                                    } catch (bondError: Exception) {
-                                                        pendingPairFailed = "Pairing request failed: ${bondError.localizedMessage?.takeIf { it.isNotBlank() } ?: "unknown error"}"
-                                                        return@Button
-                                                    }
-
-                                                    // Wait for bond completion before attempting RFCOMM.
+                                                    stopBleScan()
+                                                    runCatching { BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery() }
+                                                    // The effect registers the receiver before starting the bond.
                                                     pendingPairDevice = device
                                                 },
                                                 enabled = connectionState !is ConnectionState.Connecting &&
@@ -837,7 +869,7 @@ fun BluetoothDialog(
                                                 Text(
                                                     text = when {
                                                         pendingPairFailed != null -> "Retry Pair"
-                                                        pendingPairDevice != null -> "Pairing..."
+                                                        pendingPairDevice == device -> "Pairing..."
                                                         else -> "Pair & Connect"
                                                     },
                                                     color = Color(0xFF05070B),
@@ -938,6 +970,7 @@ fun BluetoothDialog(
                         ) {
                             Button(
                                 onClick = { if (isScanningBle) stopBleScan() else startBleScan() },
+                                enabled = connectionState !is ConnectionState.Connecting && pendingPairDevice == null,
                                 colors = ButtonDefaults.buttonColors(containerColor = if (isScanningBle) CriticalRed else ElectricCyan),
                                 contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                 shape = RoundedCornerShape(6.dp)
@@ -980,6 +1013,7 @@ fun BluetoothDialog(
                         } else {
                             LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 items(bleDevices) { device ->
+                                    val bleRow = connectionState.rowState(BluetoothDeviceInfo.address(context, device))
                                     Surface(
                                         color = Color(0xFF101826),
                                         shape = RoundedCornerShape(10.dp),
@@ -1011,14 +1045,14 @@ fun BluetoothDialog(
                                                 )
                                             }
                                             Button(
-                                                onClick = { runCatching { onConnectDevice(device, true) } },
-                                                enabled = connectionState !is ConnectionState.Connecting,
+                                                onClick = { if (bleRow.connected) onDisconnect() else runCatching { connectSelected(device, true) } },
+                                                enabled = bleRow.enabled && pendingPairDevice == null,
                                                 colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                                                 shape = RoundedCornerShape(6.dp),
                                                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                             ) {
                                                 Text(
-                                                    text = "Connect BLE",
+                                                    text = if (bleRow.label == "Connect") "Connect BLE" else bleRow.label,
                                                     color = Color(0xFF05070B),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,

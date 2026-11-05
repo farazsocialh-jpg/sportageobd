@@ -5,6 +5,13 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.withContext
@@ -27,7 +34,10 @@ class BluetoothTransport : ElmTransport {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.Disconnected)
     override val connectionState: StateFlow<ConnectionState> = _connectionState
 
-    private var socket: BluetoothSocket? = null
+    @Volatile private var socket: BluetoothSocket? = null
+    @Volatile private var pendingSocket: BluetoothSocket? = null
+    @Volatile private var stopped = false
+    private val commandMutex = Mutex()
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
 
@@ -38,9 +48,9 @@ class BluetoothTransport : ElmTransport {
      */
     @SuppressLint("MissingPermission")
     override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
-        _connectionState.value = ConnectionState.Connecting(address = device.address)
-
+        stopped = false
         try {
+            _connectionState.value = ConnectionState.Connecting(address = device.address)
             // Discovery must stop before an RFCOMM connection, but some Android versions
             // throw here when Bluetooth permission was revoked while the dialog was open.
             try {
@@ -53,41 +63,51 @@ class BluetoothTransport : ElmTransport {
             var lastError: Exception? = null
 
             // Method 1: Standard Secure RFCOMM Socket
-            if (connectedSocket == null) {
+            if (connectedSocket == null && !stopped) {
                 try {
                     val candidate = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
+                    lastError = runInterruptible { connectSocketWithTimeout(candidate) } ?: run { connectedSocket = candidate; null }
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Exception) {
                     lastError = error
                 }
             }
 
             // Method 2: Insecure RFCOMM Socket (compatibility fallback)
-            if (connectedSocket == null) {
+            currentCoroutineContext().ensureActive()
+            if (connectedSocket == null && !stopped) {
                 try {
                     val candidate = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
-                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
+                    lastError = runInterruptible { connectSocketWithTimeout(candidate) } ?: run { connectedSocket = candidate; null }
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Exception) {
                     lastError = error
                 }
             }
 
             // Method 3: Hidden RFCOMM channel 1, used by some aftermarket head units
-            if (connectedSocket == null) {
+            currentCoroutineContext().ensureActive()
+            if (connectedSocket == null && !stopped) {
                 try {
                     val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
                     val candidate = method.invoke(device, 1) as BluetoothSocket
-                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
+                    lastError = runInterruptible { connectSocketWithTimeout(candidate) } ?: run { connectedSocket = candidate; null }
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (error: Exception) {
                     lastError = error
                 }
             }
 
             val activeSocket = connectedSocket
-            if (activeSocket != null && activeSocket.isConnected) {
+            currentCoroutineContext().ensureActive()
+            if (activeSocket != null && activeSocket.isConnected && !stopped) {
                 socket = activeSocket
                 inputStream = activeSocket.inputStream
                 outputStream = activeSocket.outputStream
+                pendingSocket = null
 
                 // Read metadata only after a successful connection and guard against permission
                 // revocation between the connection request and completion.
@@ -106,6 +126,9 @@ class BluetoothTransport : ElmTransport {
                 _connectionState.value = ConnectionState.Error(message)
                 false
             }
+        } catch (error: CancellationException) {
+            disconnect()
+            throw error
         } catch (error: SecurityException) {
             disconnect()
             _connectionState.value = ConnectionState.Error(
@@ -122,7 +145,7 @@ class BluetoothTransport : ElmTransport {
         }
     }
 
-    override suspend fun sendCommand(command: String, timeoutMs: Long): String = withContext(Dispatchers.IO) {
+    override suspend fun sendCommand(command: String, timeoutMs: Long): String = commandMutex.withLock { withContext(Dispatchers.IO) {
         val out = outputStream ?: throw IllegalStateException("Socket is not connected")
         val inStream = inputStream ?: throw IllegalStateException("Socket is not connected")
 
@@ -142,6 +165,7 @@ class BluetoothTransport : ElmTransport {
         val byteBuffer = ByteArray(256)
 
         while (System.currentTimeMillis() - startTime < timeoutMs) {
+            currentCoroutineContext().ensureActive()
             if (inStream.available() > 0) {
                 val readCount = inStream.read(byteBuffer)
                 if (readCount > 0) {
@@ -150,14 +174,16 @@ class BluetoothTransport : ElmTransport {
                     if (buffer.contains(">")) {
                         break
                     }
+                } else if (readCount < 0) {
+                    throw java.io.EOFException("Bluetooth adapter closed the link")
                 }
             } else {
-                Thread.sleep(8)
+                delay(8)
             }
         }
-
+        if (!buffer.contains(">")) throw java.io.IOException("OBD adapter response timed out")
         Elm327Command.cleanResponse(buffer.toString())
-    }
+    } }
 
     /**
      * socket.connect() BLOCKS with no timeout of its own - on an unreachable device
@@ -170,32 +196,46 @@ class BluetoothTransport : ElmTransport {
         socket: BluetoothSocket,
         timeoutMs: Long = 12_000L
     ): Exception? {
+        pendingSocket = socket
+        if (stopped) {
+            runCatching { socket.close() }
+            return java.io.IOException("Connection cancelled")
+        }
         var error: Exception? = null
         val worker = Thread {
             try {
                 socket.connect()
+            } catch (e: SecurityException) {
+                // BLUETOOTH_CONNECT may be revoked while the worker is running.
+                synchronized(this) { error = e }
             } catch (e: Exception) {
                 synchronized(this) { error = e }
             }
         }
         worker.isDaemon = true
         worker.start()
-        worker.join(timeoutMs)
-        if (worker.isAlive) {
-            // Still blocked in connect(): closing the socket aborts it with an IOException.
+        try {
+            worker.join(timeoutMs)
+            if (worker.isAlive) {
+                runCatching { socket.close() }
+                return java.io.IOException("Timed out after ${timeoutMs / 1000}s - device not responding")
+            }
+            val failure = synchronized(this) { error }
+            if (failure != null) runCatching { socket.close() }
+            return failure
+        } catch (e: InterruptedException) {
             runCatching { socket.close() }
-            worker.join(3_000L)
-            return java.io.IOException("Timed out after ${timeoutMs / 1000}s - device not responding")
+            throw e
         }
-        return synchronized(this) { error }
     }
 
     override fun disconnect() {
-        try {
-            inputStream?.close()
-            outputStream?.close()
-            socket?.close()
-        } catch (_: Exception) {}
+        stopped = true
+        runCatching { pendingSocket?.close() }
+        runCatching { socket?.close() }
+        runCatching { inputStream?.close() }
+        runCatching { outputStream?.close() }
+        pendingSocket = null
         inputStream = null
         outputStream = null
         socket = null

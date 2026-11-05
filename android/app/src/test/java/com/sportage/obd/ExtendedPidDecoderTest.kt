@@ -79,6 +79,7 @@ class ExtendedPidDecoderTest {
         val vin = PidDecoders.decodeVin(response)
         assertNotNull(vin)
         assertEquals("KNDPMCAC5N7123456", vin)
+        assertEquals(vin, PidDecoders.decodeVin(response.replace("\n", " ")))
     }
 
     @Test
@@ -90,8 +91,8 @@ class ExtendedPidDecoderTest {
 
     @Test
     fun testDecodeReadiness_MilOn() {
-        // A = 0x82 -> MIL on, 2 codes; B = 0x00, C = 0x00 -> all monitors complete
-        val state = PidDecoders.decodeReadiness("41 01 82 00 00")
+        // A = 0x82 -> MIL on, 2 codes; D = 0x00 -> all monitors complete
+        val state = PidDecoders.decodeReadiness("41 01 82 07 FF 00")
         assertNotNull(state)
         assertTrue(state!!.milOn)
         assertEquals(2, state.storedDtcCount)
@@ -100,8 +101,8 @@ class ExtendedPidDecoderTest {
 
     @Test
     fun testDecodeReadiness_MonitorsIncomplete() {
-        // B = 0x07 -> misfire/fuel/components NOT complete; C = 0x01 -> catalyst NOT complete
-        val state = PidDecoders.decodeReadiness("41 01 00 07 01")
+        // B high bits indicate incomplete continuous monitors; D bit 0 = catalyst incomplete.
+        val state = PidDecoders.decodeReadiness("41 01 00 77 FF 01")
         assertNotNull(state)
         assertFalse(state!!.milOn)
         assertEquals(0, state.storedDtcCount)
@@ -176,5 +177,26 @@ class ExtendedPidDecoderTest {
         val unknown = DtcDatabase.lookup("P9999")
         assertEquals(DtcSeverity.WARNING, unknown.severity)
         assertTrue(unknown.description.contains("P9999"))
+    }
+
+    @Test
+    fun testReadinessRejectsMissingFourthDataByte() {
+        assertNull(PidDecoders.decodeReadiness("41 01 00 07 FF"))
+        val incomplete = PidDecoders.decodeReadiness("41 01 00 77 FF FF")!!
+        assertTrue(incomplete.sparkIgnitionMonitors.none { it.complete })
+    }
+
+    @Test
+    fun testVinWithRepeatedResponseHeaders() {
+        val response = "0: 49 02 01 4B 4E 44\r\n" +
+            "1: 49 02 02 50 4D 43 41 43 35\r\n" +
+            "2: 49 02 03 4E 37 31 32 33 34\r\n3: 49 02 04 35 36"
+        assertEquals("KNDPMCAC5N7123456", PidDecoders.decodeVin(response))
+        assertNull(PidDecoders.decodeVin("49 02 01 4B 4E 44"))
+    }
+
+    @Test
+    fun testFinalSingleByteFreezeFrameParameter() {
+        assertTrue(PidDecoders.decodeFreezeFrame("42 0D 64").items.any { it.value == "100 km/h" })
     }
 }

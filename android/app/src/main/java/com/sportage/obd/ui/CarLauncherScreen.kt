@@ -5,13 +5,14 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.view.KeyEvent
-import android.webkit.GeolocationPermissions
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.ConsoleMessage
+import androidx.webkit.WebViewAssetLoader
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -57,36 +58,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Desktop UA: free online map embeds only render well for desktop-class clients. */
-private const val ONLINE_MAP_EMBED_USER_AGENT =
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
-
-/** Mobile Chrome UA for the local Leaflet map so tiles are served at the right scale. */
-private const val MOBILE_MAP_USER_AGENT =
-    "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
-
-private const val MAP_DEMO_LAT = 25.2854
-private const val MAP_DEMO_LON = 51.5310
-
-/**
- * Free online map embed that renders inside a WebView without an app wall.
- * embed.openstreetmap.org is the official free OSM embed and needs no API key.
- *
- * If that endpoint is blocked on the head unit, the app still falls back to the
- * Leaflet/OSM dark tile layer already bundled in this screen.
- */
-private fun openStreetMapEmbedUrl(lat: Double, lon: Double, zoom: Int = 15): String {
-    // Official OSM embed: mlat/mlon centre the map, marker=lat,lon plants the pin
-    // (plain geographic coordinates, not viewport percentages).
-    return "https://embed.openstreetmap.org/?mlat=$lat&mlon=$lon&num=1&zoom=$zoom&pan=0&u=0&marker=$lat,$lon"
-}
-
-private const val MAP_FALLBACK_LAT = MAP_DEMO_LAT
-private const val MAP_FALLBACK_LON = MAP_DEMO_LON
-private const val MAP_FALLBACK_ZOOM = 15
-
-private const val OPENSTREETMAP_EMBED_USER_AGENT =
-    ONLINE_MAP_EMBED_USER_AGENT
+/** Local HTTPS origin avoids file:// restrictions while keeping the engine in the APK. */
+private const val MAP_ASSET_URL = "https://appassets.androidplatform.net/assets/live_map.html"
 
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
@@ -264,9 +237,11 @@ fun CarLauncherScreen(
         } catch (_: Exception) {}
     }
 
-    val currentTime = remember {
-        derivedStateOf {
-            SimpleDateFormat("HH:mm · EEE, MMM d", Locale.getDefault()).format(Date())
+    val currentTime = remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        while (true) {
+            currentTime.value = SimpleDateFormat("HH:mm · EEE, MMM d", Locale.getDefault()).format(Date())
+            kotlinx.coroutines.delay(1000)
         }
     }
 
@@ -974,13 +949,23 @@ fun LiveMapSurface(
     var mapLoading by remember { mutableStateOf(false) }
     var mapRetryCount by remember { mutableStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
+    val latestLat by rememberUpdatedState(currentLat)
+    val latestLon by rememberUpdatedState(currentLon)
+    val latestProvider by rememberUpdatedState(mapProvider)
+    val mapViewHolder = remember { arrayOfNulls<WebView>(1) }
+    LaunchedEffect(mapLoading) {
+        if (mapLoading) {
+            kotlinx.coroutines.delay(15_000)
+            mapLoading = false
+            mapError = "Map loading timed out. Tap Retry or open Maps."
+        }
+    }
 
     // The map engine (Leaflet) is BUNDLED in the APK as an asset: no unpkg.com / jsdelivr
     // CDN request is needed, which is what left the map black on head units where those
-    // CDNs are blocked or slow. The HTML tries several tile servers automatically and
-    // falls back to a self-contained offline position display, so the surface is never
-    // empty even with no internet at all.
-    val mapAssetUrl = "file:///android_asset/live_map.html"
+    // CDNs are blocked or slow. Street tiles still need internet; without it the asset
+    // explicitly labels the coordinate-only fallback and retries when connectivity returns.
+    val mapAssetUrl = MAP_ASSET_URL
 
     Card(
         modifier = Modifier.fillMaxSize(),
@@ -999,14 +984,18 @@ fun LiveMapSurface(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Row(
+                    modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF33CCFF), modifier = Modifier.size(16.dp))
                     Text(
-                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "OPENSTREETMAP EMBED",
+                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "STREET MAP",
                         color = Color.White,
                         fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace
                     )
@@ -1031,7 +1020,7 @@ fun LiveMapSurface(
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = if (mapProvider == "OSM_DARK") "Switch: Online Map" else "Switch: Dark Map",
+                            text = if (mapProvider == "OSM_DARK") "Street Map" else "Dark Map",
                             color = ElectricCyan,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
@@ -1066,14 +1055,12 @@ fun LiveMapSurface(
 
             // Interactive Map View Container with Overlays
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                val isOnlineMap = mapProvider == "OPENSTREETMAP_EMBED"
-
                 // NATIVE FALLBACK LAYER: drawn with Compose Canvas, so it renders even if the
                 // head unit's WebView is broken or disabled. The WebView sits on top with a
                 // transparent background; if it stays dead, this layer is what the driver sees.
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val gridColor = Color(0xFF122033)
-                    val step = size.width / 8f
+                    val step = (size.width / 8f).coerceAtLeast(1f)
                     var x = 0f
                     while (x <= size.width) {
                         drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 1f)
@@ -1094,33 +1081,58 @@ fun LiveMapSurface(
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
+                        val assetLoader = WebViewAssetLoader.Builder()
+                            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))
+                            .build()
                         WebView(ctx).apply {
+                            mapViewHolder[0] = this
                             setBackgroundColor(android.graphics.Color.TRANSPARENT)
                             settings.apply {
                                 javaScriptEnabled = true
                                 domStorageEnabled = true
                                 databaseEnabled = true
-                                setGeolocationEnabled(true)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                                setGeolocationEnabled(false)
+                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
                                 cacheMode = WebSettings.LOAD_DEFAULT
-                                allowFileAccess = true
-                                allowContentAccess = true
-                                userAgentString = OPENSTREETMAP_EMBED_USER_AGENT
+                                allowFileAccess = false
+                                allowContentAccess = false
+                                userAgentString = settings.userAgentString + " SportageOBD/1.0.1"
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                             }
                             webChromeClient = object : WebChromeClient() {
-                                override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: GeolocationPermissions.Callback?) {
-                                    callback?.invoke(origin, true, false)
+                                override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
+                                    if (message?.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                                        android.util.Log.e("SportageMap", message.message())
+                                        mapError = "Map rendering error. Check Android System WebView and retry."
+                                    }
+                                    return true
                                 }
                             }
                             webViewClient = object : WebViewClient() {
-                                override fun                            onPageFinished(view: WebView?, url: String?) {
+                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? =
+                                    request?.url?.let { assetLoader.shouldInterceptRequest(it) }
+
+                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                    // The map has no reason to navigate to arbitrary pages in-app.
+                                    val uri = request?.url ?: return true
+                                    if (uri.host == "appassets.androidplatform.net") return false
+                                    if (uri.scheme == "https" && uri.host == "www.openstreetmap.org") {
+                                        runCatching {
+                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                                        }
+                                    }
+                                    return true
+                                }
+
+                                override fun onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    if (mapProvider == "OSM_DARK") {
-                                        mapError = null
-                                    } else if (mapProvider == "OPENSTREETMAP_EMBED") {
-                                        mapLoading = false
+                                    mapLoading = false
+                                    view?.evaluateJavascript(
+                                        "if(window.updateVehicleLocation){window.updateVehicleLocation($latestLat,$latestLon);" +
+                                            "window.setMapTheme('${if (latestProvider == "OSM_DARK") "dark" else "light"}');} Boolean(window.mapReady)",
+                                    ) { ready ->
+                                        if (ready != "true") mapError = "Map could not initialize. Update Android System WebView or tap Retry."
                                     }
                                 }
 
@@ -1130,13 +1142,13 @@ fun LiveMapSurface(
                                     request: WebResourceRequest?,
                                     error: WebResourceError?
                                 ) {
-                                    if (request?.isForMainFrame == true && mapProvider == "OPENSTREETMAP_EMBED") {
+                                    if (request?.isForMainFrame == true) {
                                         val desc = error?.description ?: "network error"
                                         // No internet (e.g. ERR_NAME_NOT_RESOLVED in the car):
                                         // automatically fall back to the bundled offline map
                                         // instead of leaving an error page on screen.
-                                        mapProvider = "OSM_DARK"
-                                        mapError = "No internet for the online map ($desc) - switched to the offline map."
+                                        mapLoading = false
+                                        mapError = "Map failed to load ($desc). Tap Retry."
                                     }
                                 }
 
@@ -1146,27 +1158,35 @@ fun LiveMapSurface(
                                     errorResponse: android.webkit.WebResourceResponse?
                                 ) {
                                     val status = errorResponse?.statusCode ?: 0
-                                    if (request?.isForMainFrame == true && status >= 400 && mapProvider == "OPENSTREETMAP_EMBED") {
-                                        mapProvider = "OSM_DARK"
-                                        mapError = "Online map blocked (HTTP $status) - switched to the offline map."
+                                    if (request?.isForMainFrame == true && status >= 400) {
+                                        mapLoading = false
+                                        mapError = "Map unavailable (HTTP $status). Tap Retry."
                                     }
                                 }
                             }
                         }
+                    },
+                    onRelease = { webView ->
+                        mapViewHolder[0] = null
+                        webView.stopLoading()
+                        webView.webChromeClient = null
+                        webView.destroy()
                     },
                     update = { webView ->
                         if (currentLoadedProvider != mapProvider) {
                             currentLoadedProvider = mapProvider
                             if (mapProvider == "OSM_DARK") {
                                 // Bundled asset: renders even when unpkg/jsdelivr are blocked.
-                                webView.settings.userAgentString = MOBILE_MAP_USER_AGENT
-                                webView.loadUrl(mapAssetUrl)
+                                if (webView.url?.startsWith(mapAssetUrl) == true) {
+                                    webView.evaluateJavascript("window.setMapTheme && window.setMapTheme('dark')", null)
+                                } else {
+                                    webView.loadUrl("$mapAssetUrl?lat=$currentLat&lon=$currentLon&theme=dark")
+                                }
                                 // Reset online-map-specific transient state when leaving the embed.
                                 mapLoading = false
                                 mapRetryCount = 0
                             } else {
-                                webView.settings.userAgentString = ONLINE_MAP_EMBED_USER_AGENT
-                                mapLoading = true
+                                mapLoading = webView.url?.startsWith(mapAssetUrl) != true
                                 mapRetryCount = mapRetryCount.coerceAtMost(1)
                                 loadOnlineMapUrl(webView, currentLat, currentLon)
                             }
@@ -1177,15 +1197,14 @@ fun LiveMapSurface(
                                 null
                             )
                         } else if (mapProvider == "OPENSTREETMAP_EMBED") {
-                            // The OSM embed is a remote iframe; the only reliable way to move the marker is to reload
-                            // the embed URL. We only do that when the URL actually changed.
+                            // Same bundled engine: update coordinates without reloading on telemetry recomposition.
                             loadOnlineMapUrl(webView, currentLat, currentLon)
                         }
                     }
                 )
 
-                // Loading overlay shown only while the online map is still loading its embed.
-                if (isOnlineMap && mapLoading) {
+                // Tile availability is reported independently inside the asset.
+                if (mapLoading) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
                         color = DarkSurface.copy(alpha = 0.85f),
@@ -1205,7 +1224,7 @@ fun LiveMapSurface(
                             )
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
-                                text = "OPENSTREETMAP EMBED LOADING...",
+                                text = "MAP LOADING...",
                                 color = Color.White,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1244,9 +1263,7 @@ fun LiveMapSurface(
                                     mapError = null
                                     mapLoading = true
                                     mapRetryCount = (mapRetryCount + 1).coerceAtMost(3)
-                                    // Trigger a reload by pretending we switched back to the online embed.
-                                    currentLoadedProvider = ""
-                                    mapProvider = "OPENSTREETMAP_EMBED"
+                                    mapViewHolder[0]?.reload()
                                 },
                                 colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF05070B))
                             ) {
@@ -1383,12 +1400,14 @@ fun LiveMapSurface(
 }
 
 /**
- * OpenStreetMap embed is a free, no-API-key online map that renders in a WebView. If the embed
- * endpoint is blocked on the head unit, the app still falls back to the Leaflet/OSM dark tile layer
- * already bundled in this screen.
+ * Switch style and update the GPS marker without navigating away from the bundled engine.
  */
 private fun loadOnlineMapUrl(webView: WebView, lat: Double, lon: Double) {
-    webView.loadUrl(openStreetMapEmbedUrl(lat, lon))
+    if (webView.url?.startsWith(MAP_ASSET_URL) == true) {
+        webView.evaluateJavascript(
+            "if(window.setMapTheme){window.setMapTheme('light');window.updateVehicleLocation($lat,$lon);}", null
+        )
+    } else webView.loadUrl("$MAP_ASSET_URL?lat=$lat&lon=$lon&theme=light")
 }
 
 // =========================================================================

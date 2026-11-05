@@ -68,7 +68,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-05.d"
+        const val APP_BUILD_TAG = "2026-11-05.e"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -85,10 +85,6 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var showAppDrawer by mutableStateOf(false)
     private var pairedDevicesList = mutableStateListOf<BluetoothDevice>()
     private val terminalLogs = mutableStateListOf<TerminalLog>()
-
-    // Single-flight lock for adapter connect requests (see connectToDevice).
-    @Volatile
-    private var connectInFlight = false
 
     // Live Telemetry state (authoritative values)
     private var liveSpeed by mutableStateOf<Int?>(null)
@@ -423,11 +419,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         // Single-flight guard: rapid double taps (or taps on several rows while the state
         // flow has not caught up yet) used to fire several concurrent connects and pair
         // attempts at once. Only one connect may be in flight.
-        if (connectInFlight) {
+        if (viewModel.connectionState.value is ConnectionState.Connecting) {
             logTerminal("INFO", "A connection attempt is already in progress - please wait.")
             return
         }
-        connectInFlight = true
         try {
             if (viewModel.isDemoMode.value) {
                 viewModel.setDemoMode(false)
@@ -440,14 +435,6 @@ class MainActivity : ComponentActivity(), LocationListener {
             // Nothing in the connect path may ever kill the process; surface it instead.
             logTerminal("ERR", "Connection request failed: ${e.localizedMessage ?: "unexpected error"}")
             Toast.makeText(this, "Connection request failed: ${e.localizedMessage ?: "unexpected error"}", Toast.LENGTH_LONG).show()
-        } finally {
-            // Give the state flow a moment to reach Connecting so the dialog disables its
-            // buttons, then release the single-flight lock. A slow adapter no longer allows
-            // a second tap to stack another connect on top of the first.
-            lifecycleScope.launch {
-                delay(1200)
-                connectInFlight = false
-            }
         }
     }
 
@@ -566,19 +553,23 @@ class MainActivity : ComponentActivity(), LocationListener {
             val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (hasFine || hasCoarse) {
                 val lm = locationManager ?: return
-                val lastGps = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                val lastNet = lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                val best = lastGps ?: lastNet
+                // Some head units have no NETWORK provider; approximate-only permission
+                // can also reject GPS. Neither should prevent the other provider working.
+                runCatching { lm.removeUpdates(this) }
+                val providers = lm.getProviders(true).filter {
+                    it == LocationManager.NETWORK_PROVIDER ||
+                        (hasFine && it == LocationManager.GPS_PROVIDER)
+                }
+                val best = providers.mapNotNull {
+                    runCatching { lm.getLastKnownLocation(it) }.getOrNull()
+                }.maxByOrNull { it.time }
                 if (best != null) {
                     currentLat = best.latitude
                     currentLon = best.longitude
                 }
 
-                if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                    lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 5f, this)
-                }
-                if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                    lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 5000L, 10f, this)
+                for (provider in providers) {
+                    runCatching { lm.requestLocationUpdates(provider, 2000L, 5f, this) }
                 }
             }
         } catch (_: SecurityException) {} catch (_: Exception) {}
@@ -587,13 +578,25 @@ class MainActivity : ComponentActivity(), LocationListener {
     override fun onLocationChanged(location: Location) {
         currentLat = location.latitude
         currentLon = location.longitude
-        if (location.hasSpeed()) {
-            currentGpsSpeed = (location.speed * 3.6f).toInt()
-        }
+        currentGpsSpeed = if (location.hasSpeed()) (location.speed * 3.6f).toInt() else null
     }
 
-    override fun onProviderEnabled(provider: String) {}
+    override fun onProviderEnabled(provider: String) { initLocationTracking() }
     override fun onProviderDisabled(provider: String) {}
+    @Deprecated("Required by LocationListener on Android 9/10")
+    override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+
+    override fun onResume() {
+        super.onResume()
+        refreshPairedDevices()
+        initLocationTracking()
+    }
+
+    override fun onStop() {
+        runCatching { locationManager?.removeUpdates(this) }
+        currentGpsSpeed = null
+        super.onStop()
+    }
 
     private fun checkAndRequestPermissions() {
         val permissions = mutableListOf<String>()
@@ -626,6 +629,6 @@ class MainActivity : ComponentActivity(), LocationListener {
         super.onDestroy()
         // ObdService owns the RFCOMM socket and the polling loop, so the link and telemetry
         // survive this activity being backgrounded or destroyed.
-        locationManager?.removeUpdates(this)
+        runCatching { locationManager?.removeUpdates(this) }
     }
 }
