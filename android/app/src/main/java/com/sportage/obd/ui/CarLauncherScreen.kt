@@ -3,9 +3,9 @@ package com.sportage.obd.ui
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
-import android.net.Uri
 import android.view.KeyEvent
 import com.sportage.obd.map.NativeLocationMap
+import com.sportage.obd.map.NavigationLauncher
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -60,26 +60,6 @@ val SPORTAGE_RADIO_PRESETS = listOf(
     RadioStation(104.8f, "BBC World Service", "Global News"),
     RadioStation(107.6f, "Oryx FM", "French & Jazz")
 )
-
-/**
- * Optional OpenStreetMap website lookup. The tracker itself stays embedded in the app.
- */
-fun launchMapsApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
-    val hasCoords = lat != null && lon != null
-    try {
-        val webUri = when {
-            !query.isNullOrBlank() -> Uri.parse("https://www.openstreetmap.org/search?query=${Uri.encode(query)}")
-            hasCoords -> Uri.parse("https://www.openstreetmap.org/?mlat=$lat&mlon=$lon#map=17/$lat/$lon")
-            else -> Uri.parse("https://www.openstreetmap.org/#map=15/25.2854/51.5310")
-        }
-        val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(webIntent)
-    } catch (e: Exception) {
-        Toast.makeText(context, "No browser available. The native tracker remains on screen.", Toast.LENGTH_SHORT).show()
-    }
-}
 
 @Composable
 fun CarLauncherScreen(
@@ -330,7 +310,11 @@ fun CarLauncherScreen(
                                 connectionState = connectionState,
                                 measuredHz = measuredHz,
                                 isDemoMode = isDemoMode,
-                                onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
+                                onOpenNavigation = {
+                                    if (!NavigationLauncher.open(context, currentLat, currentLon)) {
+                                        Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
+                                    }
+                                }
                             )
                             1 -> GaugesAndGraphsPage(
                                 speed = displaySpeed,
@@ -445,7 +429,11 @@ fun CarLauncherScreen(
                             connectionState = connectionState,
                             measuredHz = measuredHz,
                             isDemoMode = isDemoMode,
-                            onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
+                            onOpenNavigation = {
+                                if (!NavigationLauncher.open(context, currentLat, currentLon)) {
+                                    Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
+                                }
+                            }
                         )
                         1 -> GaugesAndGraphsPage(
                             speed = displaySpeed,
@@ -801,7 +789,7 @@ fun PermanentHomeSplitView(
     connectionState: ConnectionState,
     measuredHz: Float?,
     isDemoMode: Boolean,
-    onOpenFullMap: () -> Unit
+    onOpenNavigation: () -> Unit
 ) {
     if (isLandscape) {
         // Landscape: Adaptive Dominant Live Map Pane (approx 58-64%) + Persistent OBD Pane (approx 36-42%)
@@ -819,7 +807,8 @@ fun PermanentHomeSplitView(
                     currentLat = currentLat,
                     currentLon = currentLon,
                     speed = speed,
-                    speedUnit = speedUnit
+                    speedUnit = speedUnit,
+                    onOpenNavigation = onOpenNavigation
                 )
             }
 
@@ -853,7 +842,8 @@ fun PermanentHomeSplitView(
                     currentLat = currentLat,
                     currentLon = currentLon,
                     speed = speed,
-                    speedUnit = speedUnit
+                    speedUnit = speedUnit,
+                    onOpenNavigation = onOpenNavigation
                 )
             }
 
@@ -885,9 +875,9 @@ fun LiveMapSurface(
     currentLat: Double,
     currentLon: Double,
     speed: Int?,
-    speedUnit: String
+    speedUnit: String,
+    onOpenNavigation: () -> Unit
 ) {
-    var recenter by remember { mutableIntStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
 
     Card(
@@ -925,34 +915,22 @@ fun LiveMapSurface(
                     Box(modifier = Modifier.size(6.dp).background(TealAccent, CircleShape))
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Recenter in place without leaving the OBD tracker.
-                    Surface(
-                        modifier = Modifier.clickable { recenter++ },
-                        color = Color(0xFF33CCFF),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(11.dp))
-                            Text(
-                                text = "Follow GPS",
-                                color = Color(0xFF05070B),
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
+                // A real layout slot, outside the map and all telemetry overlays.
+                FilledIconButton(
+                    onClick = onOpenNavigation,
+                    modifier = Modifier.size(48.dp),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color(0xFF33CCFF), contentColor = Color(0xFF05070B)
+                    ),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Icon(Icons.Default.Navigation, contentDescription = "Open navigation app", modifier = Modifier.size(24.dp))
                 }
             }
 
             // Interactive Map View Container with Overlays
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                NativeLocationMap(currentLat, currentLon, recenter)
+                NativeLocationMap(currentLat, currentLon, 0)
 
                 // Floating Road Speed Alert Sign & Speed Badge (Top Left of Map)
                 Row(
@@ -1027,31 +1005,6 @@ fun LiveMapSurface(
                     }
                 }
 
-                // Floating action stays inside the location tracker.
-                Surface(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(10.dp)
-                        .clickable { recenter++ },
-                    color = Color(0xFF33CCFF),
-                    shape = RoundedCornerShape(8.dp),
-                    shadowElevation = 6.dp
-                ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
-                        Text(
-                            text = "FOLLOW GPS",
-                            color = Color(0xFF05070B),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
             }
 
             // Bottom Trip Status Line

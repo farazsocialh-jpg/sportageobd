@@ -29,7 +29,7 @@ import org.mapsforge.map.layer.download.TileDownloadLayer
 import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik
 import org.mapsforge.map.layer.overlay.FixedPixelCircle
 import org.mapsforge.map.layer.renderer.TileRendererLayer
-import org.mapsforge.map.rendertheme.internal.MapsforgeThemes
+import org.mapsforge.map.android.rendertheme.AssetsRenderTheme
 import java.io.File
 
 /** Native Android Canvas rendering. No browser, JavaScript, remote style or API key. */
@@ -56,12 +56,12 @@ class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
         val tileSize = map.model.displayModel.tileSize
         val overdraw = map.model.frameBufferModel.overdrawFactor
         // Distinct caches prevent online images and locally rendered vectors colliding.
-        val vectorCache = AndroidUtil.createTileCache(context, "qatar-en-20261022", tileSize, 1f, overdraw)
+        val vectorCache = AndroidUtil.createTileCache(context, "qatar-en-streets-v2", tileSize, 1f, overdraw)
         val onlineCache = AndroidUtil.createTileCache(context, "osm-streets", tileSize, 1f, overdraw)
         offline = TileRendererLayer(vectorCache, data, map.model.mapViewPosition, factory)
-        offline.setXmlRenderTheme(MapsforgeThemes.DEFAULT)
+        offline.setXmlRenderTheme(AssetsRenderTheme(context.assets, "", "maps/streets.xml"))
         val source = OpenStreetMapMapnik(arrayOf("tile.openstreetmap.org"), 443).apply {
-            setUserAgent("SportageOBD/1.0.3 (Android native tracker; github.com/farazsocialh-jpg/sportageobd)")
+            setUserAgent("SportageOBD/1.0.4 (Android native tracker; github.com/farazsocialh-jpg/sportageobd)")
         }
         online = TileDownloadLayer(onlineCache, map.model.mapViewPosition, source, factory)
         online.cacheTimeToLive = 7L * 24 * 60 * 60 * 1000

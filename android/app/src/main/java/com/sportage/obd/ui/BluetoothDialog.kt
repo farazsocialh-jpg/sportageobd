@@ -52,7 +52,7 @@ data class TerminalLog(
  * unreachable (powered off, out of range, unpaired on the adapter side). Tapping such a
  * device must not drive the app straight into a connect attempt that can throw or crash.
  *
- * This does not change map behaviour (CarLauncherScreen.kt / launchMapsApp) — it only makes
+ * This does not change map behaviour (CarLauncherScreen.kt) — it only makes
  * the Bluetooth dialog refuse to start a connect when the target device is clearly unavailable.
  */
 object BluetoothDeviceConnectGuard {
