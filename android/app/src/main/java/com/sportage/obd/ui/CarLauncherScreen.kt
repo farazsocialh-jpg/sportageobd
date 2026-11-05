@@ -65,20 +65,27 @@ private const val ONLINE_MAP_EMBED_USER_AGENT =
 private const val MOBILE_MAP_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
+private const val MAP_DEMO_LAT = 25.2854
+private const val MAP_DEMO_LON = 51.5310
+
 /**
  * Free online map embed that renders inside a WebView without an app wall.
- * OpenStreetMap's standard embed is freely available and needs no API key.
+ * embed.openstreetmap.org is the official free OSM embed and needs no API key.
  *
  * If that endpoint is blocked on the head unit, the app still falls back to the
  * Leaflet/OSM dark tile layer already bundled in this screen.
  */
 private fun openStreetMapEmbedUrl(lat: Double, lon: Double, zoom: Int = 15): String {
-    // embed.openstreetmap.org is the official free OSM embed. Coordinates are given as
-    // percentages of the embed viewport, so the marker lands on the vehicle position.
+    // embed.openstreetmap.org uses percentage-of-viewport coordinates for the marker, so
+    // the pin is planted at the coordinates passed into this function.
     val latPct = ((lat + 90.0) / 180.0 * 100).coerceIn(0.0, 100.0)
     val lonPct = ((lon + 180.0) / 360.0 * 100).coerceIn(0.0, 100.0)
     return "https://embed.openstreetmap.org/?mlat=$lat&mlon=$lon&num=1&zoom=$zoom&pan=0&u=0&marker=$latPct,$lonPct,blue"
 }
+
+private const val MAP_FALLBACK_LAT = MAP_DEMO_LAT
+private const val MAP_FALLBACK_LON = MAP_DEMO_LON
+private const val MAP_FALLBACK_ZOOM = 15
 
 private const val OPENSTREETMAP_EMBED_USER_AGENT =
     ONLINE_MAP_EMBED_USER_AGENT
