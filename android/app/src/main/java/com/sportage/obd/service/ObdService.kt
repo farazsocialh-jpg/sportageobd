@@ -102,8 +102,12 @@ class ObdService : Service() {
     private var pollingJob: Job? = null
     private var reconnectJob: Job? = null
 
-    private val alertEngine = AlertEngine(this)
-    private val csvLogger = CsvLogger(this)
+    // Created lazily in onCreate: constructing these as field initializers runs during
+    // service instantiation, BEFORE Android attaches the service Context. That crashed the
+    // app with "Unable to create service" on some devices (getSharedPreferences /
+    // ToneGenerator with a dead context).
+    private var alertEngine: AlertEngine? = null
+    private var csvLogger: CsvLogger? = null
 
     // Target Bluetooth device to maintain connection with
     private var activeDevice: BluetoothDevice? = null
@@ -139,9 +143,10 @@ class ObdService : Service() {
     private val _isCsvLogging = MutableStateFlow(false)
     val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
 
-    val activeAlerts: StateFlow<List<ActiveAlert>> = alertEngine.activeAlerts
+    val activeAlerts: StateFlow<List<ActiveAlert>>
+        get() = alertEngine?.activeAlerts ?: MutableStateFlow<List<ActiveAlert>>(emptyList())
 
-    val csvLogFile: java.io.File? get() = csvLogger.activeFile
+    val csvLogFile: java.io.File? get() = csvLogger?.activeFile
 
     val connectionState: StateFlow<ConnectionState>
         get() = transport.connectionState
@@ -169,35 +174,65 @@ class ObdService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        // Nothing in here may throw: an exception during service creation kills the whole
+        // app with "Unable to create service". Every step is guarded; failures degrade
+        // gracefully instead of crashing.
+        try {
+            alertEngine = AlertEngine(this)
+        } catch (e: Exception) {
+            android.util.Log.e("ObdService", "AlertEngine init failed - alerts disabled", e)
+            alertEngine = null
+        }
+        try {
+            csvLogger = CsvLogger(this)
+        } catch (e: Exception) {
+            android.util.Log.e("ObdService", "CsvLogger init failed - logging disabled", e)
+            csvLogger = null
+        }
+        try {
+            createNotificationChannels()
+        } catch (e: Exception) {
+            android.util.Log.e("ObdService", "notification channels failed", e)
+        }
+        try {
+            startForeground(NOTIFICATION_ID, buildNotification("OBD Service Initializing..."))
+        } catch (e: Exception) {
+            // Some OEM ROMs throw from inside startForeground (their notification pipeline
+            // touches android.net.Uri). The service still works without being foregrounded.
+            android.util.Log.e("ObdService", "startForeground failed - continuing anyway", e)
+        }
         isRunning = true
-        createNotificationChannels()
-        startForeground(NOTIFICATION_ID, buildNotification("OBD Service Initializing..."))
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent == null) {
-            // START_STICKY restart after the process was killed: nothing to resume, so restore the
-            // adapter the driver was last connected to.
-            restoreLastDevice()
-            return START_STICKY
-        }
-        when (intent.action) {
-            ACTION_STOP -> {
-                stopPolling()
-                transport.disconnect()
-                stopForeground(STOP_FOREGROUND_REMOVE)
-                stopSelf()
-                return START_NOT_STICKY
+        try {
+            if (intent == null) {
+                // START_STICKY restart after the process was killed: nothing to resume, so restore the
+                // adapter the driver was last connected to.
+                restoreLastDevice()
+                return START_STICKY
             }
-            ACTION_PAUSE_POLLING -> {
-                pausePolling()
+            when (intent.action) {
+                ACTION_STOP -> {
+                    stopPolling()
+                    transport.disconnect()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
+                ACTION_PAUSE_POLLING -> {
+                    pausePolling()
+                }
+                ACTION_RESUME_POLLING -> {
+                    resumePolling()
+                }
+                ACTION_START -> {
+                    updateNotification("Ready for Bluetooth link")
+                }
             }
-            ACTION_RESUME_POLLING -> {
-                resumePolling()
-            }
-            ACTION_START -> {
-                updateNotification("Ready for Bluetooth link")
-            }
+        } catch (e: Exception) {
+            // Same rule as onCreate: never let a command crash the process.
+            android.util.Log.e("ObdService", "onStartCommand error", e)
         }
         return START_STICKY
     }
@@ -367,21 +402,21 @@ class ObdService : Service() {
     // --- Warning thresholds ---
 
     fun updateAlertThresholds(thresholds: AlertThresholds) {
-        alertEngine.updateThresholds(thresholds)
+        alertEngine?.updateThresholds(thresholds)
     }
 
-    fun alertThresholds(): AlertThresholds = alertEngine.currentThresholds()
+    fun alertThresholds(): AlertThresholds = alertEngine?.currentThresholds() ?: AlertThresholds()
 
     // --- CSV logging ---
 
     fun startCsvLogging(): Boolean {
-        val file = csvLogger.start()
+        val file = csvLogger?.start() ?: return false
         _isCsvLogging.value = true
         return file.exists()
     }
 
     fun stopCsvLogging() {
-        csvLogger.stop()
+        csvLogger?.stop()
         _isCsvLogging.value = false
     }
 
@@ -566,15 +601,15 @@ class ObdService : Service() {
                     )
 
                     _telemetry.value = newTelemetry
-                    alertEngine.evaluate(newTelemetry)
-                    val criticalAlert = alertEngine.activeAlerts.value.firstOrNull { it.severity == AlertSeverity.CRITICAL }
+                    alertEngine?.evaluate(newTelemetry)
+                    val criticalAlert = alertEngine?.activeAlerts?.value?.firstOrNull { it.severity == AlertSeverity.CRITICAL }
                     if (criticalAlert != null && now - lastAlertNotificationAtMs >= 60_000L) {
                         lastAlertNotificationAtMs = now
                         postAlertNotification(criticalAlert)
                     } else if (criticalAlert == null) {
                         lastAlertNotificationAtMs = 0L
                     }
-                    csvLogger.log(newTelemetry)
+                    csvLogger?.log(newTelemetry)
 
                     delay(30) // Fast cycle rate
                 } catch (e: Exception) {

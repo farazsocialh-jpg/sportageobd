@@ -68,7 +68,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-05.b"
+        const val APP_BUILD_TAG = "2026-11-05.c"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -378,8 +378,15 @@ class MainActivity : ComponentActivity(), LocationListener {
             }
             logTerminal("ERR", "=== END OF CRASH REPORT ===")
             // Show the crash reason immediately as a dialog so it cannot be missed -
-            // no need to dig through the terminal tab.
-            previousCrashReport = report
+            // no need to dig through the terminal tab. Root cause first: Android wraps the
+            // real reason in "Caused by:" sections below the generic headline, so put the
+            // deepest cause at the top of the dialog.
+            val lastCause = report.lastIndexOf("Caused by:")
+            previousCrashReport = if (lastCause >= 0) {
+                report.substring(lastCause).trim() + "\n\n---- full trace ----\n\n" + report
+            } else {
+                report
+            }
         } catch (e: Exception) {
             android.util.Log.w("SportageOBD", "crash report read failed", e)
         }
