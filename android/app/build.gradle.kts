@@ -51,8 +51,8 @@ android {
         applicationId = "com.sportage.obd"
         minSdk = 28 // Android 9+ as specified in PRD Section 1.1
         targetSdk = 35
-        versionCode = 3
-        versionName = "1.0.2"
+        versionCode = 4
+        versionName = "1.0.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -114,7 +114,9 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons)
     implementation(libs.kotlinx.coroutines.android)
-    implementation("androidx.webkit:webkit:1.12.1")
+    implementation("org.mapsforge:mapsforge-map-android:0.25.0")
+    implementation("org.mapsforge:mapsforge-map-reader:0.25.0")
+    implementation("org.mapsforge:mapsforge-themes:0.25.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

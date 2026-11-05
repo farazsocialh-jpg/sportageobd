@@ -18,6 +18,7 @@ class SportageObdApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        org.mapsforge.map.android.graphics.AndroidGraphicFactory.createInstance(this)
 
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->

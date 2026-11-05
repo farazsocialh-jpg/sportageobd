@@ -32,10 +32,8 @@
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="false" />
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
-    <!-- Package Visibility for Android 11+ (API 30 to 35) to launch Google Maps, other map apps, and Head Unit Radio.
-         Waze was removed from the launcher: no package query, no waze:// scheme, no waze.com hosts. -->
+    <!-- Package visibility for media and head unit radio applications. -->
     <queries>
-        <package android:name="com.google.android.apps.maps" />
         <package android:name="com.spotify.music" />
         <package android:name="com.google.android.apps.youtube.music" />
         <package android:name="com.ts.main.radio" />
@@ -45,10 +43,6 @@
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="geo" />
         </intent>
     </queries>
 

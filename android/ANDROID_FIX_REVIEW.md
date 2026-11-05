@@ -1,6 +1,6 @@
 # Android Bluetooth and map repair
 
-Build: `2026-11-05.f`, version `1.0.2`, version code `3`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
+Build: `2026-11-05.g`, version `1.0.3`, version code `4`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
 
 ## Bluetooth findings and corrections
 
@@ -15,16 +15,19 @@ Build: `2026-11-05.f`, version `1.0.2`, version code `3`. The change set is scop
 
 ## Map findings and corrections
 
-The bundled JavaScript engine initialized during testing, but visual inspection found that the previous dark tile endpoint returned a successful image saying “API KEY REQUIRED.” A successful HTTP image response does not fire Leaflet's tile-error handler, so provider-fallback logic cannot detect that failure.
+The user's physical-device screenshot still showed only the old position-marker fallback after the browser-map changes. Browser-only rendering tests were therefore insufficient evidence that the embedded map would work on the target Android device. This build removes that architecture instead of claiming another browser setting will fix it.
 
-- **Street tiles:** The map uses standard, unmodified OpenStreetMap street tiles. Per the user's correction, no local dark filter or map-theme toggle remains. The key-gated tile dependencies and remote embed route are removed.
-- **Android loading:** Bundled content is served through `WebViewAssetLoader` on a local HTTPS origin rather than a `file://` page. Arbitrary in-app navigation, file/content access, mixed content, and automatic JavaScript geolocation grants are disabled.
-- **Layout and lifecycle:** Explicit map edges/size support older WebViews; resize invalidates Leaflet's viewport; Android releases destroyed WebViews. Telemetry recompositions no longer navigate/reload a remote embed.
-- **GPS:** Initial coordinates are supplied before the first tile request, subsequent fixes update the marker, invalid coordinates are rejected, and unchanged positions do not continually pan. Last-known location uses the newest permitted provider, absent/rejected providers do not block the other provider, and activity location subscriptions are cleaned up.
-- **Visible failures:** Loading has a deadline. With no street tiles, the UI explicitly says to check internet and retains coordinates; it does not pretend a blank grid is a street map. It retries automatically and on connectivity restoration. Open Maps remains available.
-- **Attribution:** OpenStreetMap credit remains visible with a copyright link.
+- **Native renderer:** Mapsforge renders the embedded map directly through Android graphics. The HTML asset, JavaScript engine, WebKit dependency, embedded browser, and fake grid/marker fallback are deleted. No local dark filter or theme toggle is used.
+- **Bundled Qatar streets:** The APK includes a 25,476,984-byte vector street map of Qatar, dated 22 October 2026. It is copied to private app storage on the IO dispatcher, then rendered locally. Viewing Qatar streets does not require internet, browser support, a tile-server response, an account, or an API key.
+- **World coverage:** Outside the bundled map's bounding box, the native renderer switches to standard OpenStreetMap tiles over HTTPS. This worldwide mode requires internet. Its cache is separate from the offline vector cache and uses an identifying user agent.
+- **GPS:** The marker follows valid native location fixes without reloading the map. Follow GPS recenters within the app rather than launching an external navigation app. Last-known location uses the newest permitted provider; absent/rejected providers do not block the other provider.
+- **Lifecycle:** A native MapView occupies an explicit match-parent container. Render/cache/download resources are released when disposed. The asset is copied atomically, and a real initialization error is shown instead of a fake map.
+- **Navigation cleanup:** The map's external-launch buttons are replaced by Follow GPS. Old deep-link/package routing and navigation-specific manifest queries are removed. Optional place searches use the OpenStreetMap website, not an external navigation app.
+- **Attribution:** Visible OpenStreetMap credit links to the copyright/license information. The bundled dataset and renderer notices are in the APK assets.
 
-Street tiles still require internet. This repair does not add downloaded offline street maps, turn-by-turn navigation, or a paid tile service.
+Offline street coverage is Qatar, not the entire world. This is a location tracker, not turn-by-turn navigation or a paid map service.
+
+The dataset comes from the [Qatar Mapsforge download](https://alternativaslibres.org/en/download_other.html?file=Mapsforge_Qatar.zip), listed on [Alternativas Libres](https://alternativaslibres.org/en/downloads-mf.php). OpenStreetMap data can be redistributed with attribution under the Open Database License, as explained in [OpenStreetMap copyright and license](https://www.openstreetmap.org/copyright). Native rendering uses [Mapsforge](https://github.com/mapsforge/mapsforge), version 0.25.0.
 
 ## Additional review fixes
 
@@ -32,35 +35,33 @@ Street tiles still require internet. This repair does not add downloaded offline
 - **Readiness:** Incomplete flags are read from the proper high bits of byte B and byte D, rather than treating support bits as failures. Test fixtures were corrected to include the fourth data byte.
 - **Freeze frame parser:** A final one-byte parameter is no longer discarded solely because a second data byte is absent.
 - **Clock:** The displayed clock now updates rather than relying on a derived value with no observable time dependency.
-- **Dependencies:** The unused Navigation Compose dependency was removed; WebKit is included for the Android asset loader.
+- **Dependencies:** The unused Navigation Compose and WebKit dependencies are removed. Native Mapsforge renderer/reader/theme dependencies replace the browser-map stack.
 
 ## Verification
 
 Run from the repository root:
 
 ```sh
-node android/tools/test-map.cjs
 cd android
 bash ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-Expected suite totals: 52 JVM unit tests and 16 Android-map regression checks. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
+The JVM suite contains 56 tests, including four native-map/data checks. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
 
-The map harness covers layout compatibility, initialization at the supplied fix, invalid coordinates, unchanged GPS updates, visible network failures, stale callbacks, network restoration, viewport resizing, attribution, absence of local dark styling, and avoidance of key-gated tile URLs. Bluetooth tests cover the twelve-device reproduction, case-insensitive address matching, flow identity across SPP/BLE replacement, stale callbacks, cancellation, retryable row presentation, and UART UUIDs.
+The native-map tests validate the bundled file's length, binary header and SHA-256; parse it with the real map reader; confirm coverage at the user's screenshot coordinates and central Doha; confirm a London fix is outside the offline area; and read nonempty street geometry at the user's position. Invalid location fixes are rejected. Bluetooth regressions remain unchanged.
 
-Browser verification uses the actual bundled Android asset at a 360 × 380 viewport, not the repository's web application. The standard street map is retained without local recoloring. Earlier network-failure checks verified that blocking tile requests produced the explicit offline notice and restoring connectivity returned to street rendering.
-
-Hardware checks remain necessary: no physical Android head unit, Bluetooth radio, or ELM327 adapter is attached here. Unit tests and browser rendering do not prove pairing, RFCOMM quirks, GATT behavior, GPS reception, or vehicle-specific PID support on the user's hardware.
+Physical head-unit, Bluetooth radio, and vehicle checks remain necessary. File-reader tests do not prove rendering or GPS reception on the user's physical device.
 
 ## Installation and device acceptance checks
 
-The supplied APK is a debug/test build, not a production release signed with an established release key. Its signing certificate was compared with the repository's `2026-11-05d` APK and differs, so it cannot replace that APK in place. Preserve/export any logs and settings before considering removal of the old build; uninstalling deletes its local data. A maintainer with the original signing key can instead rebuild this source with that key for an in-place update.
+The supplied APK is a debug/test build using the same local debug signing key as builds e/f, so it can update those builds without uninstalling or deleting app data. It has a different certificate from the old repository d APK; preserve data before considering removal of that old installation. A maintainer with the original key can instead rebuild for an in-place update of d.
 
-- **Version:** Confirm build `2026-11-05.f` after installation.
+- **Version:** Confirm build `2026-11-05.g` after installation.
 - **Twelve-device list:** Tap only the actual ELM/OBD adapter. Exactly that row should show “Connecting...”; other rows should show disabled “Connect” actions.
 - **Cancellation:** Cancel mid-connect, then select another device. No old attempt should reconnect later.
 - **Invalid selection:** A laptop/stereo or unavailable adapter should end in a bounded, visible failure and permit a new selection.
 - **Real adapter:** Verify adapter initialization and changing RPM/speed values; repeat once with the intended classic or BLE transport.
-- **Map online:** With internet available, standard street tiles should render with the position marker at the current fix. There should be no Dark Map switch or local map recoloring.
-- **Map offline:** Disable internet and move the map to uncached streets. An explicit no-tiles message should appear. Restore internet and confirm automatic recovery.
+- **Map offline:** With internet disabled, Qatar streets should still render from the bundled dataset, with a native GPS marker and an OFFLINE label. No map-theme switch or local recoloring should exist.
+- **Map tracking:** Move the device or inject a new GPS fix. The native marker and map center should follow; Follow GPS should recenter without leaving the app.
+- **Outside Qatar:** With internet enabled, a position outside the offline map bounds should use worldwide online streets. The label must indicate internet is required.
 - **Lifecycle:** Rotate the display, leave/return to the app, and reopen Bluetooth. Confirm map rendering and connection status remain consistent.

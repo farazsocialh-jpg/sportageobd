@@ -5,14 +5,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.view.KeyEvent
-import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
-import android.webkit.WebResourceRequest
-import android.webkit.WebSettings
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import android.webkit.ConsoleMessage
-import androidx.webkit.WebViewAssetLoader
+import com.sportage.obd.map.NativeLocationMap
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -44,7 +37,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
@@ -58,9 +50,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Local HTTPS origin avoids file:// restrictions while keeping the engine in the APK. */
-private const val MAP_ASSET_URL = "https://appassets.androidplatform.net/assets/live_map.html"
-
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
 val SPORTAGE_RADIO_PRESETS = listOf(
@@ -73,52 +62,10 @@ val SPORTAGE_RADIO_PRESETS = listOf(
 )
 
 /**
- * Bulletproof maps launcher for Android 11+ (API 30-35).
- *
- * Waze was removed on purpose: opening the external app kept interrupting the OBD link
- * on the head unit, and the waze:// deep links are no longer referenced anywhere. The
- * launcher now opens the current location in Google Maps when installed, then in any
- * other installed maps app via a standard geo: URI, and finally in the browser through
- * OpenStreetMap - which needs no app, no API key and no account.
+ * Optional OpenStreetMap website lookup. The tracker itself stays embedded in the app.
  */
 fun launchMapsApp(context: Context, lat: Double? = null, lon: Double? = null, query: String? = null) {
-    val pm = context.packageManager
     val hasCoords = lat != null && lon != null
-
-    // 1. Google Maps app: exact coordinates (or a searched place) at street-level zoom
-    try {
-        val mapsUri = when {
-            !query.isNullOrBlank() -> Uri.parse("geo:0,0?q=${Uri.encode(query)}")
-            hasCoords -> Uri.parse("geo:$lat,$lon?z=17&q=$lat,$lon (Current Location)")
-            else -> Uri.parse("geo:0,0?z=15")
-        }
-        val mapsIntent = Intent(Intent.ACTION_VIEW, mapsUri).apply {
-            setPackage("com.google.android.apps.maps")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (mapsIntent.resolveActivity(pm) != null) {
-            context.startActivity(mapsIntent)
-            return
-        }
-    } catch (_: Exception) {}
-
-    // 2. Any other installed maps app (HERE, Sygic, OsmAnd, Maps.me, ...) via a generic geo: URI
-    try {
-        val geoUri = when {
-            !query.isNullOrBlank() -> Uri.parse("geo:0,0?q=${Uri.encode(query)}")
-            hasCoords -> Uri.parse("geo:$lat,$lon?z=17")
-            else -> Uri.parse("geo:0,0?z=15")
-        }
-        val geoIntent = Intent(Intent.ACTION_VIEW, geoUri).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        if (geoIntent.resolveActivity(pm) != null) {
-            context.startActivity(geoIntent)
-            return
-        }
-    } catch (_: Exception) {}
-
-    // 3. Web browser fallback: OpenStreetMap centred on the current location
     try {
         val webUri = when {
             !query.isNullOrBlank() -> Uri.parse("https://www.openstreetmap.org/search?query=${Uri.encode(query)}")
@@ -130,7 +77,7 @@ fun launchMapsApp(context: Context, lat: Double? = null, lon: Double? = null, qu
         }
         context.startActivity(webIntent)
     } catch (e: Exception) {
-        Toast.makeText(context, "No maps app or browser available to show the location", Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "No browser available. The native tracker remains on screen.", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -872,8 +819,7 @@ fun PermanentHomeSplitView(
                     currentLat = currentLat,
                     currentLon = currentLon,
                     speed = speed,
-                    speedUnit = speedUnit,
-                    onOpenFullMap = onOpenFullMap
+                    speedUnit = speedUnit
                 )
             }
 
@@ -907,8 +853,7 @@ fun PermanentHomeSplitView(
                     currentLat = currentLat,
                     currentLon = currentLon,
                     speed = speed,
-                    speedUnit = speedUnit,
-                    onOpenFullMap = onOpenFullMap
+                    speedUnit = speedUnit
                 )
             }
 
@@ -933,37 +878,17 @@ fun PermanentHomeSplitView(
 }
 
 // =========================================================================
-// SUB-VIEW: LIVE MAP SURFACE (Non-Reloading Dynamic Map & External Maps Launcher)
+// SUB-VIEW: NATIVE LOCATION TRACKER
 // =========================================================================
 @Composable
 fun LiveMapSurface(
     currentLat: Double,
     currentLon: Double,
     speed: Int?,
-    speedUnit: String,
-    onOpenFullMap: () -> Unit
+    speedUnit: String
 ) {
-    var mapStarted by remember { mutableStateOf(false) }
-    var mapError by remember { mutableStateOf<String?>(null) }
-    var mapLoading by remember { mutableStateOf(false) }
-    var mapRetryCount by remember { mutableStateOf(0) }
+    var recenter by remember { mutableIntStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
-    val latestLat by rememberUpdatedState(currentLat)
-    val latestLon by rememberUpdatedState(currentLon)
-    val mapViewHolder = remember { arrayOfNulls<WebView>(1) }
-    LaunchedEffect(mapLoading) {
-        if (mapLoading) {
-            kotlinx.coroutines.delay(15_000)
-            mapLoading = false
-            mapError = "Map loading timed out. Tap Retry or open Maps."
-        }
-    }
-
-    // The map engine (Leaflet) is BUNDLED in the APK as an asset: no unpkg.com / jsdelivr
-    // CDN request is needed, which is what left the map black on head units where those
-    // CDNs are blocked or slow. Street tiles still need internet; without it the asset
-    // explicitly labels the coordinate-only fallback and retries when connectivity returns.
-    val mapAssetUrl = MAP_ASSET_URL
 
     Card(
         modifier = Modifier.fillMaxSize(),
@@ -1001,9 +926,9 @@ fun LiveMapSurface(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Open full online map in the device's navigation app (Primary Non-Negotiable Action)
+                    // Recenter in place without leaving the OBD tracker.
                     Surface(
-                        modifier = Modifier.clickable { onOpenFullMap() },
+                        modifier = Modifier.clickable { recenter++ },
                         color = Color(0xFF33CCFF),
                         shape = RoundedCornerShape(4.dp)
                     ) {
@@ -1014,7 +939,7 @@ fun LiveMapSurface(
                         ) {
                             Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(11.dp))
                             Text(
-                                text = "Open In Maps",
+                                text = "Follow GPS",
                                 color = Color(0xFF05070B),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1027,206 +952,7 @@ fun LiveMapSurface(
 
             // Interactive Map View Container with Overlays
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                // NATIVE FALLBACK LAYER: drawn with Compose Canvas, so it renders even if the
-                // head unit's WebView is broken or disabled. The WebView sits on top with a
-                // transparent background; if it stays dead, this layer is what the driver sees.
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val gridColor = Color(0xFF122033)
-                    val step = (size.width / 8f).coerceAtLeast(1f)
-                    var x = 0f
-                    while (x <= size.width) {
-                        drawLine(gridColor, Offset(x, 0f), Offset(x, size.height), 1f)
-                        x += step
-                    }
-                    var y = 0f
-                    while (y <= size.height) {
-                        drawLine(gridColor, Offset(0f, y), Offset(size.width, y), 1f)
-                        y += step
-                    }
-                    // Position marker at the center (last known fix).
-                    val c = Offset(size.width / 2f, size.height / 2f)
-                    drawCircle(Color(0xFF33CCFF), radius = 26f, center = c, alpha = 0.18f)
-                    drawCircle(Color(0xFF33CCFF), radius = 12f, center = c)
-                    drawCircle(Color(0xFF05070B), radius = 4f, center = c)
-                }
-
-                AndroidView(
-                    modifier = Modifier.fillMaxSize(),
-                    factory = { ctx ->
-                        val assetLoader = WebViewAssetLoader.Builder()
-                            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx))
-                            .build()
-                        WebView(ctx).apply {
-                            mapViewHolder[0] = this
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            settings.apply {
-                                javaScriptEnabled = true
-                                domStorageEnabled = true
-                                databaseEnabled = true
-                                setGeolocationEnabled(false)
-                                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                                cacheMode = WebSettings.LOAD_DEFAULT
-                                allowFileAccess = false
-                                allowContentAccess = false
-                                userAgentString = settings.userAgentString + " SportageOBD/1.0.1"
-                                useWideViewPort = true
-                                loadWithOverviewMode = true
-                            }
-                            webChromeClient = object : WebChromeClient() {
-                                override fun onConsoleMessage(message: ConsoleMessage?): Boolean {
-                                    if (message?.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
-                                        android.util.Log.e("SportageMap", message.message())
-                                        mapError = "Map rendering error. Check Android System WebView and retry."
-                                    }
-                                    return true
-                                }
-                            }
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? =
-                                    request?.url?.let { assetLoader.shouldInterceptRequest(it) }
-
-                                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                    // The map has no reason to navigate to arbitrary pages in-app.
-                                    val uri = request?.url ?: return true
-                                    if (uri.host == "appassets.androidplatform.net") return false
-                                    if (uri.scheme == "https" && uri.host == "www.openstreetmap.org") {
-                                        runCatching {
-                                            ctx.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-                                        }
-                                    }
-                                    return true
-                                }
-
-                                override fun onPageFinished(view: WebView?, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    mapLoading = false
-                                    view?.evaluateJavascript(
-                                        "if(window.updateVehicleLocation){window.updateVehicleLocation($latestLat,$latestLon);} Boolean(window.mapReady)",
-                                    ) { ready ->
-                                        if (ready != "true") mapError = "Map could not initialize. Update Android System WebView or tap Retry."
-                                    }
-                                }
-
-
-                                override fun onReceivedError(
-                                    view: WebView?,
-                                    request: WebResourceRequest?,
-                                    error: WebResourceError?
-                                ) {
-                                    if (request?.isForMainFrame == true) {
-                                        val desc = error?.description ?: "network error"
-                                        // No internet (e.g. ERR_NAME_NOT_RESOLVED in the car):
-                                        // automatically fall back to the bundled offline map
-                                        // instead of leaving an error page on screen.
-                                        mapLoading = false
-                                        mapError = "Map failed to load ($desc). Tap Retry."
-                                    }
-                                }
-
-                                override fun onReceivedHttpError(
-                                    view: WebView?,
-                                    request: WebResourceRequest?,
-                                    errorResponse: android.webkit.WebResourceResponse?
-                                ) {
-                                    val status = errorResponse?.statusCode ?: 0
-                                    if (request?.isForMainFrame == true && status >= 400) {
-                                        mapLoading = false
-                                        mapError = "Map unavailable (HTTP $status). Tap Retry."
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    onRelease = { webView ->
-                        mapViewHolder[0] = null
-                        webView.stopLoading()
-                        webView.webChromeClient = null
-                        webView.destroy()
-                    },
-                    update = { webView ->
-                        if (!mapStarted) {
-                            mapStarted = true
-                            mapLoading = true
-                            webView.loadUrl("$mapAssetUrl?lat=$currentLat&lon=$currentLon")
-                        } else {
-                            // Smooth marker update without reloading HTML or network requests.
-                            webView.evaluateJavascript(
-                                "if (typeof window.updateVehicleLocation === 'function') { window.updateVehicleLocation($currentLat, $currentLon); }",
-                                null
-                            )
-                        }
-                    }
-                )
-
-                // Tile availability is reported independently inside the asset.
-                if (mapLoading) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = DarkSurface.copy(alpha = 0.85f),
-                        shape = RoundedCornerShape(0.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(28.dp),
-                                color = ElectricCyan,
-                                strokeWidth = 2.dp
-                            )
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text(
-                                text = "MAP LOADING...",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
-
-                // Non-blocking map notice replaced the old silent blank WebView
-                mapError?.let { message ->
-                    Surface(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .padding(top = 8.dp),
-                        color = AmberWarning.copy(alpha = 0.92f),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = message,
-                                color = Color(0xFF05070B),
-                                fontSize = 9.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextButton(
-                                onClick = {
-                                    mapError = null
-                                    mapLoading = true
-                                    mapRetryCount = (mapRetryCount + 1).coerceAtMost(3)
-                                    mapViewHolder[0]?.reload()
-                                },
-                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF05070B))
-                            ) {
-                                Text("Retry", fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                            }
-                        }
-                    }
-                }
+                NativeLocationMap(currentLat, currentLon, recenter)
 
                 // Floating Road Speed Alert Sign & Speed Badge (Top Left of Map)
                 Row(
@@ -1301,12 +1027,12 @@ fun LiveMapSurface(
                     }
                 }
 
-                // Floating Action Button: Open the current location in a maps app
+                // Floating action stays inside the location tracker.
                 Surface(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(10.dp)
-                        .clickable { onOpenFullMap() },
+                        .clickable { recenter++ },
                     color = Color(0xFF33CCFF),
                     shape = RoundedCornerShape(8.dp),
                     shadowElevation = 6.dp
@@ -1318,7 +1044,7 @@ fun LiveMapSurface(
                     ) {
                         Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
                         Text(
-                            text = "OPEN IN MAPS",
+                            text = "FOLLOW GPS",
                             color = Color(0xFF05070B),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
