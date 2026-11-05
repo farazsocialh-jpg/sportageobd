@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.bluetooth.ConnectionState
@@ -46,8 +47,6 @@ import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.ui.theme.*
 import com.sportage.obd.viewmodel.ObdViewModel
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
 data class RadioStation(val freq: Float, val name: String, val genre: String)
@@ -164,14 +163,6 @@ fun CarLauncherScreen(
         } catch (_: Exception) {}
     }
 
-    val currentTime = remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        while (true) {
-            currentTime.value = SimpleDateFormat("HH:mm · EEE, MMM d", Locale.getDefault()).format(Date())
-            kotlinx.coroutines.delay(1000)
-        }
-    }
-
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -181,97 +172,10 @@ fun CarLauncherScreen(
         val screenHeight = maxHeight
         val isLandscape = screenWidth >= screenHeight
         val aspectRatio = if (screenHeight.value > 0) screenWidth.value / screenHeight.value else 1.7f
-        val isUltraWide = isLandscape && aspectRatio >= 2.0f
-        val isCompactLandscape = isLandscape && screenWidth < 900.dp
-
-        val dockWidth = when {
-            isCompactLandscape -> 52.dp
-            isUltraWide -> 64.dp
-            else -> 58.dp
-        }
-
         if (isLandscape) {
             // LANDSCAPE: Adaptive Left Slim Dock + Cockpit Viewport (Head Units 1024x600, 1280x720, 1920x720 & Phone Landscape)
             Row(modifier = Modifier.fillMaxSize()) {
-                Column(
-                    modifier = Modifier
-                        .width(dockWidth)
-                        .fillMaxHeight()
-                        .background(Color(0xFF070B12))
-                        .border(BorderStroke(1.dp, Color(0xFF1E293B)))
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 8.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        DockButton(icon = Icons.Default.Home, label = "Home", isSelected = activePage == 0, accentColor = ElectricCyan, onClick = { onNavigatePage(0) })
-                        DockButton(icon = Icons.Default.Speed, label = "Gauges", isSelected = activePage == 1, accentColor = ElectricCyan, onClick = { onNavigatePage(1) })
-                        DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
-                        DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
-                        DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
-                        DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
-                        DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
-                    }
-
-                    IconButton(
-                        onClick = onOpenBluetoothClick,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .background(
-                                when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent.copy(alpha = 0.2f)
-                                    is ConnectionState.Connecting -> ElectricCyan.copy(alpha = 0.2f)
-                                    is ConnectionState.Error -> CriticalRed.copy(alpha = 0.2f)
-                                    else -> if (isDemoMode) AmberWarning.copy(alpha = 0.2f) else Color(0xFF131D2A)
-                                },
-                                RoundedCornerShape(10.dp)
-                            )
-                            .border(
-                                1.dp,
-                                when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent
-                                    is ConnectionState.Connecting -> ElectricCyan
-                                    is ConnectionState.Error -> CriticalRed
-                                    else -> if (isDemoMode) AmberWarning else Color(0xFF1E293B)
-                                },
-                                RoundedCornerShape(10.dp)
-                            )
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Bluetooth,
-                                contentDescription = "Bluetooth OBD2",
-                                tint = when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent
-                                    is ConnectionState.Connecting -> ElectricCyan
-                                    is ConnectionState.Error -> CriticalRed
-                                    else -> if (isDemoMode) AmberWarning else Color.Gray
-                                },
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = when (connectionState) {
-                                    is ConnectionState.Connected -> if (measuredHz != null) "${measuredHz.toInt()}Hz" else "OBD"
-                                    is ConnectionState.Connecting -> "PAIR"
-                                    else -> if (isDemoMode) "DEMO" else "BT"
-                                },
-                                color = when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent
-                                    is ConnectionState.Connecting -> ElectricCyan
-                                    is ConnectionState.Error -> CriticalRed
-                                    else -> if (isDemoMode) AmberWarning else Color.Gray
-                                },
-                                fontSize = 8.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-                }
+                CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = true)
 
                 // Cockpit Viewport
                 Column(
@@ -279,15 +183,11 @@ fun CarLauncherScreen(
                         .weight(1f)
                         .fillMaxHeight()
                 ) {
-                    TopCockpitStatusStrip(
-                        currentLat = currentLat,
-                        currentLon = currentLon,
-                        currentTime = currentTime.value,
-                        connectionState = connectionState,
-                        measuredHz = measuredHz,
-                        isDemoMode = isDemoMode,
-                        onOpenBluetoothClick = onOpenBluetoothClick
-                    )
+                    CockpitStatusStrip(
+                    connectionState = connectionState,
+                    isDemoMode = isDemoMode,
+                    onOpenBluetoothClick = onOpenBluetoothClick
+                )
 
                     ActiveAlertBanner(activeAlerts)
 
@@ -398,12 +298,8 @@ fun CarLauncherScreen(
         } else {
             // PORTRAIT: Full-width Top Status Strip + Viewport + Bottom Navigation Bar (e.g. Samsung Galaxy S24 Ultra Phone Mount)
             Column(modifier = Modifier.fillMaxSize()) {
-                TopCockpitStatusStrip(
-                    currentLat = currentLat,
-                    currentLon = currentLon,
-                    currentTime = currentTime.value,
+                CockpitStatusStrip(
                     connectionState = connectionState,
-                    measuredHz = measuredHz,
                     isDemoMode = isDemoMode,
                     onOpenBluetoothClick = onOpenBluetoothClick
                 )
@@ -513,62 +409,7 @@ fun CarLauncherScreen(
                     }
                 }
 
-                // Bottom Navigation Dock for Full-Width Phone Operation
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp)
-                        .background(Color(0xFF070B12))
-                        .border(BorderStroke(1.dp, Color(0xFF1E293B)))
-                        .horizontalScroll(rememberScrollState())
-                        .padding(horizontal = 6.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    DockButton(icon = Icons.Default.Home, label = "Home", isSelected = activePage == 0, accentColor = ElectricCyan, onClick = { onNavigatePage(0) })
-                    DockButton(icon = Icons.Default.Speed, label = "Gauges", isSelected = activePage == 1, accentColor = ElectricCyan, onClick = { onNavigatePage(1) })
-                    DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
-                    DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
-                    DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
-                    DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
-                    DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
-                    IconButton(
-                        onClick = onOpenBluetoothClick,
-                        modifier = Modifier
-                            .size(38.dp)
-                            .background(
-                                when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent.copy(alpha = 0.2f)
-                                    is ConnectionState.Connecting -> ElectricCyan.copy(alpha = 0.2f)
-                                    is ConnectionState.Error -> CriticalRed.copy(alpha = 0.2f)
-                                    else -> if (isDemoMode) AmberWarning.copy(alpha = 0.2f) else Color(0xFF131D2A)
-                                },
-                                RoundedCornerShape(8.dp)
-                            )
-                            .border(
-                                1.dp,
-                                when (connectionState) {
-                                    is ConnectionState.Connected -> TealAccent
-                                    is ConnectionState.Connecting -> ElectricCyan
-                                    is ConnectionState.Error -> CriticalRed
-                                    else -> if (isDemoMode) AmberWarning else Color(0xFF1E293B)
-                                },
-                                RoundedCornerShape(8.dp)
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Bluetooth,
-                            contentDescription = "Bluetooth OBD2",
-                            tint = when (connectionState) {
-                                is ConnectionState.Connected -> TealAccent
-                                is ConnectionState.Connecting -> ElectricCyan
-                                is ConnectionState.Error -> CriticalRed
-                                else -> if (isDemoMode) AmberWarning else Color.Gray
-                            },
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
+                CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
             }
         }
     }
@@ -604,9 +445,9 @@ fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
             Text(
                 text = activeAlerts.joinToString("  ·  ") { it.message },
                 color = color,
-                fontSize = 10.sp,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
+                fontFamily = FontFamily.SansSerif,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -615,161 +456,6 @@ fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
 
 // =========================================================================
 // HELPER: TOP COCKPIT STATUS STRIP
-// =========================================================================
-@Composable
-fun TopCockpitStatusStrip(
-    currentLat: Double,
-    currentLon: Double,
-    currentTime: String,
-    connectionState: ConnectionState,
-    measuredHz: Float?,
-    isDemoMode: Boolean,
-    onOpenBluetoothClick: () -> Unit,
-    isPollingPaused: Boolean = false,
-    onTogglePausePolling: () -> Unit = {},
-    onOpenAppDrawer: () -> Unit = {}
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 32.dp)
-            .background(Color(0xFF090D14))
-            .border(BorderStroke(1.dp, Color(0xFF1E293B)))
-            .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 10.dp, vertical = 2.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = "KIA SPORTAGE 2.0 MPI AWD",
-                color = ElectricCyan,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-            Text(text = "·", color = Color.DarkGray, fontSize = 11.sp)
-            Text(
-                text = currentTime,
-                color = SecondaryText,
-                fontSize = 10.sp,
-                fontFamily = FontFamily.Monospace
-            )
-            if (isDemoMode) {
-                Surface(
-                    color = AmberWarning.copy(alpha = 0.2f),
-                    shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(1.dp, AmberWarning)
-                ) {
-                    Text(
-                        text = "⚠️ BENCH DEMO ACTIVE",
-                        color = AmberWarning,
-                        fontSize = 8.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
-                    )
-                }
-            }
-        }
-
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Box(modifier = Modifier.size(6.dp).background(TealAccent, CircleShape))
-                Text(
-                    text = "GPS: ${"%.4f".format(currentLat)}°N, ${"%.4f".format(currentLon)}°E",
-                    color = SecondaryText,
-                    fontSize = 10.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-            }
-
-            Surface(
-                modifier = Modifier.clickable { onOpenBluetoothClick() },
-                color = when (connectionState) {
-                    is ConnectionState.Connected -> TealAccent.copy(alpha = 0.15f)
-                    is ConnectionState.Connecting -> ElectricCyan.copy(alpha = 0.15f)
-                    is ConnectionState.Error -> CriticalRed.copy(alpha = 0.15f)
-                    else -> if (isDemoMode) AmberWarning.copy(alpha = 0.15f) else Color(0xFF1E293B)
-                },
-                shape = RoundedCornerShape(4.dp),
-                border = BorderStroke(
-                    1.dp,
-                    when (connectionState) {
-                        is ConnectionState.Connected -> TealAccent
-                        is ConnectionState.Connecting -> ElectricCyan
-                        is ConnectionState.Error -> CriticalRed
-                        else -> if (isDemoMode) AmberWarning else Color.Transparent
-                    }
-                )
-            ) {
-                Text(
-                    text = when (connectionState) {
-                        is ConnectionState.Connected -> if (measuredHz != null) "ELM327 CONNECTED (${"%.1f".format(measuredHz)}Hz)" else "ELM327 CONNECTED"
-                        is ConnectionState.Connecting -> "PAIRING ELM327..."
-                        is ConnectionState.Error -> "ADAPTER ERROR (TAP TO SCAN)"
-                        else -> if (isDemoMode) "BENCH DEMO ACTIVE" else "TAP TO CONNECT OBD"
-                    },
-                    color = when (connectionState) {
-                        is ConnectionState.Connected -> TealAccent
-                        is ConnectionState.Connecting -> ElectricCyan
-                        is ConnectionState.Error -> CriticalRed
-                        else -> if (isDemoMode) AmberWarning else Color.LightGray
-                    },
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
-
-            // Pause OBD Polling Toggle (for Engine Off / Battery Saving)
-            Surface(
-                modifier = Modifier.clickable { onTogglePausePolling() },
-                color = if (isPollingPaused) AmberWarning.copy(alpha = 0.2f) else Color(0xFF1E293B),
-                shape = RoundedCornerShape(4.dp),
-                border = BorderStroke(1.dp, if (isPollingPaused) AmberWarning else Color.Transparent)
-            ) {
-                Text(
-                    text = if (isPollingPaused) "OBD PAUSED (IGNITION OFF)" else "PAUSE OBD",
-                    color = if (isPollingPaused) AmberWarning else Color.LightGray,
-                    fontSize = 9.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
-
-            // App Drawer Quick Button
-            Surface(
-                modifier = Modifier.clickable { onOpenAppDrawer() },
-                color = ElectricCyan.copy(alpha = 0.15f),
-                shape = RoundedCornerShape(4.dp),
-                border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.4f))
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(11.dp))
-                    Text("APPS", color = ElectricCyan, fontSize = 9.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                }
-            }
-        }
-    }
-}
-
-// =========================================================================
-// SUB-VIEW: PERMANENT HOME SPLIT SCREEN (Dominant Live Map + Live OBD Gauges)
-// =========================================================================
-// SUB-VIEW: PERMANENT HOME SPLIT SCREEN (Dominant Live Map + Live OBD Gauges)
 // =========================================================================
 @Composable
 fun PermanentHomeSplitView(
@@ -799,8 +485,8 @@ fun PermanentHomeSplitView(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(modifier = Modifier.weight(mapWeight).fillMaxHeight()) {
                 LiveMapSurface(
@@ -813,7 +499,7 @@ fun PermanentHomeSplitView(
             }
 
             Box(modifier = Modifier.weight(obdWeight).fillMaxHeight()) {
-                AuthoritativeObdPane(
+                CockpitTelemetryPane(
                     speed = speed,
                     speedUnit = speedUnit,
                     onToggleSpeedUnit = onToggleSpeedUnit,
@@ -834,10 +520,10 @@ fun PermanentHomeSplitView(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Box(modifier = Modifier.weight(0.44f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(0.48f).fillMaxWidth()) {
                 LiveMapSurface(
                     currentLat = currentLat,
                     currentLon = currentLon,
@@ -847,8 +533,8 @@ fun PermanentHomeSplitView(
                 )
             }
 
-            Box(modifier = Modifier.weight(0.56f).fillMaxWidth()) {
-                AuthoritativeObdPane(
+            Box(modifier = Modifier.weight(0.52f).fillMaxWidth()) {
+                CockpitTelemetryPane(
                     speed = speed,
                     speedUnit = speedUnit,
                     onToggleSpeedUnit = onToggleSpeedUnit,
@@ -872,161 +558,50 @@ fun PermanentHomeSplitView(
 // =========================================================================
 @Composable
 fun LiveMapSurface(
-    currentLat: Double,
-    currentLon: Double,
-    speed: Int?,
-    speedUnit: String,
+    currentLat: Double, currentLon: Double, speed: Int?, speedUnit: String,
     onOpenNavigation: () -> Unit
 ) {
-    var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
-
-    Card(
-        modifier = Modifier.fillMaxSize(),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
-    ) {
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Map Top Bar
+    var speedAlertThreshold by remember { mutableIntStateOf(100) }
+    val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
+    Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF0E1722))
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(
-                    modifier = Modifier.weight(1f),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF33CCFF), modifier = Modifier.size(16.dp))
-                    Text(
-                        text = "STREET MAP",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    Box(modifier = Modifier.size(6.dp).background(TealAccent, CircleShape))
-                }
-
-                // A real layout slot, outside the map and all telemetry overlays.
+                Text("Map", modifier = Modifier.weight(1f), color = PrimaryText,
+                    style = MaterialTheme.typography.titleMedium)
                 FilledIconButton(
-                    onClick = onOpenNavigation,
-                    modifier = Modifier.size(48.dp),
+                    onClick = onOpenNavigation, modifier = Modifier.size(48.dp),
+                    shape = RoundedCornerShape(12.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = Color(0xFF33CCFF), contentColor = Color(0xFF05070B)
-                    ),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Icon(Icons.Default.Navigation, contentDescription = "Open navigation app", modifier = Modifier.size(24.dp))
-                }
+                        containerColor = DarkSurfaceElevated, contentColor = ElectricCyan
+                    )
+                ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
-
-            // Interactive Map View Container with Overlays
-            Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                NativeLocationMap(currentLat, currentLon, 0)
-
-                // Floating Road Speed Alert Sign & Speed Badge (Top Left of Map)
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.TopStart)
-                        .padding(8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Configurable Speed Alert Sign (Tap cycles threshold: 80 -> 100 -> 120 -> 140 -> OFF)
-                    Surface(
-                        modifier = Modifier
-                            .clickable {
-                                speedAlertThreshold = when (speedAlertThreshold) {
-                                    80 -> 100
-                                    100 -> 120
-                                    120 -> 140
-                                    140 -> 0
-                                    else -> 80
-                                }
-                            },
-                        color = Color.White,
-                        shape = CircleShape,
-                        border = BorderStroke(3.dp, CriticalRed)
-                    ) {
-                        Box(
-                            modifier = Modifier.size(38.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (speedAlertThreshold > 0) "$speedAlertThreshold" else "--",
-                                color = Color.Black,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace
-                            )
-                        }
-                    }
-
-                    // GPS Speed Overlay
-                    Surface(
-                        color = Color(0xD9080C14),
-                        shape = RoundedCornerShape(6.dp),
-                        border = BorderStroke(1.dp, Color(0xFF1E293B))
-                    ) {
-                        Text(
-                            text = "${speed ?: "--"} $speedUnit",
-                            color = ElectricCyan,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                        )
-                    }
-
-                    // Overspeed Warning Pill if exceeded
-                    val isOverspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
-                    if (isOverspeed) {
-                        Surface(
-                            color = CriticalRed,
-                            shape = RoundedCornerShape(6.dp)
-                        ) {
-                            Text(
-                                text = "⚠️ SPEED ALERT!",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                fontFamily = FontFamily.Monospace,
-                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                }
-
-            }
-
-            // Bottom Trip Status Line
+            Box(Modifier.fillMaxWidth().weight(1f)) { NativeLocationMap(currentLat, currentLon, 0) }
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color(0xFF0E1722))
-                    .padding(horizontal = 10.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
             ) {
+                TextButton(
+                    onClick = {
+                        speedAlertThreshold = when (speedAlertThreshold) {
+                            80 -> 100; 100 -> 120; 120 -> 140; 140 -> 0; else -> 80
+                        }
+                    }, modifier = Modifier.heightIn(min = 48.dp),
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (overspeed) CriticalRed else SecondaryText)
+                ) {
+                    Icon(if (overspeed) Icons.Default.Warning else Icons.Default.NotificationsNone, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (speedAlertThreshold == 0) "Alert off" else "Alert · $speedAlertThreshold $speedUnit",
+                        style = MaterialTheme.typography.labelMedium)
+                }
                 Text(
-                    text = "GPS ACTIVE · MAP ${com.sportage.obd.MainActivity.APP_BUILD_TAG}",
-                    color = SecondaryText,
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
-                )
-                Text(
-                    text = "${"%.4f".format(currentLat)}, ${"%.4f".format(currentLon)}",
-                    color = ElectricCyan,
-                    fontSize = 9.sp,
-                    fontFamily = FontFamily.Monospace
+                    "${"%.4f".format(currentLat)}, ${"%.4f".format(currentLon)}",
+                    modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    color = SecondaryText, style = MaterialTheme.typography.labelMedium
                 )
             }
         }
@@ -1035,238 +610,6 @@ fun LiveMapSurface(
 
 // =========================================================================
 // SUB-VIEW: AUTHORITATIVE PRIMARY OBD TELEMETRY PANE
-// =========================================================================
-@Composable
-fun AuthoritativeObdPane(
-    speed: Int?,
-    speedUnit: String,
-    onToggleSpeedUnit: () -> Unit,
-    rpm: Int?,
-    coolant: Int?,
-    voltage: Float?,
-    load: Float?,
-    throttle: Float?,
-    gear: Int,
-    connectionState: ConnectionState,
-    measuredHz: Float? = null,
-    isDemoMode: Boolean
-) {
-    Card(
-        modifier = Modifier.fillMaxSize(),
-        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-        shape = RoundedCornerShape(12.dp),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(10.dp),
-            verticalArrangement = Arrangement.SpaceBetween
-        ) {
-            // Top Status & Gear Selector
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(
-                        text = "LIVE TELEMETRY",
-                        color = SecondaryText,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-                    if (measuredHz != null) {
-                        Text(
-                            text = "(${ "%.1f".format(measuredHz) } Hz)",
-                            color = TealAccent,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                    }
-                }
-
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Gear Badge (Indicated as calculated ratio)
-                    Surface(
-                        color = Color(0xFF0E1722),
-                        shape = RoundedCornerShape(4.dp),
-                        border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
-                    ) {
-                        Text(
-                            text = if (gear == 0 || (speed ?: 0) < 5) "P / N" else "D$gear (EST.)",
-                            color = TealAccent,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-
-                    // Speed Unit Switch
-                    Surface(
-                        modifier = Modifier.clickable { onToggleSpeedUnit() },
-                        color = Color(0xFF1E293B),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = speedUnit.uppercase(),
-                            color = ElectricCyan,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                        )
-                    }
-                }
-            }
-
-            // Prominent Bench Demo Warning Banner if active
-            if (isDemoMode) {
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    color = AmberWarning.copy(alpha = 0.15f),
-                    shape = RoundedCornerShape(4.dp),
-                    border = BorderStroke(1.dp, AmberWarning)
-                ) {
-                    Text(
-                        text = "⚠️ BENCH DEMO ACTIVE · SIMULATED CAN TELEMETRY",
-                        color = AmberWarning,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        modifier = Modifier
-                            .padding(vertical = 3.dp)
-                            .wrapContentWidth(Alignment.CenterHorizontally)
-                    )
-                }
-            }
-
-            // Giant Speedometer Centerpiece (Stable container width so no number jumping)
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = speed?.toString() ?: "--",
-                    color = Color.White,
-                    fontSize = 64.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace,
-                    lineHeight = 64.sp
-                )
-
-                Text(
-                    text = speedUnit.uppercase(),
-                    color = ElectricCyan,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Sweeping RPM bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(0.9f),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(text = "RPM: ${rpm ?: "--"}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                    Text(text = "6500 REDLINE", color = CriticalRed, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-                }
-
-                LinearProgressIndicator(
-                    progress = { ((rpm ?: 0) / 7000f).coerceIn(0f, 1f) },
-                    modifier = Modifier
-                        .fillMaxWidth(0.9f)
-                        .height(6.dp),
-                    color = if ((rpm ?: 0) > 6000) CriticalRed else ElectricCyan,
-                    trackColor = Color(0xFF0B1017)
-                )
-            }
-
-            // 4 Essential Live Sensor Tiles at Bottom
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                // Coolant Temp
-                SensorMiniTile(
-                    title = "COOLANT",
-                    value = if (coolant != null) "$coolant°C" else "--",
-                    valueColor = if ((coolant ?: 0) > 105) CriticalRed else Color.White,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Battery Voltage
-                SensorMiniTile(
-                    title = "BATTERY",
-                    value = if (voltage != null) "${"%.1f".format(voltage)}V" else "--",
-                    valueColor = TealAccent,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Engine Load
-                SensorMiniTile(
-                    title = "LOAD",
-                    value = if (load != null) "${load.toInt()}%" else "--",
-                    valueColor = ElectricCyan,
-                    modifier = Modifier.weight(1f)
-                )
-
-                // Connection State
-                SensorMiniTile(
-                    title = "STATUS",
-                    value = when (connectionState) {
-                        is ConnectionState.Connected -> "10Hz"
-                        is ConnectionState.Connecting -> "PAIR"
-                        else -> if (isDemoMode) "DEMO" else "OFF"
-                    },
-                    valueColor = if (connectionState is ConnectionState.Connected) TealAccent else Color.Gray,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-fun SensorMiniTile(
-    title: String,
-    value: String,
-    valueColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier,
-        color = Color(0xFF090D14),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(title, color = SecondaryText, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-            Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = value,
-                color = valueColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
-        }
-    }
-}
-
-// =========================================================================
-// SUB-VIEW: GAUGES & REAL-TIME CANVAS GRAPHS PAGE
 // =========================================================================
 @Composable
 fun GaugesAndGraphsPage(
@@ -1285,62 +628,46 @@ fun GaugesAndGraphsPage(
     viewModel: ObdViewModel? = null
 ) {
     val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        // Real-Time Canvas Line Chart: Speed & RPM over time
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.55f),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+    val metrics = listOf(
+        PanelReading("Engine speed", rpm?.toString() ?: "--", "rpm", if ((rpm ?: 0) > 6500) CriticalRed else PrimaryText),
+        PanelReading("Coolant", coolant?.toString() ?: "--", "°C", if ((coolant ?: 0) > 105) CriticalRed else PrimaryText),
+        PanelReading("Intake air", intakeTemp?.toString() ?: "--", "°C"),
+        PanelReading("Engine load", load?.let { "%.1f".format(it) } ?: "--", "%"),
+        PanelReading("Throttle", throttle?.let { "%.1f".format(it) } ?: "--", "%"),
+        PanelReading("Fuel level", fuelLevel?.toString() ?: "--", "%"),
+        PanelReading("Battery", voltage?.let { "%.1f".format(it) } ?: "--", "V"),
+        PanelReading("Gear estimate", if (gear == 0) "P/N" else "D$gear", "automatic"),
+        PanelReading("Air flow", liveTelemetry?.mafGs?.let { "%.1f".format(it) } ?: "--", "g/s"),
+        PanelReading("Timing advance", liveTelemetry?.timingAdvanceDeg?.let { "%.1f".format(it) } ?: "--", "°BTDC"),
+        PanelReading("Short fuel trim", liveTelemetry?.shortTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", "%",
+            if (kotlin.math.abs(liveTelemetry?.shortTermFuelTrimPct ?: 0f) > 10f) CriticalRed else PrimaryText),
+        PanelReading("Long fuel trim", liveTelemetry?.longTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", "%",
+            if (kotlin.math.abs(liveTelemetry?.longTermFuelTrimPct ?: 0f) > 10f) CriticalRed else PrimaryText),
+        PanelReading("Instant economy", liveTelemetry?.fuelEconomyL100?.let { "%.1f".format(it) } ?: "--", "L/100 km"),
+        PanelReading("Fuel used", liveTelemetry?.fuelUsedLiters?.let { "%.2f".format(it) } ?: "--", "liters")
+    )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val columns = if (maxWidth >= 720.dp) 4 else 2
+        androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+            columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(columns),
+            modifier = Modifier.fillMaxSize().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "REAL-TIME ENGINE TELEMETRY GRAPH (60 SECONDS)",
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
-                    )
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Box(modifier = Modifier.size(8.dp).background(ElectricCyan, RoundedCornerShape(2.dp)))
-                            Text(text = "Speed: ${speed ?: "--"} $speedUnit", color = ElectricCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Text("Gauges", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+            }
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("Engine history · 60 seconds", color = PrimaryText, style = MaterialTheme.typography.titleMedium)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Speed · ${speed ?: "--"} $speedUnit", color = ElectricCyan, style = MaterialTheme.typography.labelMedium)
+                            Text("RPM · ${rpm ?: "--"}", color = WarningAmber, style = MaterialTheme.typography.labelMedium)
                         }
+                        Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                            Canvas(Modifier.fillMaxSize().background(DarkBackground, RoundedCornerShape(8.dp)).padding(8.dp)) {
 
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Box(modifier = Modifier.size(8.dp).background(Color(0xFFF59E0B), RoundedCornerShape(2.dp)))
-                            Text(text = "RPM: ${rpm ?: "--"}", color = Color(0xFFF59E0B), fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                // Canvas Graph
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .background(Color(0xFF070B12), RoundedCornerShape(6.dp))
-                        .padding(6.dp)
-                ) {
                     val w = size.width
                     val h = size.height
 
@@ -1376,91 +703,20 @@ fun GaugesAndGraphsPage(
                         }
                         drawPath(rpmPath, color = Color(0xFFF59E0B), style = Stroke(width = 2f, cap = StrokeCap.Round))
                     }
+
+                            }
+                            if (speedHistory.size < 2 && rpmHistory.size < 2) {
+                                Text("Waiting for readings", color = SecondaryText, style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
                 }
             }
-        }
-
-        // 8 Detailed Engine Sensors Grid
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.45f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "ENGINE RPM", value = rpm?.toString() ?: "--", unit = "RPM", color = Color(0xFFF59E0B), modifier = Modifier.weight(1f))
-                SensorCard(title = "COOLANT TEMP", value = coolant?.toString() ?: "--", unit = "°C", color = Color.White, modifier = Modifier.weight(1f))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "INTAKE AIR TEMP", value = intakeTemp?.toString() ?: "--", unit = "°C", color = ElectricCyan, modifier = Modifier.weight(1f))
-                SensorCard(title = "ENGINE LOAD", value = load?.let { "%.1f".format(it) } ?: "--", unit = "%", color = TealAccent, modifier = Modifier.weight(1f))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "THROTTLE POS", value = throttle?.let { "%.1f".format(it) } ?: "--", unit = "%", color = ElectricCyan, modifier = Modifier.weight(1f))
-                SensorCard(title = "FUEL TANK LEVEL", value = fuelLevel?.toString() ?: "--", unit = "%", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "CONTROL VOLTAGE", value = voltage?.let { "%.1f".format(it) } ?: "--", unit = "V", color = TealAccent, modifier = Modifier.weight(1f))
-                SensorCard(title = "GEAR POSITION", value = if (gear == 0) "P/N" else "D$gear", unit = "AUTO", color = ElectricCyan, modifier = Modifier.weight(1f))
-            }
-        }
-
-        // Fuel & Air Metering Grid (MAF-based economy sensors)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.28f),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "MAF AIR FLOW", value = liveTelemetry?.mafGs?.let { "%.1f".format(it) } ?: "--", unit = "g/s", color = ElectricCyan, modifier = Modifier.weight(1f))
-                SensorCard(title = "TIMING ADVANCE", value = liveTelemetry?.timingAdvanceDeg?.let { "%.1f".format(it) } ?: "--", unit = "°BTDC", color = Color.White, modifier = Modifier.weight(1f))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "SHORT TERM TRIM", value = liveTelemetry?.shortTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", unit = "%", color = if ((liveTelemetry?.shortTermFuelTrimPct ?: 0f) > 10f || (liveTelemetry?.shortTermFuelTrimPct ?: 0f) < -10f) CriticalRed else TealAccent, modifier = Modifier.weight(1f))
-                SensorCard(title = "LONG TERM TRIM", value = liveTelemetry?.longTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", unit = "%", color = if ((liveTelemetry?.longTermFuelTrimPct ?: 0f) > 10f || (liveTelemetry?.longTermFuelTrimPct ?: 0f) < -10f) CriticalRed else TealAccent, modifier = Modifier.weight(1f))
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                SensorCard(title = "INSTANT ECONOMY", value = liveTelemetry?.fuelEconomyL100?.let { "%.1f".format(it) } ?: "--", unit = "L/100km", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
-                SensorCard(title = "TRIP FUEL USED", value = liveTelemetry?.fuelUsedLiters?.let { "%.2f".format(it) } ?: "--", unit = "L", color = Color(0xFF10B981), modifier = Modifier.weight(1f))
-            }
+            items(metrics.size) { index -> MetricTile(metrics[index]) }
         }
     }
 }
 
-@Composable
-fun SensorCard(
-    title: String,
-    value: String,
-    unit: String,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = Color(0xFF090D14),
-        shape = RoundedCornerShape(8.dp),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(6.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(title, color = SecondaryText, fontSize = 8.sp, fontFamily = FontFamily.Monospace)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(value, color = color, fontSize = 16.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-                Text(unit, color = SecondaryText, fontSize = 9.sp, fontFamily = FontFamily.Monospace)
-            }
-        }
-    }
-}
-
-// =========================================================================
-// SUB-VIEW: ECU DIAGNOSTICS & DTC SCANNER PAGE
-// =========================================================================
 @Composable
 fun DiagnosticsPage(
     dtcCodes: List<DtcItem>,
@@ -1493,43 +749,43 @@ fun DiagnosticsPage(
         // Top Action Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Column {
                     Text(
-                        text = "ECU DIAGNOSTICS & TROUBLE CODE SCANNER",
+                        text = "Diagnostics",
                         color = Color.White,
-                        fontSize = 12.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace
+                        fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS",
                         color = SecondaryText,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.SansSerif
                     )
                     if (vin != null) {
                         Text(
                             text = "VIN: $vin",
                             color = ElectricCyan,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif
                         )
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = onScan,
                         enabled = !isScanning,
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
@@ -1538,30 +794,32 @@ fun DiagnosticsPage(
                         if (isScanning) {
                             CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color(0xFF05070B), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Scanning...", color = Color(0xFF05070B), fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                            Text("Scanning...", color = Color(0xFF05070B), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                         } else {
                             Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Scan ECU (03)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                            Text("Scan ECU (03)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                         }
                     }
 
                     Button(
+                        modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = { showClearConfirm = true },
                         enabled = !isScanning,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Clear Codes (04)", color = CriticalRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Clear Codes (04)", color = CriticalRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
             }
         }
 
         // Tabs
-        TabRow(
+        ScrollableTabRow(
             selectedTabIndex = selectedTab,
-            containerColor = Color(0xFF090D14),
+            edgePadding = 0.dp,
+            containerColor = DarkBackground,
             contentColor = ElectricCyan
         ) {
             tabs.forEachIndexed { idx, title ->
@@ -1571,8 +829,9 @@ fun DiagnosticsPage(
                     text = {
                         Text(
                             title,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif,
                             color = if (selectedTab == idx) ElectricCyan else SecondaryText
                         )
                     }
@@ -1596,7 +855,7 @@ fun DiagnosticsPage(
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Scan Pending (07)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Scan Pending (07)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 DtcListContent(pendingCodes, emptyHint = "No Pending Codes · ECU monitors have not confirmed a fault yet")
@@ -1615,7 +874,7 @@ fun DiagnosticsPage(
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Scan Permanent (0A)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Scan Permanent (0A)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 DtcListContent(permanentCodes, emptyHint = "No Permanent Codes · These survive a Mode 04 clear until the ECU re-verifies the repair")
@@ -1634,7 +893,7 @@ fun DiagnosticsPage(
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Read Freeze Frame (02)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Read Freeze Frame (02)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 if (freezeFrame == null || freezeFrame.items.isEmpty()) {
@@ -1648,12 +907,12 @@ fun DiagnosticsPage(
                                 border = BorderStroke(1.dp, AmberWarning)
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                     Spacer(Modifier.height(6.dp))
                                     freezeFrame.items.forEach {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(it.label, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                                            Text(it.value, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            Text(it.label, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                                            Text(it.value, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                         }
                                     }
                                 }
@@ -1676,7 +935,7 @@ fun DiagnosticsPage(
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Read Readiness (0101)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Read Readiness (0101)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 if (readiness == null) {
@@ -1694,21 +953,21 @@ fun DiagnosticsPage(
                                         Text(
                                             if (readiness.milOn) "CHECK ENGINE LIGHT: ON" else "CHECK ENGINE LIGHT: OFF",
                                             color = if (readiness.milOn) CriticalRed else TealAccent,
-                                            fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+                                            fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
                                         )
                                         Text(
                                             "Stored codes: ${readiness.storedDtcCount}",
-                                            color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace
+                                            color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif
                                         )
                                     }
-                                    Text("SPARK IGNITION MONITORS (GASOLINE)", color = ElectricCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                    Text("SPARK IGNITION MONITORS (GASOLINE)", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                     readiness.sparkIgnitionMonitors.forEach { m ->
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(m.name, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                            Text(m.name, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                             Text(
                                                 if (m.complete) "COMPLETE" else "NOT READY",
                                                 color = if (m.complete) TealAccent else AmberWarning,
-                                                fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace
+                                                fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
                                             )
                                         }
                                     }
@@ -1720,16 +979,16 @@ fun DiagnosticsPage(
                                 Surface(
                                     color = Color(0xFF0A0F17),
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF1E293B))
+                                    border = BorderStroke(1.dp, DarkSurfaceElevated)
                                 ) {
                                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                        Text("ECU SUPPORTED PIDs (${supportedPids.size} discovered)", color = ElectricCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                                        Text("ECU SUPPORTED PIDs (${supportedPids.size} discovered)", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             supportedPids.sorted().joinToString(" "),
                                             color = SecondaryText,
-                                            fontSize = 9.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.SansSerif
                                         )
                                     }
                                 }
@@ -1744,11 +1003,11 @@ fun DiagnosticsPage(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("Clear Fault Codes (Mode 04)?", fontFamily = FontFamily.Monospace, color = Color.White) },
+            title = { Text("Clear Fault Codes (Mode 04)?", fontFamily = FontFamily.SansSerif, color = Color.White) },
             text = {
                 Text(
                     "Warning: Clearing ECU codes resets emissions inspection readiness monitors and turns off the check engine light. If the physical fault is not repaired, the code will reoccur.",
-                    fontFamily = FontFamily.Monospace,
+                    fontFamily = FontFamily.SansSerif,
                     fontSize = 11.sp,
                     color = SecondaryText
                 )
@@ -1761,15 +1020,15 @@ fun DiagnosticsPage(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = CriticalRed)
                 ) {
-                    Text("Confirm Clear", fontFamily = FontFamily.Monospace, color = Color.White)
+                    Text("Confirm Clear", fontFamily = FontFamily.SansSerif, color = DarkBackground)
                 }
             },
             dismissButton = {
                 Button(
                     onClick = { showClearConfirm = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B))
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated)
                 ) {
-                    Text("Cancel", fontFamily = FontFamily.Monospace, color = Color.LightGray)
+                    Text("Cancel", fontFamily = FontFamily.SansSerif, color = Color.LightGray)
                 }
             },
             containerColor = Color(0xFF0F1722)
@@ -1807,23 +1066,23 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
                                     text = dtc.code,
                                     color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
                                     fontSize = 16.sp,
-                                    fontWeight = FontWeight.Black,
-                                    fontFamily = FontFamily.Monospace
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
                                     text = dtc.system,
                                     color = SecondaryText,
                                     fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = FontFamily.SansSerif
                                 )
                             }
 
                             Text(
                                 text = dtc.severity.name,
                                 color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
-                                fontSize = 10.sp,
+                                fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = FontFamily.SansSerif,
                                 modifier = Modifier
                                     .background(
                                         (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning).copy(alpha = 0.15f),
@@ -1834,9 +1093,9 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
-                        Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                        Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                 }
             }
@@ -1851,16 +1110,16 @@ private fun EmptyStateBox(title: String, subtitle: String) {
             .fillMaxWidth()
             .heightIn(min = 160.dp)
             .background(Color(0xFF080C14), RoundedCornerShape(10.dp))
-            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+            .border(1.dp, DarkSurfaceElevated, RoundedCornerShape(10.dp))
             .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(44.dp))
             Spacer(modifier = Modifier.height(10.dp))
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.SansSerif)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(subtitle, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+            Text(subtitle, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
         }
     }
 }
@@ -1897,166 +1156,58 @@ fun TripComputerPage(
         (tankLiters * liveTelemetry.fuelLevelPct / 100.0) / avgEconomy * 100.0
     } else null
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column {
-                Text("TRIP COMPUTER & ODOMETER", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Text("GPS TRAIL & VEHICLE DISTANCE LOG", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-            }
-
-            Button(
-                onClick = onReset,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
-                shape = RoundedCornerShape(6.dp)
-            ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(14.dp))
-                Spacer(modifier = Modifier.width(4.dp))
-                Text("Reset Trip", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
-            }
-        }
-
-        // 4 Large Metrics Cards
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            TripCard(
-                title = "DISTANCE",
-                value = "%.1f".format(if (speedUnit == "mph") distanceKm * 0.621371 else distanceKm),
-                unit = if (speedUnit == "mph") "MILES" else "KM",
-                accentColor = ElectricCyan,
-                modifier = Modifier.weight(1f)
-            )
-
-            TripCard(
-                title = "ELAPSED TIME",
-                value = timeFormatted,
-                unit = "HH:MM:SS",
-                accentColor = TealAccent,
-                modifier = Modifier.weight(1f)
-            )
-
-            TripCard(
-                title = "AVG SPEED",
-                value = "$avgSpeed",
-                unit = speedUnit.uppercase(),
-                accentColor = Color(0xFFF59E0B),
-                modifier = Modifier.weight(1f)
-            )
-
-            TripCard(
-                title = "MAX SPEED",
-                value = "$maxSpeed",
-                unit = speedUnit.uppercase(),
-                accentColor = CriticalRed,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // Fuel Economy Cards (MAF-based)
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(0.7f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            TripCard(
-                title = "AVG ECONOMY",
-                value = avgEconomy?.let { "%.1f".format(it) } ?: "--",
-                unit = "L/100KM",
-                accentColor = Color(0xFF10B981),
-                modifier = Modifier.weight(1f)
-            )
-            TripCard(
-                title = "INSTANT ECONOMY",
-                value = instantEconomy?.let { "%.1f".format(it) } ?: "--",
-                unit = "L/100KM",
-                accentColor = ElectricCyan,
-                modifier = Modifier.weight(1f)
-            )
-            TripCard(
-                title = "TRIP FUEL USED",
-                value = fuelUsedL?.let { "%.2f".format(it) } ?: "--",
-                unit = "LITERS",
-                accentColor = TealAccent,
-                modifier = Modifier.weight(1f)
-            )
-            TripCard(
-                title = "RANGE ESTIMATE",
-                value = rangeKm?.let { "%.0f".format(it) } ?: "--",
-                unit = "KM TO EMPTY",
-                accentColor = AmberWarning,
-                modifier = Modifier.weight(1f)
-            )
-        }
-
-        // Live GPS Status Box
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(modifier = Modifier.size(8.dp).background(TealAccent, CircleShape))
-                    Text("ACTIVE GPS RECORDING", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+    val metrics = listOf(
+        PanelReading("Distance", "%.1f".format(if (speedUnit == "mph") distanceKm * 0.621371 else distanceKm),
+            if (speedUnit == "mph") "miles" else "km", ElectricCyan),
+        PanelReading("Elapsed time", timeFormatted, "hh:mm:ss"),
+        PanelReading("Average speed", "$avgSpeed", speedUnit),
+        PanelReading("Maximum speed", "$maxSpeed", speedUnit),
+        PanelReading("Average economy", avgEconomy?.let { "%.1f".format(it) } ?: "--", "L/100 km"),
+        PanelReading("Instant economy", instantEconomy?.let { "%.1f".format(it) } ?: "--", "L/100 km"),
+        PanelReading("Fuel used", fuelUsedL?.let { "%.2f".format(it) } ?: "--", "liters"),
+        PanelReading("Range estimate", rangeKm?.let { "%.0f".format(it) } ?: "--", "km to empty")
+    )
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val columns = if (maxWidth >= 700.dp) 4 else if (maxWidth < 380.dp && androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.2f) 1 else 2
+        Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Trip", Modifier.weight(1f), color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+                FilledTonalButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Reset trip")
                 }
-
-                Text(
-                    text = "COORDINATES: ${"%.5f".format(currentLat)}, ${"%.5f".format(currentLon)}",
-                    color = ElectricCyan,
-                    fontSize = 11.sp,
-                    fontFamily = FontFamily.Monospace
-                )
+            }
+            androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
+                columns = androidx.compose.foundation.lazy.grid.GridCells.Fixed(columns),
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(metrics.size) { index -> MetricTile(metrics[index]) }
+            }
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.MyLocation, null, Modifier.size(18.dp), tint = SecondaryText)
+                Spacer(Modifier.width(8.dp))
+                Text("Coordinates", Modifier.weight(1f), color = SecondaryText, style = MaterialTheme.typography.labelMedium)
+                Text("${"%.5f".format(currentLat)}, ${"%.5f".format(currentLon)}",
+                    color = SecondaryText, style = MaterialTheme.typography.labelMedium)
             }
         }
     }
 }
 
+private data class PanelReading(val title: String, val value: String, val unit: String, val color: Color = PrimaryText)
+
 @Composable
-fun TripCard(
-    title: String,
-    value: String,
-    unit: String,
-    accentColor: Color,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.fillMaxHeight(),
-        color = Color(0xFF090D14),
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, Color(0xFF1E293B))
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(title, color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(value, color = accentColor, fontSize = 26.sp, fontWeight = FontWeight.Black, fontFamily = FontFamily.Monospace)
-            Text(unit, color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+private fun MetricTile(reading: PanelReading) {
+    Surface(color = DarkSurface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(120.dp)) {
+        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Text(reading.title, color = SecondaryText, style = MaterialTheme.typography.labelMedium,
+                maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            Text(reading.value, color = reading.color, fontSize = if (reading.value.length > 6) 20.sp else 28.sp,
+                fontWeight = FontWeight.Medium, maxLines = 1)
+            Text(reading.unit, color = SecondaryText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }
 }
@@ -2080,15 +1231,17 @@ fun MediaRadioPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(10.dp),
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        Text("Media", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
         // Top Frequency Display & Tuner Dial
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
             Column(
                 modifier = Modifier
@@ -2097,15 +1250,15 @@ fun MediaRadioPage(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
-                    color = Color(0xFF1E293B),
+                    color = DarkSurfaceElevated,
                     shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
                     Text(
                         text = "NOTE: Physical FM chip is managed by Head Unit MCU. Tap 'Open Radio App' below for tuner.",
                         color = Color.LightGray,
-                        fontSize = 9.sp,
-                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.SansSerif,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
@@ -2113,17 +1266,17 @@ fun MediaRadioPage(
                 Text(
                     text = "FM STEREO TUNER",
                     color = SecondaryText,
-                    fontSize = 10.sp,
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.SansSerif
                 )
 
                 Text(
                     text = "${"%.1f".format(radioFreq)} MHz",
                     color = ElectricCyan,
                     fontSize = 44.sp,
-                    fontWeight = FontWeight.Black,
-                    fontFamily = FontFamily.Monospace
+                    fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif
                 )
 
                 Text(
@@ -2131,7 +1284,7 @@ fun MediaRadioPage(
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace
+                    fontFamily = FontFamily.SansSerif
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -2148,8 +1301,8 @@ fun MediaRadioPage(
                             onPrev()
                         },
                         modifier = Modifier
-                            .size(42.dp)
-                            .background(Color(0xFF1E293B), CircleShape)
+                            .size(48.dp)
+                            .background(DarkSurfaceElevated, CircleShape)
                     ) {
                         Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = Color.White)
                     }
@@ -2175,8 +1328,8 @@ fun MediaRadioPage(
                             onNext()
                         },
                         modifier = Modifier
-                            .size(42.dp)
-                            .background(Color(0xFF1E293B), CircleShape)
+                            .size(48.dp)
+                            .background(DarkSurfaceElevated, CircleShape)
                     ) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
                     }
@@ -2184,52 +1337,25 @@ fun MediaRadioPage(
             }
         }
 
-        // Station Presets Grid
-        Text("PRESET RADIO STATIONS", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            SPORTAGE_RADIO_PRESETS.take(4).forEach { station ->
-                Surface(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxHeight()
-                        .clickable { onStationChange(station.name, station.freq) },
-                    color = if (Math.abs(radioFreq - station.freq) < 0.1f) ElectricCyan.copy(alpha = 0.2f) else Color(0xFF090D14),
-                    shape = RoundedCornerShape(8.dp),
-                    border = BorderStroke(1.dp, if (Math.abs(radioFreq - station.freq) < 0.1f) ElectricCyan else Color(0xFF1E293B))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.Center,
-                        horizontalAlignment = Alignment.CenterHorizontally
+        Text("Radio presets", color = SecondaryText, style = MaterialTheme.typography.titleMedium)
+        val columns = if (LocalConfiguration.current.screenWidthDp >= 700) 4 else 2
+        SPORTAGE_RADIO_PRESETS.take(4).chunked(columns).forEach { row ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                row.forEach { station ->
+                    val selected = kotlin.math.abs(radioFreq - station.freq) < 0.1f
+                    Surface(
+                        onClick = { onStationChange(station.name, station.freq) },
+                        modifier = Modifier.weight(1f).height(112.dp),
+                        color = if (selected) DarkSurfaceElevated else DarkSurface,
+                        shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text(
-                            text = "${"%.1f".format(station.freq)}",
-                            color = ElectricCyan,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Black,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = station.name,
-                            color = Color.White,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace
-                        )
-                        Text(
-                            text = station.genre,
-                            color = SecondaryText,
-                            fontSize = 8.sp,
-                            fontFamily = FontFamily.Monospace
-                        )
+                        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
+                            Text("%.1f".format(station.freq), color = if (selected) ElectricCyan else PrimaryText,
+                                fontSize = 24.sp, fontWeight = FontWeight.Medium)
+                            Text(station.name, color = PrimaryText, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(station.genre, color = SecondaryText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        }
                     }
                 }
             }
@@ -2240,23 +1366,23 @@ fun MediaRadioPage(
             Button(
                 onClick = onLaunchNativeRadio,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Head Unit Radio App", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                Text("Open Head Unit Radio App", color = Color.White, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
             }
 
             Button(
                 onClick = onLaunchLocalMusic,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                 shape = RoundedCornerShape(8.dp)
             ) {
                 Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Local Music Player", color = Color.White, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                Text("Open Local Music Player", color = Color.White, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
             }
         }
     }
@@ -2294,12 +1420,12 @@ fun SettingsPage(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("LAUNCHER PREFERENCES & SYSTEM SETUP", color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text("Settings", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
         ) {
@@ -2310,23 +1436,24 @@ fun SettingsPage(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
+                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         "Makes Sportage OBD the permanent car dashboard. Booting the head unit or pressing Home returns here.",
                         color = SecondaryText,
-                        fontSize = 10.sp,
-                        fontFamily = FontFamily.Monospace
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.SansSerif
                     )
                 }
 
                 Button(
+                    modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                     onClick = onSetDefaultLauncher,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                     shape = RoundedCornerShape(6.dp)
                 ) {
-                    Text("Set Default Home", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    Text("Set Default Home", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                 }
             }
         }
@@ -2334,9 +1461,9 @@ fun SettingsPage(
         // 2. Units & Telemetry Settings Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
             Column(
                 modifier = Modifier
@@ -2346,43 +1473,45 @@ fun SettingsPage(
             ) {
                 // Speed Unit
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Speed & Distance Units", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Current: $speedUnit", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Speed & Distance Units", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Current: $speedUnit", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
+                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onToggleSpeedUnit,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
 
                 // Installed Apps Drawer
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Installed App Drawer", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Browse and launch all head unit installed apps", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Installed App Drawer", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Browse and launch all head unit installed apps", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
+                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onOpenAppDrawer,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Open Apps", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Open Apps", color = ElectricCyan, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
 
                 // Pause OBD Polling Toggle (Ignition Off / Save Battery)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Pause OBD Polling (Engine Off)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Pause OBD Polling (Engine Off)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
@@ -2394,9 +1523,9 @@ fun SettingsPage(
 
                 // Bench Test / Demo Telemetry
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Bench Test / Demo Simulation", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Bench Test / Demo Simulation", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
@@ -2408,17 +1537,18 @@ fun SettingsPage(
 
                 // Android Bluetooth Settings Shortcut
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Android Bluetooth System Settings", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Android Bluetooth System Settings", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
+                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onOpenBluetoothSettings,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Open Settings", color = Color.LightGray, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                        Text("Open Settings", color = Color.LightGray, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
             }
@@ -2427,7 +1557,7 @@ fun SettingsPage(
         // 3. Warning Thresholds Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.5f))
         ) {
@@ -2437,8 +1567,8 @@ fun SettingsPage(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
 
                 ThresholdStepper(
                     label = "Coolant Overheat Limit",
@@ -2466,9 +1596,9 @@ fun SettingsPage(
                 )
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Audible Warning Beeps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Play a tone when a threshold is crossed", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Audible Warning Beeps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Play a tone when a threshold is crossed", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     Switch(
                         checked = thresholds.audibleAlerts,
@@ -2485,7 +1615,7 @@ fun SettingsPage(
         // 4. CSV Data Logging Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
             border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
         ) {
@@ -2496,9 +1626,9 @@ fun SettingsPage(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("CSV TELEMETRY LOGGING", color = TealAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("CSV TELEMETRY LOGGING", color = TealAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
@@ -2511,9 +1641,9 @@ fun SettingsPage(
                 }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("Auto-Start With Connection", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Begin logging every time the adapter connects", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("Auto-Start With Connection", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Begin logging every time the adapter connects", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     var csvAuto by remember { mutableStateOf(viewModel?.csvAutostart() ?: false) }
                     Switch(
@@ -2527,6 +1657,7 @@ fun SettingsPage(
                 }
 
                 Button(
+                    modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                     onClick = {
                         val file = viewModel?.csvLogFile()
                         if (file != null && file.exists()) {
@@ -2551,12 +1682,12 @@ fun SettingsPage(
                             Toast.makeText(context, "No active log file. Start logging first.", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                     shape = RoundedCornerShape(6.dp)
                 ) {
                     Icon(Icons.Default.Share, contentDescription = null, tint = TealAccent, modifier = Modifier.size(13.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share Current Log", color = TealAccent, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    Text("Share Current Log", color = TealAccent, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                 }
             }
         }
@@ -2564,9 +1695,9 @@ fun SettingsPage(
         // 5. Night Dimming Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = Color(0xFF090D14),
+            color = DarkBackground,
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, Color(0xFF8B5CF6).copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier
@@ -2575,27 +1706,27 @@ fun SettingsPage(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column {
-                        Text("AUTO NIGHT DIMMING", color = Color(0xFF8B5CF6), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
-                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
+                        Text("AUTO NIGHT DIMMING", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     Switch(
                         checked = autoNightDim,
                         onCheckedChange = onSetAutoNightDim,
-                        colors = SwitchDefaults.colors(checkedThumbColor = Color(0xFF8B5CF6), checkedTrackColor = Color(0xFF8B5CF6).copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan, checkedTrackColor = ElectricCyan.copy(alpha = 0.4f))
                     )
                 }
 
                 if (autoNightDim) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("BRIGHTNESS", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text("BRIGHTNESS", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                         Slider(
                             value = 1f - nightDimLevel,
                             onValueChange = { onSetNightDimLevel(1f - it) },
                             modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = Color(0xFF8B5CF6), activeTrackColor = Color(0xFF8B5CF6).copy(alpha = 0.5f))
+                            colors = SliderDefaults.colors(thumbColor = ElectricCyan, activeTrackColor = ElectricCyan.copy(alpha = 0.5f))
                         )
-                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                 }
             }
@@ -2611,66 +1742,25 @@ private fun ThresholdStepper(
     onPlus: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp), color = PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(
                 onClick = onMinus,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text("-", color = AmberWarning, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text("-", color = AmberWarning, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
-            Text(value, color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+            Text(value, color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Button(
                 onClick = onPlus,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text("+", color = AmberWarning, fontWeight = FontWeight.Black, fontSize = 14.sp)
+                Text("+", color = AmberWarning, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
-        }
-    }
-}
-
-// =========================================================================
-// HELPER: DOCK BUTTON COMPONENT
-// =========================================================================
-@Composable
-fun DockButton(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    isSelected: Boolean,
-    accentColor: Color,
-    onClick: () -> Unit
-) {
-    Surface(
-        modifier = Modifier
-            .size(46.dp)
-            .clickable { onClick() },
-        color = if (isSelected) accentColor.copy(alpha = 0.2f) else Color.Transparent,
-        shape = RoundedCornerShape(10.dp),
-        border = BorderStroke(1.dp, if (isSelected) accentColor else Color.Transparent)
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = label,
-                tint = if (isSelected) accentColor else Color.Gray,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = label,
-                color = if (isSelected) accentColor else Color.Gray,
-                fontSize = 8.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace
-            )
         }
     }
 }

@@ -400,7 +400,7 @@ fun BluetoothDialog(
                 .fillMaxHeight(0.88f),
             color = Color(0xFF0A0F17),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
             Column(
                 modifier = Modifier
@@ -436,7 +436,7 @@ fun BluetoothDialog(
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = when (connectionState) {
@@ -451,8 +451,8 @@ fun BluetoothDialog(
                                     is ConnectionState.Error -> CriticalRed
                                     else -> SecondaryText
                                 },
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
                         }
                     }
@@ -461,7 +461,7 @@ fun BluetoothDialog(
                         onClick = onClose,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color(0xFF1E293B), RoundedCornerShape(8.dp))
+                            .background(DarkSurfaceElevated, RoundedCornerShape(8.dp))
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = Color.LightGray, modifier = Modifier.size(16.dp))
                     }
@@ -493,10 +493,10 @@ fun BluetoothDialog(
                         ) {
                             Text(
                                 text = tabTitle,
-                                color = if (selectedTab == index) Color(0xFF05070B) else Color.Gray,
+                                color = if (selectedTab == index) Color(0xFF05070B) else SecondaryText,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
+                                fontFamily = FontFamily.SansSerif,
                                 modifier = Modifier
                                     .padding(vertical = 6.dp)
                                     .wrapContentWidth(Alignment.CenterHorizontally)
@@ -532,13 +532,13 @@ fun BluetoothDialog(
                                             color = CriticalRed,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontFamily = FontFamily.SansSerif
                                         )
                                         Text(
                                             text = (connectionState as ConnectionState.Error).message + " · Select an adapter below to pair and connect.",
                                             color = Color.LightGray,
-                                            fontSize = 10.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontSize = 12.sp,
+                                            fontFamily = FontFamily.SansSerif
                                         )
                                     }
                                     Button(
@@ -547,7 +547,7 @@ fun BluetoothDialog(
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
                                         shape = RoundedCornerShape(6.dp)
                                     ) {
-                                        Text("Scan", fontSize = 10.sp, color = Color.White, fontFamily = FontFamily.Monospace)
+                                        Text("Scan", fontSize = 12.sp, color = DarkBackground, fontFamily = FontFamily.SansSerif)
                                     }
                                 }
                             }
@@ -561,38 +561,38 @@ fun BluetoothDialog(
                             Text(
                                 text = "DEVICES: ${pairedDevices.size} PAIRED · ${discoveredDevices.size} DISCOVERED",
                                 color = SecondaryText,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
 
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Button(
                                     onClick = { startNearbyScan() },
                                     enabled = !isScanningNearby && connectionState !is ConnectionState.Connecting && pendingPairDevice == null,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     if (isScanningNearby) {
                                         CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(12.dp), strokeWidth = 2.dp)
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Scanning...", fontSize = 10.sp, color = ElectricCyan, fontFamily = FontFamily.Monospace)
+                                        Text("Scanning...", fontSize = 12.sp, color = ElectricCyan, fontFamily = FontFamily.SansSerif)
                                     } else {
                                         Icon(Icons.Default.BluetoothSearching, contentDescription = null, modifier = Modifier.size(12.dp), tint = ElectricCyan)
                                         Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Scan Nearby", fontSize = 10.sp, color = ElectricCyan, fontFamily = FontFamily.Monospace)
+                                        Text("Scan Nearby", fontSize = 12.sp, color = ElectricCyan, fontFamily = FontFamily.SansSerif)
                                     }
                                 }
 
                                 Button(
                                     onClick = onRefreshDevices,
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.LightGray)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Refresh", fontSize = 10.sp, color = Color.LightGray, fontFamily = FontFamily.Monospace)
+                                    Text("Refresh", fontSize = 12.sp, color = Color.LightGray, fontFamily = FontFamily.SansSerif)
                                 }
 
                                 Button(
@@ -603,13 +603,13 @@ fun BluetoothDialog(
                                             })
                                         } catch (_: Exception) {}
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1E293B)),
+                                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Icon(Icons.Default.Settings, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color.White)
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("System Settings", fontSize = 10.sp, color = Color.White, fontFamily = FontFamily.Monospace)
+                                    Text("System Settings", fontSize = 12.sp, color = Color.White, fontFamily = FontFamily.SansSerif)
                                 }
                             }
                         }
@@ -628,9 +628,9 @@ fun BluetoothDialog(
                                     Text(
                                         text = "PAIRED BLUETOOTH ADAPTERS",
                                         color = SecondaryText,
-                                        fontSize = 10.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = FontFamily.SansSerif,
                                         modifier = Modifier.padding(vertical = 4.dp)
                                     )
                                 }
@@ -655,11 +655,11 @@ fun BluetoothDialog(
                                     val connectButtonLabel = rowState.label
 
                                     Surface(
-                                        color = if (isCurrentConnected) Color(0xFF0E2822) else Color(0xFF0E1520),
+                                        color = if (isCurrentConnected) Color(0xFF0E2822) else DarkSurface,
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(
                                             1.dp,
-                                            if (isCurrentConnected) TealAccent else if (isObd) ElectricCyan.copy(alpha = 0.5f) else Color(0xFF1E293B)
+                                            if (isCurrentConnected) TealAccent else if (isObd) ElectricCyan.copy(alpha = 0.5f) else DarkSurfaceElevated
                                         )
                                     ) {
                                         Row(
@@ -675,13 +675,13 @@ fun BluetoothDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
                                                 Surface(
-                                                    color = if (isCurrentConnected) TealAccent.copy(alpha = 0.2f) else Color(0xFF1E293B),
+                                                    color = if (isCurrentConnected) TealAccent.copy(alpha = 0.2f) else DarkSurfaceElevated,
                                                     shape = RoundedCornerShape(8.dp)
                                                 ) {
                                                     Icon(
                                                         Icons.Default.DirectionsCar,
                                                         contentDescription = null,
-                                                        tint = if (isCurrentConnected) TealAccent else if (isObd) ElectricCyan else Color.Gray,
+                                                        tint = if (isCurrentConnected) TealAccent else if (isObd) ElectricCyan else SecondaryText,
                                                         modifier = Modifier
                                                             .padding(8.dp)
                                                             .size(20.dp)
@@ -698,15 +698,15 @@ fun BluetoothDialog(
                                                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                                             modifier = Modifier.weight(1f, fill = false),
                                                             fontWeight = FontWeight.Bold,
-                                                            fontFamily = FontFamily.Monospace
+                                                            fontFamily = FontFamily.SansSerif
                                                         )
                                                         if (isObd) {
                                                             Text(
                                                                 text = "ELM327 MATCH",
                                                                 color = ElectricCyan,
-                                                                fontSize = 9.sp,
+                                                                fontSize = 11.sp,
                                                                 fontWeight = FontWeight.Bold,
-                                                                fontFamily = FontFamily.Monospace,
+                                                                fontFamily = FontFamily.SansSerif,
                                                                 modifier = Modifier
                                                                     .background(ElectricCyan.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                                                                     .padding(horizontal = 4.dp, vertical = 2.dp)
@@ -716,8 +716,8 @@ fun BluetoothDialog(
                                                     Text(
                                                         text = deviceAddress?.let { "MAC: $it" } ?: "MAC unavailable",
                                                         color = SecondaryText,
-                                                        fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontSize = 12.sp,
+                                                        fontFamily = FontFamily.SansSerif
                                                     )
                                                 }
                                             }
@@ -729,7 +729,7 @@ fun BluetoothDialog(
                                                     shape = RoundedCornerShape(6.dp),
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                                                 ) {
-                                                    Text("Disconnect", color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                    Text("Disconnect", color = DarkBackground, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                                 }
                                             } else {
                                                 Button(
@@ -738,7 +738,7 @@ fun BluetoothDialog(
                                                     onClick = { runCatching { connectSelected(device, device.type == BluetoothDevice.DEVICE_TYPE_LE) } },
                                                     enabled = canConnect && rowState.enabled && pendingPairDevice == null,
                                                     colors = ButtonDefaults.buttonColors(
-                                                        containerColor = if (isObd) ElectricCyan else Color(0xFF1E293B)
+                                                        containerColor = if (isObd) ElectricCyan else DarkSurfaceElevated
                                                     ),
                                                     shape = RoundedCornerShape(6.dp),
                                                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
@@ -748,7 +748,7 @@ fun BluetoothDialog(
                                                         color = if (isObd) Color(0xFF05070B) else Color.White,
                                                         fontWeight = FontWeight.Bold,
                                                         fontSize = 11.sp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontFamily = FontFamily.SansSerif
                                                     )
                                                 }
                                             }
@@ -764,9 +764,9 @@ fun BluetoothDialog(
                                     Text(
                                         text = "NEARBY DISCOVERED ADAPTERS (TAP TO PAIR & CONNECT)",
                                         color = ElectricCyan,
-                                        fontSize = 10.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = FontFamily.SansSerif,
                                         modifier = Modifier.padding(vertical = 4.dp)
                                     )
                                 }
@@ -779,9 +779,9 @@ fun BluetoothDialog(
                                             devName.lowercase().contains("carista")
 
                                     Surface(
-                                        color = Color(0xFF101826),
+                                        color = DarkSurface,
                                         shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, if (isObd) ElectricCyan.copy(alpha = 0.6f) else Color(0xFF1E293B))
+                                        border = BorderStroke(1.dp, if (isObd) ElectricCyan.copy(alpha = 0.6f) else DarkSurfaceElevated)
                                     ) {
                                         Row(
                                             modifier = Modifier
@@ -795,7 +795,7 @@ fun BluetoothDialog(
                                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                                             ) {
                                                 Surface(
-                                                    color = Color(0xFF1E293B),
+                                                    color = DarkSurfaceElevated,
                                                     shape = RoundedCornerShape(8.dp)
                                                 ) {
                                                     Icon(
@@ -815,14 +815,14 @@ fun BluetoothDialog(
                                                             color = Color.White,
                                                             fontSize = 13.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontFamily = FontFamily.Monospace
+                                                            fontFamily = FontFamily.SansSerif
                                                         )
                                                         Text(
                                                             text = "NEARBY",
                                                             color = AmberWarning,
-                                                            fontSize = 9.sp,
+                                                            fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold,
-                                                            fontFamily = FontFamily.Monospace,
+                                                            fontFamily = FontFamily.SansSerif,
                                                             modifier = Modifier
                                                                 .background(AmberWarning.copy(alpha = 0.15f), RoundedCornerShape(4.dp))
                                                                 .padding(horizontal = 4.dp, vertical = 2.dp)
@@ -831,8 +831,8 @@ fun BluetoothDialog(
                                                     Text(
                                                         text = BluetoothDeviceInfo.address(context, device)?.let { "MAC: $it" } ?: "MAC unavailable",
                                                         color = SecondaryText,
-                                                        fontSize = 10.sp,
-                                                        fontFamily = FontFamily.Monospace
+                                                        fontSize = 12.sp,
+                                                        fontFamily = FontFamily.SansSerif
                                                     )
                                                 }
                                             }
@@ -875,7 +875,7 @@ fun BluetoothDialog(
                                                     color = Color(0xFF05070B),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = FontFamily.SansSerif
                                                 )
                                             }
                                         }
@@ -889,8 +889,8 @@ fun BluetoothDialog(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
-                                            .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                                            .background(DarkSurface, RoundedCornerShape(10.dp))
+                                            .border(1.dp, DarkSurfaceElevated, RoundedCornerShape(10.dp))
                                             .padding(24.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
@@ -898,21 +898,21 @@ fun BluetoothDialog(
                                             if (isScanningNearby) {
                                                 CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(36.dp))
                                                 Spacer(modifier = Modifier.height(10.dp))
-                                                Text("Scanning for Nearby Bluetooth Adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
-                                                Text("Ensure adapter is plugged into OBD2 port with vehicle ignition ON.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                Text("Scanning for Nearby Bluetooth Adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
+                                                Text("Ensure adapter is plugged into OBD2 port with vehicle ignition ON.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                             } else {
-                                                Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                                                Icon(Icons.Default.BluetoothSearching, contentDescription = null, tint = SecondaryText, modifier = Modifier.size(40.dp))
                                                 Spacer(modifier = Modifier.height(8.dp))
-                                                Text("No OBD2 Adapters Detected", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                                Text("No OBD2 Adapters Detected", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
                                                 Spacer(modifier = Modifier.height(4.dp))
-                                                Text("Plug ELM327 into the vehicle's OBD2 port and tap Scan Nearby.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                Text("Plug ELM327 into the vehicle's OBD2 port and tap Scan Nearby.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                                 Spacer(modifier = Modifier.height(12.dp))
                                                 Button(
                                                     onClick = { startNearbyScan() },
                                                     colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
                                                     shape = RoundedCornerShape(8.dp)
                                                 ) {
-                                                    Text("Scan for Adapters", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                                    Text("Scan for Adapters", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                                 }
                                             }
                                         }
@@ -926,13 +926,13 @@ fun BluetoothDialog(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF0E1520), RoundedCornerShape(8.dp))
+                                .background(DarkSurface, RoundedCornerShape(8.dp))
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Bench / Demo Simulation:", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                Text("Bench / Demo Simulation:", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                 Switch(
                                     checked = isDemoMode,
                                     onCheckedChange = onToggleDemoMode,
@@ -944,9 +944,9 @@ fun BluetoothDialog(
                                 Text(
                                     text = "ISO 15765-4 CAN 11/500K · 10Hz POLLING",
                                     color = TealAccent,
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = FontFamily.SansSerif
                                 )
                             }
                         }
@@ -959,8 +959,8 @@ fun BluetoothDialog(
                         Text(
                             text = "BLUETOOTH LOW ENERGY SCAN (VGATE / iCAR / ELM327 BLE)",
                             color = SecondaryText,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -977,10 +977,10 @@ fun BluetoothDialog(
                             ) {
                                 Text(
                                     text = if (isScanningBle) "Stop Scan" else "Scan BLE Adapters",
-                                    fontSize = 10.sp,
+                                    fontSize = 12.sp,
                                     color = if (isScanningBle) Color.White else Color(0xFF05070B),
                                     fontWeight = FontWeight.Bold,
-                                    fontFamily = FontFamily.Monospace
+                                    fontFamily = FontFamily.SansSerif
                                 )
                             }
                         }
@@ -991,8 +991,8 @@ fun BluetoothDialog(
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
-                                    .border(1.dp, Color(0xFF1E293B), RoundedCornerShape(10.dp))
+                                    .background(DarkSurface, RoundedCornerShape(10.dp))
+                                    .border(1.dp, DarkSurfaceElevated, RoundedCornerShape(10.dp))
                                     .padding(24.dp),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -1000,13 +1000,13 @@ fun BluetoothDialog(
                                     if (isScanningBle) {
                                         CircularProgressIndicator(color = ElectricCyan, modifier = Modifier.size(36.dp))
                                         Spacer(modifier = Modifier.height(10.dp))
-                                        Text("Scanning for BLE ELM327 adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                        Text("Scanning for BLE ELM327 adapters...", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
                                     } else {
-                                        Icon(Icons.Default.Bluetooth, contentDescription = null, tint = Color.Gray, modifier = Modifier.size(40.dp))
+                                        Icon(Icons.Default.Bluetooth, contentDescription = null, tint = SecondaryText, modifier = Modifier.size(40.dp))
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Text("No BLE Adapters Found Yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.Monospace)
+                                        Text("No BLE Adapters Found Yet", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 13.sp, fontFamily = FontFamily.SansSerif)
                                         Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Plug the adapter in, then tap Scan BLE Adapters. BLE adapters do not need pairing.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
+                                        Text("Plug the adapter in, then tap Scan BLE Adapters. BLE adapters do not need pairing.", color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                     }
                                 }
                             }
@@ -1015,7 +1015,7 @@ fun BluetoothDialog(
                                 items(bleDevices) { device ->
                                     val bleRow = connectionState.rowState(BluetoothDeviceInfo.address(context, device))
                                     Surface(
-                                        color = Color(0xFF101826),
+                                        color = DarkSurface,
                                         shape = RoundedCornerShape(10.dp),
                                         border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.6f))
                                     ) {
@@ -1032,7 +1032,7 @@ fun BluetoothDialog(
                                                     color = Color.White,
                                                     fontSize = 13.sp,
                                                     fontWeight = FontWeight.Bold,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = FontFamily.SansSerif
                                                 )
                                                 Text(
                                                     // Raw device.address throws SecurityException on
@@ -1040,8 +1040,8 @@ fun BluetoothDialog(
                                                     // guarded accessor never throws.
                                                     text = "MAC: ${BluetoothDeviceInfo.address(context, device) ?: "unavailable"}",
                                                     color = SecondaryText,
-                                                    fontSize = 10.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontSize = 12.sp,
+                                                    fontFamily = FontFamily.SansSerif
                                                 )
                                             }
                                             Button(
@@ -1056,7 +1056,7 @@ fun BluetoothDialog(
                                                     color = Color(0xFF05070B),
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,
-                                                    fontFamily = FontFamily.Monospace
+                                                    fontFamily = FontFamily.SansSerif
                                                 )
                                             }
                                         }
@@ -1073,8 +1073,8 @@ fun BluetoothDialog(
                         Text(
                             text = "LIVE ELM327 AT / OBD COMMAND CONSOLE",
                             color = SecondaryText,
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.SansSerif
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
@@ -1086,15 +1086,15 @@ fun BluetoothDialog(
                             listOf("ATZ", "ATRV", "0100", "010C", "010D", "03").forEach { cmd ->
                                 Surface(
                                     modifier = Modifier.clickable { onSendCommand(cmd) },
-                                    color = Color(0xFF1E293B),
+                                    color = DarkSurfaceElevated,
                                     shape = RoundedCornerShape(4.dp)
                                 ) {
                                     Text(
                                         text = cmd,
                                         color = ElectricCyan,
-                                        fontSize = 10.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
-                                        fontFamily = FontFamily.Monospace,
+                                        fontFamily = FontFamily.SansSerif,
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                     )
                                 }
@@ -1110,7 +1110,7 @@ fun BluetoothDialog(
                                 .weight(1f),
                             color = Color(0xFF05070B),
                             shape = RoundedCornerShape(8.dp),
-                            border = BorderStroke(1.dp, Color(0xFF1E293B))
+                            border = BorderStroke(1.dp, DarkSurfaceElevated)
                         ) {
                             LazyColumn(
                                 modifier = Modifier
@@ -1122,8 +1122,8 @@ fun BluetoothDialog(
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                         Text(
                                             text = log.time,
-                                            color = Color.DarkGray,
-                                            fontSize = 10.sp,
+                                            color = SecondaryText,
+                                            fontSize = 12.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
@@ -1132,16 +1132,16 @@ fun BluetoothDialog(
                                                 "TX" -> ElectricCyan
                                                 "RX" -> TealAccent
                                                 "ERR" -> CriticalRed
-                                                else -> Color.Gray
+                                                else -> SecondaryText
                                             },
-                                            fontSize = 10.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold,
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Text(
                                             text = log.text,
                                             color = Color.LightGray,
-                                            fontSize = 10.sp,
+                                            fontSize = 12.sp,
                                             fontFamily = FontFamily.Monospace
                                         )
                                     }
@@ -1161,11 +1161,11 @@ fun BluetoothDialog(
                                 value = commandInput,
                                 onValueChange = { commandInput = it.uppercase() },
                                 modifier = Modifier.weight(1f),
-                                placeholder = { Text("Send OBD command (e.g. 010C or ATRV)...", fontSize = 11.sp, color = Color.Gray, fontFamily = FontFamily.Monospace) },
+                                placeholder = { Text("Send OBD command (e.g. 010C or ATRV)...", fontSize = 11.sp, color = SecondaryText, fontFamily = FontFamily.Monospace) },
                                 singleLine = true,
                                 colors = OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = ElectricCyan,
-                                    unfocusedBorderColor = Color(0xFF1E293B),
+                                    unfocusedBorderColor = DarkSurfaceElevated,
                                     focusedTextColor = Color.White,
                                     unfocusedTextColor = Color.LightGray
                                 )
@@ -1193,7 +1193,7 @@ fun BluetoothDialog(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
-                            .background(Color(0xFF0E1520), RoundedCornerShape(10.dp))
+                            .background(DarkSurface, RoundedCornerShape(10.dp))
                             .padding(14.dp)
                     ) {
                         Text("KIA SPORTAGE OBD-II CONNECTION GUIDE", color = ElectricCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
@@ -1207,7 +1207,7 @@ fun BluetoothDialog(
                             "5. Supported Protocol" to "Kia Sportage MPI AWD communicates over ISO 15765-4 CAN (11-bit ID, 500 kbaud). The launcher automatically initializes this protocol."
                         ).forEach { (title, desc) ->
                             Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 11.sp, fontFamily = FontFamily.Monospace)
-                            Text(desc, color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            Text(desc, color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.Monospace)
                             Spacer(modifier = Modifier.height(6.dp))
                         }
                     }

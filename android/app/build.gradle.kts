@@ -51,8 +51,8 @@ android {
         applicationId = "com.sportage.obd"
         minSdk = 28 // Android 9+ as specified in PRD Section 1.1
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.0.4"
+        versionCode = 6
+        versionName = "1.0.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -128,4 +128,7 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation(platform(libs.androidx.compose.bom))
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }

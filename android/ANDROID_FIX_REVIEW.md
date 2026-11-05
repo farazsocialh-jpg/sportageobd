@@ -1,6 +1,8 @@
 # Android Bluetooth and map repair
 
-Build: `2026-11-05.h`, version `1.0.4`, version code `5`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
+Build: `2026-11-05.i`, version `1.0.5`, version code `6`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
+
+The latest revision is an Android visual refinement with a clearer dashboard, responsive gauges/trip layouts, accessible map controls, and better-contained settings/diagnostics actions. See [visual refresh and free-map research](VISUAL_REFRESH_AND_MAP_OPTIONS.md) and [Android design conventions](DESIGN.md). The working free offline map and Android navigation-app picker remain in place; MapLibre/OpenFreeMap is researched and recommended, not silently integrated.
 
 ## Latest map presentation revision
 
@@ -53,7 +55,7 @@ cd android
 bash ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-The test suite contains 62 tests, including six native-map/data/language checks, an Android native-graphics rendering test of the new street style, and three external-app launcher tests. The launcher tests cover the implicit geo intent without a vendor restriction or forced chooser, unavailable navigation handlers not opening a browser/store, and invalid fixes not launching. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
+The test suite contains 67 tests, including six native-map/data/language checks, an Android native-graphics rendering test of the street style, three external-app launcher tests, and five Compose layout/interaction tests. The launcher tests cover the implicit geo intent without a vendor restriction or forced chooser, unavailable navigation handlers not opening a browser/store, and invalid fixes not launching. Compose checks cover portrait, head-unit landscape, short landscape, 1.3× font scale, the More menu, Trip/Setup/Gauges/Diagnostics/Media navigation, settings label/control separation, scan callbacks, and cancelling destructive-code-clear confirmation without clearing. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
 
 The native-map tests validate the bundled file's length, binary header and SHA-256; parse it with the real map reader; confirm coverage at the user's screenshot coordinates and central Doha; confirm a London fix is outside the offline area; and read nonempty street geometry at the user's position. Invalid location fixes are rejected. Bluetooth regressions remain unchanged.
 
@@ -65,7 +67,7 @@ The unaccelerated local emulator did not complete a stable application smoke tes
 
 The supplied APK is a debug/test build using the same local debug signing key as builds e/f, so it can update those builds without uninstalling or deleting app data. It has a different certificate from the old repository d APK; preserve data before considering removal of that old installation. A maintainer with the original key can instead rebuild for an in-place update of d.
 
-- **Version:** Confirm build `2026-11-05.h` after installation.
+- **Version:** Confirm build `2026-11-05.i` after installation.
 - **Twelve-device list:** Tap only the actual ELM/OBD adapter. Exactly that row should show “Connecting...”; other rows should show disabled “Connect” actions.
 - **Cancellation:** Cancel mid-connect, then select another device. No old attempt should reconnect later.
 - **Invalid selection:** A laptop/stereo or unavailable adapter should end in a bounded, visible failure and permit a new selection.

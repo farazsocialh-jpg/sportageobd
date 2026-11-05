@@ -61,7 +61,7 @@ class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
         offline = TileRendererLayer(vectorCache, data, map.model.mapViewPosition, factory)
         offline.setXmlRenderTheme(AssetsRenderTheme(context.assets, "", "maps/streets.xml"))
         val source = OpenStreetMapMapnik(arrayOf("tile.openstreetmap.org"), 443).apply {
-            setUserAgent("SportageOBD/1.0.4 (Android native tracker; github.com/farazsocialh-jpg/sportageobd)")
+            setUserAgent("SportageOBD/1.0.5 (Android native tracker; github.com/farazsocialh-jpg/sportageobd)")
         }
         online = TileDownloadLayer(onlineCache, map.model.mapViewPosition, source, factory)
         online.cacheTimeToLive = 7L * 24 * 60 * 60 * 1000

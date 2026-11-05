@@ -35,8 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.sportage.obd.ui.theme.ElectricCyan
-import com.sportage.obd.ui.theme.SecondaryText
+import com.sportage.obd.ui.theme.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -94,7 +93,7 @@ fun AppDrawerDialog(
                 .fillMaxHeight(if (isLandscape) 0.88f else 0.92f),
             color = Color(0xFF090E17),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
             Column(
                 modifier = Modifier
@@ -130,13 +129,13 @@ fun AppDrawerDialog(
                                 color = Color.White,
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
+                                fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = "${installedApps.size} applications installed on head unit / device",
                                 color = SecondaryText,
-                                fontSize = 10.sp,
-                                fontFamily = FontFamily.Monospace
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
                             )
                         }
                     }
@@ -145,7 +144,7 @@ fun AppDrawerDialog(
                         onClick = onClose,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(Color(0xFF1E293B), RoundedCornerShape(8.dp))
+                            .background(DarkSurfaceElevated, RoundedCornerShape(8.dp))
                     ) {
                         Icon(
                             Icons.Default.Close,
@@ -166,8 +165,8 @@ fun AppDrawerDialog(
                         Text(
                             "Search apps (e.g. Maps, Spotify, Radio)...",
                             fontSize = 12.sp,
-                            color = Color.Gray,
-                            fontFamily = FontFamily.Monospace
+                            color = SecondaryText,
+                            fontFamily = FontFamily.SansSerif
                         )
                     },
                     leadingIcon = {
@@ -195,7 +194,7 @@ fun AppDrawerDialog(
                         focusedContainerColor = Color(0xFF06090F),
                         unfocusedContainerColor = Color(0xFF06090F),
                         focusedIndicatorColor = ElectricCyan,
-                        unfocusedIndicatorColor = Color(0xFF1E293B),
+                        unfocusedIndicatorColor = DarkSurfaceElevated,
                         focusedTextColor = Color.White,
                         unfocusedTextColor = Color.LightGray
                     ),
@@ -226,8 +225,8 @@ fun AppDrawerDialog(
                     ) {
                         Text(
                             text = "No applications match '$searchQuery'",
-                            color = Color.Gray,
-                            fontFamily = FontFamily.Monospace,
+                            color = SecondaryText,
+                            fontFamily = FontFamily.SansSerif,
                             fontSize = 12.sp
                         )
                     }
@@ -277,7 +276,7 @@ private fun AppGridItem(
             modifier = Modifier.size(54.dp),
             color = Color(0xFF141C2B),
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, Color(0xFF1E293B))
+            border = BorderStroke(1.dp, DarkSurfaceElevated)
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -307,7 +306,7 @@ private fun AppGridItem(
             color = Color.White,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
-            fontFamily = FontFamily.Monospace,
+            fontFamily = FontFamily.SansSerif,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center,
