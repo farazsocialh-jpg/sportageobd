@@ -45,17 +45,27 @@ class NativeMapRenderTest {
                 val colors = HashSet<Int>()
                 for (y in 20 until 140) for (x in 20 until 140) colors.add(bitmap.getPixel(x, y))
                 distinct = colors.size
-                if (distinct >= 20) break
+                if (distinct >= 20) {
+                    // Let neighboring tile jobs finish before recording the evidence image.
+                    Thread.sleep(750)
+                    ShadowLooper.idleMainLooper()
+                    break
+                }
                 Thread.sleep(100)
             } while (System.nanoTime() < deadline)
             val output = File("build/reports/native-map-android-canvas.png")
             output.parentFile?.mkdirs()
-            output.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            val snapshot = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(snapshot))
+            output.outputStream().use { snapshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            snapshot.recycle()
             assertTrue("Native map must draw street detail, not just a marker/blank background; got $distinct colors", distinct >= 20)
-            assertTrue("Recenter must stay in offline coverage", view.updateFix(25.2854, 51.531, 1))
+            // The token does NOT change: a new GPS fix alone must move the map.
+            assertTrue("Live GPS following must stay in offline coverage", view.updateFix(25.2854, 51.531, 0))
             val map = view.getChildAt(0) as org.mapsforge.map.android.view.MapView
             assertEquals(25.2854, map.model.mapViewPosition.center.latitude, 0.000001)
             assertEquals(51.531, map.model.mapViewPosition.center.longitude, 0.000001)
+            assertTrue("Manual Follow GPS remains available", view.updateFix(25.2854, 51.531, 1))
         } finally {
             view.release()
             bitmap.recycle()

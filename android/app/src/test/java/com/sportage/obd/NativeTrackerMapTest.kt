@@ -1,6 +1,7 @@
 package com.sportage.obd
 
 import com.sportage.obd.map.TrackerMapPolicy
+import com.sportage.obd.map.EnglishMapFile
 import org.junit.Assert.*
 import org.junit.Test
 import org.mapsforge.core.model.LatLong
@@ -53,5 +54,27 @@ class NativeTrackerMapTest {
         assertFalse(TrackerMapPolicy.valid(25.1, Double.POSITIVE_INFINITY))
         assertFalse(TrackerMapPolicy.valid(91.0, 51.5))
         assertFalse(TrackerMapPolicy.valid(25.1, 181.0))
+    }
+
+    @Test fun EnglishLabelsDoNotFallBackToArabicOrLeakLanguageMarkers() {
+        assertEquals("Al Mashaf Street", TrackerMapPolicy.englishLabel("Al Mashaf Street"))
+        assertEquals("Ezdan Village 9", TrackerMapPolicy.englishLabel("en\u0008Ezdan Village 9"))
+        assertEquals("", TrackerMapPolicy.englishLabel("\u0634\u0627\u0631\u0639"))
+        assertEquals("", TrackerMapPolicy.englishLabel(null))
+    }
+
+    @Test fun bundledStreetNamesAreReadInEnglish() {
+        val map = EnglishMapFile(asset())
+        try {
+            assertTrue(map.mapFileInfo.languagesPreference.split(",").contains("en"))
+            val zoom: Byte = 16
+            val x = org.mapsforge.core.util.MercatorProjection.longitudeToTileX(51.567, zoom)
+            val y = org.mapsforge.core.util.MercatorProjection.latitudeToTileY(25.1712, zoom)
+            val names = map.readMapData(org.mapsforge.core.model.Tile(x, y, zoom, 256))
+                .ways.flatMap { it.tags }.filter { it.key == "name" }.map { it.value }
+            assertTrue(names.contains("Al Mashaf Street"))
+            assertTrue(names.contains("Al Hurriya Street"))
+            assertTrue(names.none { it.any { char -> char in '\u0600'..'\u06FF' || char == '\u0008' } })
+        } finally { map.close() }
     }
 }

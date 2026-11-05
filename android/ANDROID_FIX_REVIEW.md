@@ -21,6 +21,7 @@ The user's physical-device screenshot still showed only the old position-marker 
 - **Bundled Qatar streets:** The APK includes a 25,476,984-byte vector street map of Qatar, dated 22 October 2026. It is copied to private app storage on the IO dispatcher, then rendered locally. Viewing Qatar streets does not require internet, browser support, a tile-server response, an account, or an API key.
 - **World coverage:** Outside the bundled map's bounding box, the native renderer switches to standard OpenStreetMap tiles over HTTPS. This worldwide mode requires internet. Its cache is separate from the offline vector cache and uses an identifying user agent.
 - **GPS:** The marker follows valid native location fixes without reloading the map. Follow GPS recenters within the app rather than launching an external navigation app. Last-known location uses the newest permitted provider; absent/rejected providers do not block the other provider.
+- **English:** The Qatar dataset supports English and the reader now explicitly selects it. Language-marker prefixes are removed. Features without an English/Latin-script name are left unlabeled rather than displaying Arabic or fabricating a translation. The English cache is separate from any previously rendered Arabic tiles. Worldwide online raster labels remain controlled by their provider.
 - **Lifecycle:** A native MapView occupies an explicit match-parent container. Render/cache/download resources are released when disposed. The asset is copied atomically, and a real initialization error is shown instead of a fake map.
 - **Navigation cleanup:** The map's external-launch buttons are replaced by Follow GPS. Old deep-link/package routing and navigation-specific manifest queries are removed. Optional place searches use the OpenStreetMap website, not an external navigation app.
 - **Attribution:** Visible OpenStreetMap credit links to the copyright/license information. The bundled dataset and renderer notices are in the APK assets.
@@ -46,11 +47,11 @@ cd android
 bash ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-The test suite contains 57 tests, including four native-map/data checks and an Android native-graphics rendering test. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
+The test suite contains 59 tests, including six native-map/data/language checks and an Android native-graphics rendering test. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
 
 The native-map tests validate the bundled file's length, binary header and SHA-256; parse it with the real map reader; confirm coverage at the user's screenshot coordinates and central Doha; confirm a London fix is outside the offline area; and read nonempty street geometry at the user's position. Invalid location fixes are rejected. Bluetooth regressions remain unchanged.
 
-The Robolectric API 29 native-graphics test instantiates the real native MapView, uses the screenshot's GPS coordinates, and waits for street-detail pixels away from the center marker and controls. It checks recentering, releases the renderer, and writes `app/build/reports/native-map-android-canvas.png`. Visual inspection of that image confirms streets, buildings, Arabic labels, and the GPS marker from local Qatar data, without the old browser/fake-marker stack.
+The Robolectric API 29 native-graphics test instantiates the real native MapView, uses the screenshot's GPS coordinates, and waits for street-detail pixels away from the center marker and controls. It checks that the actual map center changes to a second GPS fix, releases the renderer, and writes `app/build/reports/native-map-android-canvas.png`. The language tests also confirm actual English names at the user's position, including Al Mashaf Street and Al Hurriya Street.
 
 The unaccelerated local emulator did not complete a stable application smoke test: its system server restarted and installation timed out. This limitation is not counted as a passing device test. Robolectric/native-graphics testing is simulated Android, not a physical head unit; GPS reception, Bluetooth radio behavior, and vehicle checks remain necessary.
 

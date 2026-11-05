@@ -29,14 +29,13 @@ import org.mapsforge.map.layer.download.TileDownloadLayer
 import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik
 import org.mapsforge.map.layer.overlay.FixedPixelCircle
 import org.mapsforge.map.layer.renderer.TileRendererLayer
-import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.internal.MapsforgeThemes
 import java.io.File
 
 /** Native Android Canvas rendering. No browser, JavaScript, remote style or API key. */
 class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
     private val map = MapView(context)
-    private val data = MapFile(file)
+    private val data = EnglishMapFile(file)
     private val factory = AndroidGraphicFactory.INSTANCE
     private val offline: TileRendererLayer
     private val online: TileDownloadLayer
@@ -57,7 +56,7 @@ class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
         val tileSize = map.model.displayModel.tileSize
         val overdraw = map.model.frameBufferModel.overdrawFactor
         // Distinct caches prevent online images and locally rendered vectors colliding.
-        val vectorCache = AndroidUtil.createTileCache(context, "qatar-20261022", tileSize, 1f, overdraw)
+        val vectorCache = AndroidUtil.createTileCache(context, "qatar-en-20261022", tileSize, 1f, overdraw)
         val onlineCache = AndroidUtil.createTileCache(context, "osm-streets", tileSize, 1f, overdraw)
         offline = TileRendererLayer(vectorCache, data, map.model.mapViewPosition, factory)
         offline.setXmlRenderTheme(MapsforgeThemes.DEFAULT)
