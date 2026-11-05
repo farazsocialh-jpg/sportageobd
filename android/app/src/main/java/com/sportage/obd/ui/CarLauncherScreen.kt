@@ -76,11 +76,9 @@ private const val MAP_DEMO_LON = 51.5310
  * Leaflet/OSM dark tile layer already bundled in this screen.
  */
 private fun openStreetMapEmbedUrl(lat: Double, lon: Double, zoom: Int = 15): String {
-    // embed.openstreetmap.org uses percentage-of-viewport coordinates for the marker, so
-    // the pin is planted at the coordinates passed into this function.
-    val latPct = ((lat + 90.0) / 180.0 * 100).coerceIn(0.0, 100.0)
-    val lonPct = ((lon + 180.0) / 360.0 * 100).coerceIn(0.0, 100.0)
-    return "https://embed.openstreetmap.org/?mlat=$lat&mlon=$lon&num=1&zoom=$zoom&pan=0&u=0&marker=$latPct,$lonPct,blue"
+    // Official OSM embed: mlat/mlon centre the map, marker=lat,lon plants the pin
+    // (plain geographic coordinates, not viewport percentages).
+    return "https://embed.openstreetmap.org/?mlat=$lat&mlon=$lon&num=1&zoom=$zoom&pan=0&u=0&marker=$lat,$lon"
 }
 
 private const val MAP_FALLBACK_LAT = MAP_DEMO_LAT
@@ -977,64 +975,12 @@ fun LiveMapSurface(
     var mapRetryCount by remember { mutableStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
 
-    // Base Leaflet HTML rendered once - exposes updateVehicleLocation function for zero-flicker pan/marker
-    val leafletHtml = remember {
-        """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="utf-8" />
-            <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-            <script>
-                // Fallback CDN so a blocked unpkg request does not leave a blank map surface
-                if (!window.L) {
-                    document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>');
-                }
-            </script>
-            <style>
-                body, html, #map { margin: 0; padding: 0; width: 100%; height: 100%; background: #070B12; }
-                .car-marker {
-                    width: 22px; height: 22px; border-radius: 50%;
-                    background: #00E5FF; border: 3px solid #FFFFFF;
-                    box-shadow: 0 0 14px #00E5FF;
-                }
-            </style>
-        </head>
-        <body>
-            <div id="map"></div>
-            <script>
-                var map = null;
-                var carMarker = null;
-                if (typeof L === 'undefined') {
-                    document.getElementById('map').innerHTML =
-                        '<div style="color:#94A3B8;font:12px monospace;padding:18px;text-align:center">' +
-                        'Map library unavailable - check the head unit internet connection.<br>' +
-                        'GPS: ' + '$currentLat' + ', ' + '$currentLon' + '</div>';
-                } else {
-                map = L.map('map', { zoomControl: false, attributionControl: false })
-                    .setView([$currentLat, $currentLon], 15);
-                L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
-                    maxZoom: 19, subdomains: 'abcd'
-                }).addTo(map);
-                var carIcon = L.divIcon({ className: 'car-marker', iconSize: [22, 22] });
-                carMarker = L.marker([$currentLat, $currentLon], { icon: carIcon }).addTo(map);
-                }
-
-                window.updateVehicleLocation = function(lat, lon) {
-                    if (map) {
-                        map.panTo([lat, lon], { animate: true, duration: 1.0 });
-                    }
-                    if (carMarker) {
-                        carMarker.setLatLng([lat, lon]);
-                    }
-                };
-            </script>
-        </body>
-        </html>
-        """.trimIndent()
-    }
+    // The map engine (Leaflet) is BUNDLED in the APK as an asset: no unpkg.com / jsdelivr
+    // CDN request is needed, which is what left the map black on head units where those
+    // CDNs are blocked or slow. The HTML tries several tile servers automatically and
+    // falls back to a self-contained offline position display, so the surface is never
+    // empty even with no internet at all.
+    val mapAssetUrl = "file:///android_asset/live_map.html"
 
     Card(
         modifier = Modifier.fillMaxSize(),
@@ -1184,8 +1130,9 @@ fun LiveMapSurface(
                         if (currentLoadedProvider != mapProvider) {
                             currentLoadedProvider = mapProvider
                             if (mapProvider == "OSM_DARK") {
+                                // Bundled asset: renders even when unpkg/jsdelivr are blocked.
                                 webView.settings.userAgentString = MOBILE_MAP_USER_AGENT
-                                webView.loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
+                                webView.loadUrl(mapAssetUrl)
                                 // Reset online-map-specific transient state when leaving the embed.
                                 mapLoading = false
                                 mapRetryCount = 0
