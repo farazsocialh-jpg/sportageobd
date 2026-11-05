@@ -39,9 +39,25 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.sportage.obd.bluetooth.BluetoothDeviceInfo
+import androidx.compose.material3.Button
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawing
@@ -52,11 +68,14 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-05.a"
+        const val APP_BUILD_TAG = "2026-11-05.b"
     }
 
     private val viewModel: ObdViewModel by viewModels()
     private var locationManager: LocationManager? = null
+
+    // Crash report from the previous run, shown as a dialog until dismissed.
+    private var previousCrashReport by mutableStateOf<String?>(null)
 
     // Active Navigation Page (0: Home, 1: Gauges & Graphs, 2: DTC Diagnostics, 3: Trip, 4: Media, 5: Settings)
     private var activePage by mutableStateOf(0)
@@ -278,6 +297,57 @@ class MainActivity : ComponentActivity(), LocationListener {
                     onToggleDemoMode = { toggleDemoMode(it) }
                 )
 
+                // Previous-run crash report: shown immediately so the crash reason can never
+                // be missed. Screenshot this dialog and send it back to get the real fix.
+                previousCrashReport?.let { report ->
+                    androidx.compose.ui.window.Dialog(
+                        onDismissRequest = { previousCrashReport = null }
+                    ) {
+                        Surface(
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                            color = Color(0xFF0E1722)
+                        ) {
+                            androidx.compose.foundation.layout.Column(
+                                modifier = Modifier
+                                    .padding(16.dp)
+                                    .fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "THE APP CRASHED LAST TIME",
+                                    color = Color(0xFFFF5A5A),
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    text = "Screenshot this box and send it - this is the reason.",
+                                    color = Color(0xFF94A3B8),
+                                    fontSize = 11.sp
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    text = report,
+                                    color = Color(0xFFE2E8F0),
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    modifier = Modifier
+                                        .heightIn(max = 420.dp)
+                                        .verticalScroll(rememberScrollState())
+                                )
+                                Spacer(Modifier.height(10.dp))
+                                Button(
+                                    onClick = { previousCrashReport = null },
+                                    modifier = Modifier.align(Alignment.End),
+                                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                        containerColor = Color(0xFF33CCFF)
+                                    )
+                                ) {
+                                    Text("Close", color = Color(0xFF05070B), fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // All Installed Applications Drawer Modal
                 AppDrawerDialog(
                     isOpen = showAppDrawer,
@@ -299,19 +369,17 @@ class MainActivity : ComponentActivity(), LocationListener {
         try {
             val file = File(filesDir, "last_crash.txt")
             if (!file.exists()) return
-            val report = file.readText().trim().take(1800)
+            val report = file.readText().trim().take(3000)
             file.renameTo(File(filesDir, "last_crash_read.txt"))
             android.util.Log.e("SportageOBD", "Previous crash report:\n$report")
             logTerminal("ERR", "=== PREVIOUS APP CRASH (build $APP_BUILD_TAG) ===")
             report.lineSequence().take(24).forEach { line ->
                 logTerminal("ERR", line.take(160))
             }
-            logTerminal("ERR", "=== END OF CRASH REPORT - send a screenshot of this terminal ===")
-            Toast.makeText(
-                this,
-                "App crashed last time. Open Bluetooth > RAW TERMINAL tab to see the reason.",
-                Toast.LENGTH_LONG
-            ).show()
+            logTerminal("ERR", "=== END OF CRASH REPORT ===")
+            // Show the crash reason immediately as a dialog so it cannot be missed -
+            // no need to dig through the terminal tab.
+            previousCrashReport = report
         } catch (e: Exception) {
             android.util.Log.w("SportageOBD", "crash report read failed", e)
         }

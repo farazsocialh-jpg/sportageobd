@@ -1132,8 +1132,11 @@ fun LiveMapSurface(
                                 ) {
                                     if (request?.isForMainFrame == true && mapProvider == "OPENSTREETMAP_EMBED") {
                                         val desc = error?.description ?: "network error"
-                                        // Do NOT silently flip to the dark tile layer: surface the failure and let the user retry.
-                                        mapError = "Online map unavailable ($desc). Tap Retry or switch to the offline map."
+                                        // No internet (e.g. ERR_NAME_NOT_RESOLVED in the car):
+                                        // automatically fall back to the bundled offline map
+                                        // instead of leaving an error page on screen.
+                                        mapProvider = "OSM_DARK"
+                                        mapError = "No internet for the online map ($desc) - switched to the offline map."
                                     }
                                 }
 
@@ -1144,7 +1147,8 @@ fun LiveMapSurface(
                                 ) {
                                     val status = errorResponse?.statusCode ?: 0
                                     if (request?.isForMainFrame == true && status >= 400 && mapProvider == "OPENSTREETMAP_EMBED") {
-                                        mapError = "Online map blocked (HTTP $status). Tap Retry or switch to the offline map."
+                                        mapProvider = "OSM_DARK"
+                                        mapError = "Online map blocked (HTTP $status) - switched to the offline map."
                                     }
                                 }
                             }
