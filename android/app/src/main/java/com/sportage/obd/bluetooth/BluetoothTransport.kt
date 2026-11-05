@@ -14,7 +14,8 @@ import java.util.UUID
 
 sealed interface ConnectionState {
     object Disconnected : ConnectionState
-    object Connecting : ConnectionState
+    /** Carries the address of the ONE device being connected, so the UI can mark just that row. */
+    data class Connecting(val address: String? = null) : ConnectionState
     data class Connected(val deviceName: String, val address: String, val protocol: String = "ISO 15765-4 CAN") : ConnectionState
     data class Error(val message: String) : ConnectionState
 }
@@ -37,7 +38,7 @@ class BluetoothTransport : ElmTransport {
      */
     @SuppressLint("MissingPermission")
     override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
-        _connectionState.value = ConnectionState.Connecting
+        _connectionState.value = ConnectionState.Connecting(address = device.address)
 
         try {
             // Discovery must stop before an RFCOMM connection, but some Android versions
@@ -52,20 +53,20 @@ class BluetoothTransport : ElmTransport {
             var lastError: Exception? = null
 
             // Method 1: Standard Secure RFCOMM Socket
-            try {
-                val candidate = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                candidate.connect()
-                connectedSocket = candidate
-            } catch (error: Exception) {
-                lastError = error
+            if (connectedSocket == null) {
+                try {
+                    val candidate = device.createRfcommSocketToServiceRecord(SPP_UUID)
+                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
+                } catch (error: Exception) {
+                    lastError = error
+                }
             }
 
             // Method 2: Insecure RFCOMM Socket (compatibility fallback)
             if (connectedSocket == null) {
                 try {
                     val candidate = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
-                    candidate.connect()
-                    connectedSocket = candidate
+                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
                 } catch (error: Exception) {
                     lastError = error
                 }
@@ -76,8 +77,7 @@ class BluetoothTransport : ElmTransport {
                 try {
                     val method = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
                     val candidate = method.invoke(device, 1) as BluetoothSocket
-                    candidate.connect()
-                    connectedSocket = candidate
+                    lastError = connectSocketWithTimeout(candidate) ?: run { connectedSocket = candidate; null }
                 } catch (error: Exception) {
                     lastError = error
                 }
@@ -157,6 +157,37 @@ class BluetoothTransport : ElmTransport {
         }
 
         Elm327Command.cleanResponse(buffer.toString())
+    }
+
+    /**
+     * socket.connect() BLOCKS with no timeout of its own - on an unreachable device
+     * (out of range, powered off, or a non-SPP device like a laptop) it can hang for
+     * 20+ seconds per attempt, which looked like the app "connecting forever and doing
+     * nothing". Run it on a worker thread and force-close the socket after a deadline.
+     * Returns null on success, or the failure.
+     */
+    private fun connectSocketWithTimeout(
+        socket: BluetoothSocket,
+        timeoutMs: Long = 12_000L
+    ): Exception? {
+        var error: Exception? = null
+        val worker = Thread {
+            try {
+                socket.connect()
+            } catch (e: Exception) {
+                synchronized(this) { error = e }
+            }
+        }
+        worker.isDaemon = true
+        worker.start()
+        worker.join(timeoutMs)
+        if (worker.isAlive) {
+            // Still blocked in connect(): closing the socket aborts it with an IOException.
+            runCatching { socket.close() }
+            worker.join(3_000L)
+            return java.io.IOException("Timed out after ${timeoutMs / 1000}s - device not responding")
+        }
+        return synchronized(this) { error }
     }
 
     override fun disconnect() {

@@ -401,7 +401,7 @@ fun BluetoothDialog(
                             Text(
                                 text = when (connectionState) {
                                     is ConnectionState.Connected -> "ACTIVE: ${(connectionState as ConnectionState.Connected).deviceName} (${(connectionState as ConnectionState.Connected).address})"
-                                    is ConnectionState.Connecting -> "ESTABLISHING RFCOMM SERIAL LINK..."
+                                    is ConnectionState.Connecting -> "CONNECTING TO ${(connectionState as ConnectionState.Connecting).address ?: "ADAPTER"} - PLEASE WAIT..."
                                     is ConnectionState.Error -> "ERROR: ${(connectionState as ConnectionState.Error).message}"
                                     else -> if (isDemoMode) "DEMO BENCH TESTING ACTIVE" else "NOT CONNECTED · SELECT ADAPTER"
                                 },
@@ -601,14 +601,20 @@ fun BluetoothDialog(
                                     val isCurrentConnected = connectionState is ConnectionState.Connected &&
                                             connectionState.currentAddress()?.equals(deviceAddress, ignoreCase = true) == true
 
+                                    // Only ONE device is ever connecting - mark just that row,
+                                    // not every row (that looked like "connecting to all devices").
+                                    val connectingAddress = (connectionState as? ConnectionState.Connecting)?.address
+                                    val isThisConnecting = connectingAddress != null &&
+                                            connectingAddress.equals(deviceAddress, ignoreCase = true)
+
                                     val (canConnect, unavailableReason) = BluetoothDeviceConnectGuard.canConnectTo(
                                         device = device,
                                         connectionState = connectionState,
                                         context = context
                                     )
-                                    val isConnectDisabled = !canConnect || connectionState.isConnecting()
+                                    val isConnectDisabled = !canConnect || (connectingAddress != null && !isThisConnecting)
                                     val connectButtonLabel = when {
-                                        connectionState.isConnecting() -> "Connecting..."
+                                        isThisConnecting -> "Connecting..."
                                         !canConnect && unavailableReason != null -> {
                                             "Unavailable: ${unavailableReason.shortMessage}"
                                         }

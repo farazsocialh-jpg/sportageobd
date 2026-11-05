@@ -68,7 +68,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-05.c"
+        const val APP_BUILD_TAG = "2026-11-05.d"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -205,7 +205,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                         is ConnectionState.Connected ->
                             logTerminal("INFO", "LINK ACTIVE: ${state.deviceName} \u00b7 ${state.protocol}")
                         is ConnectionState.Error -> logTerminal("ERR", "Adapter error: ${state.message}")
-                        ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket...")
+                        is ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket to ${state.address ?: "adapter"}...")
                         ConnectionState.Disconnected -> logTerminal("INFO", "Adapter link closed.")
                     }
                 }

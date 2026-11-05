@@ -167,7 +167,7 @@ class BleTransport(private val context: Context) : ElmTransport {
 
     @SuppressLint("MissingPermission")
     override suspend fun connect(device: BluetoothDevice): Boolean = withContext(Dispatchers.IO) {
-        _connectionState.value = ConnectionState.Connecting
+        _connectionState.value = ConnectionState.Connecting(address = device.address)
 
         // connectGatt throws SecurityException when BLUETOOTH_CONNECT is missing and
         // IllegalArgumentException for a malformed device handle; both used to escape the service
