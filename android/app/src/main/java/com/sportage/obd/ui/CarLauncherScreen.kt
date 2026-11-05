@@ -70,7 +70,7 @@ private const val MOBILE_MAP_USER_AGENT =
  * redirects to the Play Store / app wall on a mobile UA, which is what produced a blank surface.
  */
 private fun wazeLiveMapUrl(lat: Double, lon: Double): String =
-    "https://embed.waze.com/iframe?zoom=15&lat=$lat&lon=$lon&ct=livemap&locale=en"
+    "https://embed.waze.com/iframe?zoom=15&lat=$lat&lon=$lon&pin=1&ct=livemap&locale=en"
 
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
