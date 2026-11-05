@@ -1,6 +1,6 @@
 # Android Bluetooth and map repair
 
-Build: `2026-11-05.e`, version `1.0.1`, version code `2`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
+Build: `2026-11-05.f`, version `1.0.2`, version code `3`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
 
 ## Bluetooth findings and corrections
 
@@ -17,9 +17,9 @@ Build: `2026-11-05.e`, version `1.0.1`, version code `2`. The change set is scop
 
 The bundled JavaScript engine initialized during testing, but visual inspection found that the previous dark tile endpoint returned a successful image saying “API KEY REQUIRED.” A successful HTTP image response does not fire Leaflet's tile-error handler, so provider-fallback logic cannot detect that failure.
 
-- **Street tiles:** Both styles now use standard OpenStreetMap tiles. Dark styling is applied locally to the tile pane, leaving the vehicle marker and attribution unaffected. The key-gated dark/light tile dependencies and remote embed route are removed.
+- **Street tiles:** The map uses standard, unmodified OpenStreetMap street tiles. Per the user's correction, no local dark filter or map-theme toggle remains. The key-gated tile dependencies and remote embed route are removed.
 - **Android loading:** Bundled content is served through `WebViewAssetLoader` on a local HTTPS origin rather than a `file://` page. Arbitrary in-app navigation, file/content access, mixed content, and automatic JavaScript geolocation grants are disabled.
-- **Layout and lifecycle:** Explicit map edges/size support older WebViews; resize invalidates Leaflet's viewport; Android releases destroyed WebViews. Map mode changes and telemetry recompositions no longer navigate/reload a remote embed.
+- **Layout and lifecycle:** Explicit map edges/size support older WebViews; resize invalidates Leaflet's viewport; Android releases destroyed WebViews. Telemetry recompositions no longer navigate/reload a remote embed.
 - **GPS:** Initial coordinates are supplied before the first tile request, subsequent fixes update the marker, invalid coordinates are rejected, and unchanged positions do not continually pan. Last-known location uses the newest permitted provider, absent/rejected providers do not block the other provider, and activity location subscriptions are cleaned up.
 - **Visible failures:** Loading has a deadline. With no street tiles, the UI explicitly says to check internet and retains coordinates; it does not pretend a blank grid is a street map. It retries automatically and on connectivity restoration. Open Maps remains available.
 - **Attribution:** OpenStreetMap credit remains visible with a copyright link.
@@ -46,9 +46,9 @@ bash ./gradlew testDebugUnitTest assembleDebug lintDebug
 
 Expected suite totals: 52 JVM unit tests and 16 Android-map regression checks. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
 
-The map harness covers layout compatibility, initialization at the supplied fix, invalid coordinates, unchanged GPS updates, visible network failures, stale callbacks, style changes, network restoration, viewport resizing, attribution, and avoidance of key-gated tile URLs. Bluetooth tests cover the twelve-device reproduction, case-insensitive address matching, flow identity across SPP/BLE replacement, stale callbacks, cancellation, retryable row presentation, and UART UUIDs.
+The map harness covers layout compatibility, initialization at the supplied fix, invalid coordinates, unchanged GPS updates, visible network failures, stale callbacks, network restoration, viewport resizing, attribution, absence of local dark styling, and avoidance of key-gated tile URLs. Bluetooth tests cover the twelve-device reproduction, case-insensitive address matching, flow identity across SPP/BLE replacement, stale callbacks, cancellation, retryable row presentation, and UART UUIDs.
 
-Browser verification used the actual bundled Android asset at a 360 × 380 viewport, not the repository's web application. Streets rendered in both styles. Blocking tile requests produced the explicit offline notice; unblocking requests and dispatching connectivity restoration returned to street rendering.
+Browser verification uses the actual bundled Android asset at a 360 × 380 viewport, not the repository's web application. The standard street map is retained without local recoloring. Earlier network-failure checks verified that blocking tile requests produced the explicit offline notice and restoring connectivity returned to street rendering.
 
 Hardware checks remain necessary: no physical Android head unit, Bluetooth radio, or ELM327 adapter is attached here. Unit tests and browser rendering do not prove pairing, RFCOMM quirks, GATT behavior, GPS reception, or vehicle-specific PID support on the user's hardware.
 
@@ -56,11 +56,11 @@ Hardware checks remain necessary: no physical Android head unit, Bluetooth radio
 
 The supplied APK is a debug/test build, not a production release signed with an established release key. Its signing certificate was compared with the repository's `2026-11-05d` APK and differs, so it cannot replace that APK in place. Preserve/export any logs and settings before considering removal of the old build; uninstalling deletes its local data. A maintainer with the original signing key can instead rebuild this source with that key for an in-place update.
 
-- **Version:** Confirm build `2026-11-05.e` after installation.
+- **Version:** Confirm build `2026-11-05.f` after installation.
 - **Twelve-device list:** Tap only the actual ELM/OBD adapter. Exactly that row should show “Connecting...”; other rows should show disabled “Connect” actions.
 - **Cancellation:** Cancel mid-connect, then select another device. No old attempt should reconnect later.
 - **Invalid selection:** A laptop/stereo or unavailable adapter should end in a bounded, visible failure and permit a new selection.
 - **Real adapter:** Verify adapter initialization and changing RPM/speed values; repeat once with the intended classic or BLE transport.
-- **Map online:** With internet available, streets should render in Dark Map and Street Map, with the position marker at the current fix.
+- **Map online:** With internet available, standard street tiles should render with the position marker at the current fix. There should be no Dark Map switch or local map recoloring.
 - **Map offline:** Disable internet and move the map to uncached streets. An explicit no-tiles message should appear. Restore internet and confirm automatic recovery.
 - **Lifecycle:** Rotate the display, leave/return to the app, and reopen Bluetooth. Confirm map rendering and connection status remain consistent.

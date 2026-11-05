@@ -80,11 +80,11 @@ test('a successful tile hides the loading/offline overlay', () => {
   const t = setup(); t.layers[0].handlers.tileload();
   assert.equal(t.get('offline').style.display, 'none');
 });
-test('blocked tiles show a message and stale callbacks cannot replace current style', () => {
+test('blocked tiles show a message and stale callbacks cannot replace the current layer', () => {
   const t = setup(), old = t.layers[0];
   for (let i = 0; i < 4; i++) old.handlers.tileerror();
   assert.equal(t.get('offline').style.display, 'block');
-  t.window.setMapTheme('light');
+  t.events.online();
   for (let i = 0; i < 12; i++) old.handlers.tileerror();
   assert.equal(t.layers.length, 2);
   assert.ok(t.layers[1].url.includes('tile.openstreetmap.org'));
@@ -109,10 +109,11 @@ test('losing internet after driving away retries rather than leaving an empty ma
   t.fireTimer(30000);
   assert.equal(t.layers.length, 2);
 });
-test('theme changes once, repeated telemetry updates do not reload providers', () => {
-  const t = setup(); t.window.setMapTheme('light'); t.window.setMapTheme('light');
-  assert.equal(t.layers.length, 2);
-  assert.ok(t.layers[1].url.includes('tile.openstreetmap.org'));
+test('legacy theme parameters do not change standard street tiles', () => {
+  const t = setup('?lat=25.1712&lon=51.5689&theme=dark');
+  assert.equal(t.window.setMapTheme, undefined);
+  assert.equal(t.layers.length, 1);
+  assert.equal(t.get('status').textContent, 'TILES: OPENSTREETMAP');
 });
 test('missing map engine is visible rather than silently blank', () => {
   const t = setup('', false);
@@ -125,8 +126,8 @@ test('orientation change invalidates viewport size', () => {
 test('map retains provider attribution', () => {
   assert.ok(setup().layers[0].opts.attribution.includes('OpenStreetMap'));
 });
-test('dark style does not use API-key-gated tile services', () => {
+test('street tiles have no local dark styling or API-key-gated services', () => {
   assert.ok(setup().layers.every(x => x.url.startsWith('https://tile.openstreetmap.org/')));
-  assert.match(html, /#map\.dark-map \.leaflet-tile-pane\s*\{\s*filter:\s*invert\(1\)/);
+  assert.doesNotMatch(html, /dark-map|setMapTheme|hue-rotate|filter:\s*invert/);
 });
 console.log(`${passed} Android map regression tests passed`);

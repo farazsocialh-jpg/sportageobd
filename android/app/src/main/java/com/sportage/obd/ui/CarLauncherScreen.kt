@@ -943,15 +943,13 @@ fun LiveMapSurface(
     speedUnit: String,
     onOpenFullMap: () -> Unit
 ) {
-    var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "OPENSTREETMAP_EMBED"
-    var currentLoadedProvider by remember { mutableStateOf<String?>(null) }
+    var mapStarted by remember { mutableStateOf(false) }
     var mapError by remember { mutableStateOf<String?>(null) }
     var mapLoading by remember { mutableStateOf(false) }
     var mapRetryCount by remember { mutableStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
     val latestLat by rememberUpdatedState(currentLat)
     val latestLon by rememberUpdatedState(currentLon)
-    val latestProvider by rememberUpdatedState(mapProvider)
     val mapViewHolder = remember { arrayOfNulls<WebView>(1) }
     LaunchedEffect(mapLoading) {
         if (mapLoading) {
@@ -990,7 +988,7 @@ fun LiveMapSurface(
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF33CCFF), modifier = Modifier.size(16.dp))
                     Text(
-                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "STREET MAP",
+                        text = "STREET MAP",
                         color = Color.White,
                         fontSize = 11.sp,
                         maxLines = 1,
@@ -1003,32 +1001,6 @@ fun LiveMapSurface(
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Toggle Provider
-                    Surface(
-                        modifier = Modifier.clickable {
-                            if (mapProvider == "OSM_DARK") {
-                                mapProvider = "OPENSTREETMAP_EMBED"
-                                mapError = null
-                                mapRetryCount = 0
-                            } else {
-                                mapProvider = "OSM_DARK"
-                                mapError = null
-                            }
-                            currentLoadedProvider = ""
-                        },
-                        color = Color(0xFF1E293B),
-                        shape = RoundedCornerShape(4.dp)
-                    ) {
-                        Text(
-                            text = if (mapProvider == "OSM_DARK") "Street Map" else "Dark Map",
-                            color = ElectricCyan,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
-                        )
-                    }
-
                     // Open full online map in the device's navigation app (Primary Non-Negotiable Action)
                     Surface(
                         modifier = Modifier.clickable { onOpenFullMap() },
@@ -1129,8 +1101,7 @@ fun LiveMapSurface(
                                     super.onPageFinished(view, url)
                                     mapLoading = false
                                     view?.evaluateJavascript(
-                                        "if(window.updateVehicleLocation){window.updateVehicleLocation($latestLat,$latestLon);" +
-                                            "window.setMapTheme('${if (latestProvider == "OSM_DARK") "dark" else "light"}');} Boolean(window.mapReady)",
+                                        "if(window.updateVehicleLocation){window.updateVehicleLocation($latestLat,$latestLon);} Boolean(window.mapReady)",
                                     ) { ready ->
                                         if (ready != "true") mapError = "Map could not initialize. Update Android System WebView or tap Retry."
                                     }
@@ -1173,32 +1144,16 @@ fun LiveMapSurface(
                         webView.destroy()
                     },
                     update = { webView ->
-                        if (currentLoadedProvider != mapProvider) {
-                            currentLoadedProvider = mapProvider
-                            if (mapProvider == "OSM_DARK") {
-                                // Bundled asset: renders even when unpkg/jsdelivr are blocked.
-                                if (webView.url?.startsWith(mapAssetUrl) == true) {
-                                    webView.evaluateJavascript("window.setMapTheme && window.setMapTheme('dark')", null)
-                                } else {
-                                    webView.loadUrl("$mapAssetUrl?lat=$currentLat&lon=$currentLon&theme=dark")
-                                }
-                                // Reset online-map-specific transient state when leaving the embed.
-                                mapLoading = false
-                                mapRetryCount = 0
-                            } else {
-                                mapLoading = webView.url?.startsWith(mapAssetUrl) != true
-                                mapRetryCount = mapRetryCount.coerceAtMost(1)
-                                loadOnlineMapUrl(webView, currentLat, currentLon)
-                            }
-                        } else if (mapProvider == "OSM_DARK") {
+                        if (!mapStarted) {
+                            mapStarted = true
+                            mapLoading = true
+                            webView.loadUrl("$mapAssetUrl?lat=$currentLat&lon=$currentLon")
+                        } else {
                             // Smooth marker update without reloading HTML or network requests.
                             webView.evaluateJavascript(
                                 "if (typeof window.updateVehicleLocation === 'function') { window.updateVehicleLocation($currentLat, $currentLon); }",
                                 null
                             )
-                        } else if (mapProvider == "OPENSTREETMAP_EMBED") {
-                            // Same bundled engine: update coordinates without reloading on telemetry recomposition.
-                            loadOnlineMapUrl(webView, currentLat, currentLon)
                         }
                     }
                 )
@@ -1397,17 +1352,6 @@ fun LiveMapSurface(
             }
         }
     }
-}
-
-/**
- * Switch style and update the GPS marker without navigating away from the bundled engine.
- */
-private fun loadOnlineMapUrl(webView: WebView, lat: Double, lon: Double) {
-    if (webView.url?.startsWith(MAP_ASSET_URL) == true) {
-        webView.evaluateJavascript(
-            "if(window.setMapTheme){window.setMapTheme('light');window.updateVehicleLocation($lat,$lon);}", null
-        )
-    } else webView.loadUrl("$MAP_ASSET_URL?lat=$lat&lon=$lon&theme=light")
 }
 
 // =========================================================================
