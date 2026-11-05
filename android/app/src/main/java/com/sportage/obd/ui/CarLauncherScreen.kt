@@ -57,8 +57,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Desktop UA: the Waze embed only renders for desktop-class clients; the mobile UA gets an app wall. */
-private const val WAZE_EMBED_USER_AGENT =
+/** Desktop UA: free online map embeds only render well for desktop-class clients. */
+private const val ONLINE_MAP_EMBED_USER_AGENT =
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 
 /** Mobile Chrome UA for the local Leaflet map so tiles are served at the right scale. */
@@ -66,11 +66,22 @@ private const val MOBILE_MAP_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
 
 /**
- * Waze live-map URL that actually renders inside a WebView. The /live-map/directions page
- * redirects to the Play Store / app wall on a mobile UA, which is what produced a blank surface.
+ * Free online map embed that renders inside a WebView without an app wall.
+ * OpenStreetMap's standard embed is freely available and needs no API key.
+ *
+ * If that endpoint is blocked on the head unit, the app still falls back to the
+ * Leaflet/OSM dark tile layer already bundled in this screen.
  */
-private fun wazeLiveMapUrl(lat: Double, lon: Double): String =
-    "https://embed.waze.com/iframe?zoom=15&lat=$lat&lon=$lon&pin=1&ct=livemap&locale=en"
+private fun openStreetMapEmbedUrl(lat: Double, lon: Double, zoom: Int = 15): String {
+    // embed.openstreetmap.org is the official free OSM embed. Coordinates are given as
+    // percentages of the embed viewport, so the marker lands on the vehicle position.
+    val latPct = ((lat + 90.0) / 180.0 * 100).coerceIn(0.0, 100.0)
+    val lonPct = ((lon + 180.0) / 360.0 * 100).coerceIn(0.0, 100.0)
+    return "https://embed.openstreetmap.org/?mlat=$lat&mlon=$lon&num=1&zoom=$zoom&pan=0&u=0&marker=$latPct,$lonPct,blue"
+}
+
+private const val OPENSTREETMAP_EMBED_USER_AGENT =
+    ONLINE_MAP_EMBED_USER_AGENT
 
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
@@ -965,9 +976,11 @@ fun LiveMapSurface(
     speedUnit: String,
     onOpenFullWaze: () -> Unit
 ) {
-    var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "WAZE_EMBED"
+    var mapProvider by remember { mutableStateOf("OSM_DARK") } // "OSM_DARK" or "OPENSTREETMAP_EMBED"
     var currentLoadedProvider by remember { mutableStateOf<String?>(null) }
     var mapError by remember { mutableStateOf<String?>(null) }
+    var wazeLoading by remember { mutableStateOf(false) }
+    var wazeRetryCount by remember { mutableStateOf(0) }
     var speedAlertThreshold by remember { mutableStateOf(100) } // Configurable Speed Alert: 80, 100, 120, 140, 0 (OFF)
 
     // Base Leaflet HTML rendered once - exposes updateVehicleLocation function for zero-flicker pan/marker
@@ -1051,7 +1064,7 @@ fun LiveMapSurface(
                 ) {
                     Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF33CCFF), modifier = Modifier.size(16.dp))
                     Text(
-                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "WAZE TRAFFIC EMBED",
+                        text = if (mapProvider == "OSM_DARK") "AUTOMOTIVE LIVE MAP" else "OPENSTREETMAP EMBED",
                         color = Color.White,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -1064,13 +1077,21 @@ fun LiveMapSurface(
                     // Toggle Provider
                     Surface(
                         modifier = Modifier.clickable {
-                            mapProvider = if (mapProvider == "OSM_DARK") "WAZE_EMBED" else "OSM_DARK"
+                            if (mapProvider == "OSM_DARK") {
+                                mapProvider = "OPENSTREETMAP_EMBED"
+                                mapError = null
+                                wazeRetryCount = 0
+                            } else {
+                                mapProvider = "OSM_DARK"
+                                mapError = null
+                            }
+                            currentLoadedProvider = ""
                         },
                         color = Color(0xFF1E293B),
                         shape = RoundedCornerShape(4.dp)
                     ) {
                         Text(
-                            text = if (mapProvider == "OSM_DARK") "Switch: Waze" else "Switch: Dark Map",
+                            text = if (mapProvider == "OSM_DARK") "Switch: Online Map" else "Switch: Dark Map",
                             color = ElectricCyan,
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
@@ -1079,7 +1100,7 @@ fun LiveMapSurface(
                         )
                     }
 
-                    // OPEN FULL WAZE (Primary Non-Negotiable Action)
+                    // Open full online map in the device's navigation app (Primary Non-Negotiable Action)
                     Surface(
                         modifier = Modifier.clickable { onOpenFullWaze() },
                         color = Color(0xFF33CCFF),
@@ -1092,7 +1113,7 @@ fun LiveMapSurface(
                         ) {
                             Icon(Icons.Default.OpenInNew, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(11.dp))
                             Text(
-                                text = "Open Full Waze",
+                                text = "Open In Maps",
                                 color = Color(0xFF05070B),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
@@ -1105,6 +1126,8 @@ fun LiveMapSurface(
 
             // Interactive Map View Container with Overlays
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val isOnlineMap = mapProvider == "OPENSTREETMAP_EMBED"
+
                 AndroidView(
                     modifier = Modifier.fillMaxSize(),
                     factory = { ctx ->
@@ -1118,7 +1141,7 @@ fun LiveMapSurface(
                                 cacheMode = WebSettings.LOAD_DEFAULT
                                 allowFileAccess = true
                                 allowContentAccess = true
-                                userAgentString = if (mapProvider == "OSM_DARK") MOBILE_MAP_USER_AGENT else WAZE_EMBED_USER_AGENT
+                                userAgentString = OPENSTREETMAP_EMBED_USER_AGENT
                                 useWideViewPort = true
                                 loadWithOverviewMode = true
                             }
@@ -1128,19 +1151,25 @@ fun LiveMapSurface(
                                 }
                             }
                             webViewClient = object : WebViewClient() {
-                                override fun onPageFinished(view: WebView?, url: String?) {
+                                override fun                            onPageFinished(view: WebView?, url: String?) {
                                     super.onPageFinished(view, url)
-                                    if (mapProvider == "OSM_DARK") mapError = null
+                                    if (mapProvider == "OSM_DARK") {
+                                        mapError = null
+                                    } else if (mapProvider == "OPENSTREETMAP_EMBED") {
+                                        wazeLoading = false
+                                    }
                                 }
+
 
                                 override fun onReceivedError(
                                     view: WebView?,
                                     request: WebResourceRequest?,
                                     error: WebResourceError?
                                 ) {
-                                    if (request?.isForMainFrame == true && mapProvider != "OSM_DARK") {
-                                        mapError = "Waze map unavailable (${error?.description ?: "network error"}). Showing offline map."
-                                        mapProvider = "OSM_DARK"
+                                    if (request?.isForMainFrame == true && mapProvider == "OPENSTREETMAP_EMBED") {
+                                        val desc = error?.description ?: "network error"
+                                        // Do NOT silently flip to the dark tile layer: surface the failure and let the user retry.
+                                        mapError = "Online map unavailable ($desc). Tap Retry or switch to the offline map."
                                     }
                                 }
 
@@ -1150,40 +1179,72 @@ fun LiveMapSurface(
                                     errorResponse: android.webkit.WebResourceResponse?
                                 ) {
                                     val status = errorResponse?.statusCode ?: 0
-                                    if (request?.isForMainFrame == true && status >= 400 && mapProvider != "OSM_DARK") {
-                                        mapError = "Waze map blocked (HTTP $status). Showing offline map."
-                                        mapProvider = "OSM_DARK"
+                                    if (request?.isForMainFrame == true && status >= 400 && mapProvider == "OPENSTREETMAP_EMBED") {
+                                        mapError = "Online map blocked (HTTP $status). Tap Retry or switch to the offline map."
                                     }
                                 }
                             }
-
-                            if (mapProvider == "OSM_DARK") {
-                                loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
-                            } else {
-                                loadUrl(wazeLiveMapUrl(currentLat, currentLon))
-                            }
-                            currentLoadedProvider = mapProvider
                         }
                     },
                     update = { webView ->
-                        if (mapProvider != currentLoadedProvider) {
+                        if (currentLoadedProvider != mapProvider) {
                             currentLoadedProvider = mapProvider
                             if (mapProvider == "OSM_DARK") {
                                 webView.settings.userAgentString = MOBILE_MAP_USER_AGENT
                                 webView.loadDataWithBaseURL("https://unpkg.com", leafletHtml, "text/html", "UTF-8", null)
+                                // Reset online-map-specific transient state when leaving the embed.
+                                wazeLoading = false
+                                wazeRetryCount = 0
                             } else {
-                                webView.settings.userAgentString = WAZE_EMBED_USER_AGENT
-                                webView.loadUrl(wazeLiveMapUrl(currentLat, currentLon))
+                                webView.settings.userAgentString = ONLINE_MAP_EMBED_USER_AGENT
+                                wazeLoading = true
+                                wazeRetryCount = wazeRetryCount.coerceAtMost(1)
+                                loadOnlineMapUrl(webView, currentLat, currentLon)
                             }
                         } else if (mapProvider == "OSM_DARK") {
-                            // Smooth marker update without reloading HTML or network requests!
+                            // Smooth marker update without reloading HTML or network requests.
                             webView.evaluateJavascript(
                                 "if (typeof window.updateVehicleLocation === 'function') { window.updateVehicleLocation($currentLat, $currentLon); }",
                                 null
                             )
+                        } else if (mapProvider == "OPENSTREETMAP_EMBED") {
+                            // The OSM embed is a remote iframe; the only reliable way to move the marker is to reload
+                            // the embed URL. We only do that when the URL actually changed.
+                            loadOnlineMapUrl(webView, currentLat, currentLon)
                         }
                     }
                 )
+
+                // Loading overlay shown only while the online map is still loading its embed.
+                if (isOnlineMap && wazeLoading) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = DarkSurface.copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(0.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(28.dp),
+                                color = ElectricCyan,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "OPENSTREETMAP EMBED LOADING...",
+                                color = Color.White,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                        }
+                    }
+                }
 
                 // Non-blocking map notice replaced the old silent blank WebView
                 mapError?.let { message ->
@@ -1194,14 +1255,35 @@ fun LiveMapSurface(
                         color = AmberWarning.copy(alpha = 0.92f),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text(
-                            text = message,
-                            color = Color(0xFF05070B),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = message,
+                                color = Color(0xFF05070B),
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.weight(1f)
+                            )
+                            TextButton(
+                                onClick = {
+                                    mapError = null
+                                    wazeLoading = true
+                                    wazeRetryCount = (wazeRetryCount + 1).coerceAtMost(3)
+                                    // Trigger a reload by pretending we switched back to the online embed.
+                                    currentLoadedProvider = ""
+                                    mapProvider = "OPENSTREETMAP_EMBED"
+                                },
+                                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFF05070B))
+                            ) {
+                                Text("Retry", fontSize = 9.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
                     }
                 }
 
@@ -1295,7 +1377,7 @@ fun LiveMapSurface(
                     ) {
                         Icon(Icons.Default.Navigation, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
                         Text(
-                            text = "START IN WAZE",
+                            text = "OPEN IN MAPS",
                             color = Color(0xFF05070B),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
@@ -1329,6 +1411,15 @@ fun LiveMapSurface(
             }
         }
     }
+}
+
+/**
+ * OpenStreetMap embed is a free, no-API-key online map that renders in a WebView. If the embed
+ * endpoint is blocked on the head unit, the app still falls back to the Leaflet/OSM dark tile layer
+ * already bundled in this screen.
+ */
+private fun loadOnlineMapUrl(webView: WebView, lat: Double, lon: Double) {
+    webView.loadUrl(openStreetMapEmbedUrl(lat, lon))
 }
 
 // =========================================================================
