@@ -46,11 +46,13 @@ cd android
 bash ./gradlew testDebugUnitTest assembleDebug lintDebug
 ```
 
-The JVM suite contains 56 tests, including four native-map/data checks. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
+The test suite contains 57 tests, including four native-map/data checks and an Android native-graphics rendering test. The obsolete JavaScript map harness was removed along with the browser map. Lint completes with zero errors; non-blocking dependency/resource warnings remain.
 
 The native-map tests validate the bundled file's length, binary header and SHA-256; parse it with the real map reader; confirm coverage at the user's screenshot coordinates and central Doha; confirm a London fix is outside the offline area; and read nonempty street geometry at the user's position. Invalid location fixes are rejected. Bluetooth regressions remain unchanged.
 
-Physical head-unit, Bluetooth radio, and vehicle checks remain necessary. File-reader tests do not prove rendering or GPS reception on the user's physical device.
+The Robolectric API 29 native-graphics test instantiates the real native MapView, uses the screenshot's GPS coordinates, and waits for street-detail pixels away from the center marker and controls. It checks recentering, releases the renderer, and writes `app/build/reports/native-map-android-canvas.png`. Visual inspection of that image confirms streets, buildings, Arabic labels, and the GPS marker from local Qatar data, without the old browser/fake-marker stack.
+
+The unaccelerated local emulator did not complete a stable application smoke test: its system server restarted and installation timed out. This limitation is not counted as a passing device test. Robolectric/native-graphics testing is simulated Android, not a physical head unit; GPS reception, Bluetooth radio behavior, and vehicle checks remain necessary.
 
 ## Installation and device acceptance checks
 
