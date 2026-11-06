@@ -60,9 +60,11 @@ cockpit instead of a normal home screen.
 - **Automatic trip log** — every drive with the adapter connected records distance, duration, max and
   average speed, 0–100 km/h time, fuel used (when the ECU reports it) and an eco score; history and
   CSV export live on the Trip page.
-- **Extended protocol decoders** — SAE J1979-2 (`0xF400 + PID`) DID mapping, Mode 22/21 UDS framing
-  with manufacturer presets marked experimental, and a Mode 06 on-board monitor parser. These are
-  unit-tested; the polling loop does not request them yet (see [docs/ROADMAP.md](docs/ROADMAP.md)).
+- **On-board monitor tests (Mode 06)** — the Diagnostics page opens a results screen that plots every
+  ECU self-test against its own pass window, so a component can be seen drifting towards failure
+  before it stores a code. Values near a limit are called out separately from failures, and the
+  screen also lists the live SAE J1979-2 (`0xF400 + PID`) parameters when the vehicle reports them.
+  Mode 22/21 manufacturer presets ship marked experimental (see [docs/ROADMAP.md](docs/ROADMAP.md)).
 - **Live map surface** — GPS position and speed, with deep links into Waze (`waze://`, `geo:`,
   `waze.com`).
 

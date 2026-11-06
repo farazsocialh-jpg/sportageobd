@@ -1,5 +1,7 @@
 package com.sportage.obd.obd
 
+import kotlin.math.roundToInt
+
 /**
  * Extended (non-Mode-01) parameter support.
  *
@@ -216,4 +218,63 @@ data class CustomPid(
         get() = label.isNotBlank() &&
             did.matches(Regex("[0-9A-Fa-f]{2,4}")) &&
             service in 0x21..0x22
+}
+
+/**
+ * Live parameters mirrored over SAE J1979-2 ("OBDonUDS"): the classic Mode 01 quantities addressed
+ * through UDS `ReadDataByIdentifier` with DID `0xF400 + PID`.
+ *
+ * This is the standardised half of [ExtendedPids]-style support, so — unlike the manufacturer
+ * presets — the DIDs here are safe to request blindly and the only reason a vehicle refuses one is
+ * that it speaks the older Mode 01 protocol instead.
+ */
+enum class J1979Pid(val pid: Int, val label: String, val unit: String) {
+    ENGINE_LOAD(0x04, "Calculated engine load", "%"),
+    COOLANT_TEMP(0x05, "Engine coolant temperature", "°C"),
+    SHORT_TERM_FUEL_TRIM(0x06, "Short-term fuel trim", "%"),
+    LONG_TERM_FUEL_TRIM(0x07, "Long-term fuel trim", "%"),
+    INTAKE_PRESSURE(0x0B, "Intake manifold pressure", "kPa"),
+    RPM(0x0C, "Engine speed", "rpm"),
+    SPEED(0x0D, "Vehicle speed", "km/h"),
+    TIMING_ADVANCE(0x0E, "Timing advance", "°"),
+    INTAKE_TEMP(0x0F, "Intake air temperature", "°C"),
+    MAF(0x10, "Mass air flow", "g/s"),
+    THROTTLE(0x11, "Throttle position", "%"),
+    FUEL_LEVEL(0x2F, "Fuel tank level", "%");
+
+    /** The standardised DID, e.g. `F40C` for engine speed. */
+    val did: String get() = UdsDecoding.j1979_2Did(pid)
+
+    /** The ELM327 request that reads this parameter, e.g. `22F40C`. */
+    val command: String get() = "22" + did
+
+    /**
+     * @param bytes payload after the `62 <DID>` echo. Mode 01 scaling applies unchanged to the
+     *              payload of the equivalent DID, which is the whole point of J1979-2.
+     */
+    fun decode(bytes: IntArray): Float? {
+        if (bytes.isEmpty()) return null
+        val a = bytes[0] and 0xFF
+        val word = if (bytes.size > 1) UdsDecoding.word(a, bytes[1] and 0xFF) else null
+        return when (this) {
+            ENGINE_LOAD, THROTTLE, FUEL_LEVEL -> a * 100f / 255f
+            COOLANT_TEMP, INTAKE_TEMP -> (a - 40).toFloat()
+            SHORT_TERM_FUEL_TRIM, LONG_TERM_FUEL_TRIM -> a / 1.28f - 100f
+            INTAKE_PRESSURE -> a.toFloat()
+            SPEED -> a.toFloat()
+            TIMING_ADVANCE -> a / 2f - 64f
+            RPM -> word?.let { it / 4f }
+            MAF -> word?.let { it / 100f }
+        }
+    }
+}
+
+/** One decoded J1979-2 parameter, as streamed to the UI. */
+data class J1979Reading(val pid: J1979Pid, val value: Float, val updatedAt: Long) {
+    val formatted: String
+        get() = when (pid.unit) {
+            "rpm", "kPa" -> value.roundToInt().toString()
+            "km/h" -> value.roundToInt().toString()
+            else -> String.format("%.1f", value)
+        }
 }

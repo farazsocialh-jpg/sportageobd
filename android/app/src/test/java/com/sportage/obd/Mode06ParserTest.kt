@@ -80,3 +80,72 @@ class Mode06ParserTest {
         assertEquals(tight.tid, marginal.first().tid)
     }
 }
+
+class Mode06SupportedTidTest {
+
+    @Test
+    fun `decodes the supported test bitmap`() {
+        // 46 00 then bitmap 0xC0 00 00 00: bit 7 -> TID 01, bit 6 -> TID 02.
+        assertEquals(listOf(1, 2), Mode06Parser.parseSupportedTids("46 00 C0 00 00 00"))
+    }
+
+    @Test
+    fun `tolerates ECUs that echo an extra three bytes`() {
+        assertEquals(
+            listOf(1, 2),
+            Mode06Parser.parseSupportedTids("46 00 00 00 C0 00 00 00")
+        )
+    }
+
+    @Test
+    fun `bitmap at the end of the byte range maps to the high TIDs`() {
+        // 0x00 0x00 0x00 0x01 -> bit 0 of byte 3 -> TID 32.
+        assertEquals(listOf(32), Mode06Parser.parseSupportedTids("46 00 00 00 00 01"))
+    }
+
+    @Test
+    fun `no data or a negative response yields no TIDs`() {
+        assertTrue(Mode06Parser.parseSupportedTids("NO DATA").isEmpty())
+        assertTrue(Mode06Parser.parseSupportedTids("7F 06 12").isEmpty())
+        assertTrue(Mode06Parser.parseSupportedTids("").isEmpty())
+    }
+}
+
+class Mode06MetadataTest {
+
+    @Test
+    fun `uas scale exponent becomes a decimal scale`() {
+        // UAS 0x12: width 2, scale exponent 1 -> tenths.
+        val result = Mode06Parser.parse("46 21 00 12 00 2A 00 00 00 37").first()
+        assertEquals(0.1, result.scale, 0.0001)
+        assertEquals(4.2, result.scaledValue, 0.0001)
+        assertEquals(5.5, result.scaledMaxLimit, 0.0001)
+    }
+
+    @Test
+    fun `common monitors get readable names and unknown ones stay raw`() {
+        assertEquals("Misfire monitor · general", Mode06Parser.monitorLabel(0x01))
+        assertEquals("Misfire monitor · cylinder 1", Mode06Parser.monitorLabel(0x02))
+        assertEquals("Catalyst monitor · bank 1", Mode06Parser.monitorLabel(0x21))
+        assertEquals("Monitor test 0x99", Mode06Parser.monitorLabel(0x99))
+    }
+
+    @Test
+    fun `severity bands follow the remaining margin`() {
+        val comfortable = Mode06Parser.parse("46 01 00 01 0A 00 14").first()
+        // 18 of a 0..21 window sits 29% from the middle: still passing, visibly tightening.
+        val tight = Mode06Parser.parse("46 02 00 01 12 00 15").first()
+        val exhausted = Mode06Parser.parse("46 51 00 01 1E 00 14").first()
+
+        assertEquals(0, comfortable.severity)
+        assertEquals(1, tight.severity)
+        assertEquals(2, exhausted.severity)
+    }
+
+    @Test
+    fun `no data detection accepts the spaced ELM reply`() {
+        assertTrue(Mode06Parser.isNoData("NO DATA"))
+        assertTrue(Mode06Parser.isNoData("no data\r"))
+        assertFalse(Mode06Parser.isNoData("46 01 00 01 0A 00 14"))
+    }
+}

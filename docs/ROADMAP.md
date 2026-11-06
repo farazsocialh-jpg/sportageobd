@@ -32,8 +32,8 @@ Last updated: 6 November 2026.
 | Item | Status | Notes |
 |---|---|---|
 | Manufacturer Mode 22/21 decoding | **Partial** | `obd/ExtendedPids.kt`: UDS framing, formula catalogue, five brand presets, custom PID model. The presets are explicitly **unverified** — DIDs differ per model year and module, and confirming them needs a real car. No UI editor for custom PIDs yet. |
-| OBDonUDS (SAE J1979-2) | **Partial** | Standardised `0xF400 + PID` DID mapping and `0x62` response decoding, unit tested. The polling loop does not yet request these DIDs. |
-| Mode 06 on-board monitor tests | **Partial** | `obd/Mode06Parser.kt` parses multi-frame results, signed/unsigned widths and pass margins, with tests. `ObdService` does not yet request Mode 06 nor is there a results screen. |
+| OBDonUDS (SAE J1979-2) | **Done, unverified on hardware** | Standardised `0xF400 + PID` DIDs are polled from `ObdService` every 400 ms, decoded by `J1979Pid` and shown on the monitor-tests screen. DIDs the ECU refuses are cached and not asked again. Only the standardised `0xF400` block is read; manufacturer DIDs still need the editor below. |
+| Mode 06 on-board monitor tests | **Done, unverified on hardware** | `ObdService` reads the `06 00` supported-test bitmap, then polls one test per slot (falling back to a curated probe list when no bitmap is published), caching TIDs the ECU rejects. Diagnostics → *On-board monitor tests* plots each value inside its pass window with the remaining margin. Parsing, bitmap decoding, labels and severity bands are unit tested; no ECU has been attached. |
 | AI explanations | **Not started** | Requires an API key mechanism and a privacy review; deliberately deferred rather than half-wired. |
 | Shareable PDF reports | **Not started** | CSV export of trips exists today. |
 | Health score | **Done** | `obd/HealthScore.kt` + score strip on the Gauges page; every deduction is explained. |
@@ -67,7 +67,9 @@ Cloud sync in particular needs a backend choice and a Play Data safety update be
 ## Known limitations of the current build
 
 - The health score, trip recorder and Mode 06/22 parsers are validated by unit tests only. They have
-  not been exercised against a real ECU.
+  not been exercised against a real ECU. Mode 06 and J1979-2 are wired into the polling loop and the
+  UI, and exercise themselves against the built-in demo ECU, but a real vehicle may still reveal
+  bitmap or multi-frame differences that no fixture predicts.
 - Manufacturer PID presets are best-effort starting points, labelled "experimental" in the UI; treat
   them as untrusted until confirmed on the specific vehicle.
 - No instrumented (androidTest) suite exists yet, so service lifecycle and permission flows are

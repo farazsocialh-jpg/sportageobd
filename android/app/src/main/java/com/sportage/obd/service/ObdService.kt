@@ -24,8 +24,13 @@ import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.bluetooth.ElmTransport
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.J1979Pid
+import com.sportage.obd.obd.J1979Reading
+import com.sportage.obd.obd.Mode06Parser
+import com.sportage.obd.obd.MonitorTestResult
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
+import com.sportage.obd.obd.UdsDecoding
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -87,6 +92,16 @@ class ObdService : Service() {
         private const val KEY_LAST_DEVICE_IS_BLE = "last_adapter_is_ble"
         private const val KEY_CSV_AUTOSTART = "csv_autostart"
 
+        /**
+         * Extended requests are paced to one every 400 ms. Mode 06 frames are multi-frame and slow
+         * on cheap adapters, so a faster cadence would visibly eat into the 10-18 Hz telemetry
+         * stream for data that only changes once per drive cycle.
+         */
+        private const val EXTENDED_POLL_INTERVAL_MS = 400L
+
+        /** Upper bound for a user-triggered Mode 06 pass, so the UI cannot stall on a busy bus. */
+        private const val MAX_MONITOR_SCAN_TIDS = 12
+
         /** True while the foreground service is alive, so a restarted UI can re-attach to it. */
         @Volatile
         var isRunning: Boolean = false
@@ -143,6 +158,19 @@ class ObdService : Service() {
     private val _isCsvLogging = MutableStateFlow(false)
     val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
 
+    private val _monitorTests = MutableStateFlow<List<MonitorTestResult>>(emptyList())
+
+    /** Latest Mode 06 on-board monitor results, rotated slowly inside the polling loop. */
+    val monitorTests: StateFlow<List<MonitorTestResult>> = _monitorTests.asStateFlow()
+
+    private val _monitorTestsUpdatedAt = MutableStateFlow(0L)
+    val monitorTestsUpdatedAt: StateFlow<Long> = _monitorTestsUpdatedAt.asStateFlow()
+
+    private val _j1979Readings = MutableStateFlow<List<J1979Reading>>(emptyList())
+
+    /** Live parameters read over SAE J1979-2 (`0xF400 + PID`) when the vehicle supports it. */
+    val j1979Readings: StateFlow<List<J1979Reading>> = _j1979Readings.asStateFlow()
+
     val activeAlerts: StateFlow<List<ActiveAlert>>
         get() = alertEngine?.activeAlerts ?: MutableStateFlow<List<ActiveAlert>>(emptyList())
 
@@ -163,6 +191,20 @@ class ObdService : Service() {
     // Critical-alert notifications are throttled: the polling loop runs at ~30 Hz and used to
     // re-post the same warning on every iteration.
     private var lastAlertNotificationAtMs = 0L
+
+    // --- Extended diagnostics (Mode 06 + J1979-2) ---
+    // Everything below is issued from the polling loop, never from a second coroutine: the
+    // transport is one socket with no request/response serialisation, so a concurrent caller
+    // would interleave its reply with the telemetry stream and hand both sides wrong answers.
+    private val monitorTestTids = linkedSetOf<Int>()          // advertised by the ECU via 06 00
+    private val unsupportedMonitorTids = mutableSetOf<Int>()   // asked once, never again
+    private val unsupportedJ1979Dids = mutableSetOf<String>()
+    private var extendedCursor = 0
+    private var j1979Cursor = 0
+    private var lastExtendedPollAtMs = 0L
+
+    @Volatile
+    private var monitorScanRequested = false
 
     inner class ObdServiceBinder : Binder() {
         fun getService(): ObdService = this@ObdService
@@ -247,6 +289,9 @@ class ObdService : Service() {
         useBle = ble
         reconnectJob?.cancel()
         stopPolling()
+        // A new session means a (possibly) different car: never carry the previous vehicle's
+        // monitor results, capability guesses or "unsupported" verdicts across a connect.
+        resetExtendedDiagnostics()
 
         // Release the previous link before swapping transports. An SPP adapter accepts a single
         // client, so a socket left open here made every later connect fail with "socket busy".
@@ -294,7 +339,17 @@ class ObdService : Service() {
         reconnectJob?.cancel()
         stopPolling()
         transport.disconnect()
+        resetExtendedDiagnostics()
         updateNotification("Disconnected")
+    }
+
+    /**
+     * Asks the polling loop for a full Mode 06 pass at its next safe slot (at most 400 ms away).
+     * Deliberately not a `suspend` call that talks to the transport itself — see the note on
+     * [monitorTestTids] about concurrent commands on a single socket.
+     */
+    fun requestMonitorTestScan() {
+        monitorScanRequested = true
     }
 
     fun pausePolling() {
@@ -468,6 +523,35 @@ class ObdService : Service() {
         try {
             readReadiness()
         } catch (_: Exception) {}
+        discoverMonitorTestIds()
+    }
+
+    /**
+     * Reads the `06 00` supported-test bitmap. A vehicle that does not implement Mode 06 answers
+     * "NO DATA" and the rotation falls back to [Mode06Parser.COMMON_TEST_IDS].
+     */
+    private suspend fun discoverMonitorTestIds() {
+        try {
+            val response = withTimeoutOrNull(2000) { transport.sendCommand("0600") } ?: return
+            val tids = Mode06Parser.parseSupportedTids(response)
+            if (tids.isNotEmpty()) {
+                monitorTestTids.clear()
+                monitorTestTids.addAll(tids)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun resetExtendedDiagnostics() {
+        monitorTestTids.clear()
+        unsupportedMonitorTids.clear()
+        unsupportedJ1979Dids.clear()
+        monitorScanRequested = false
+        extendedCursor = 0
+        j1979Cursor = 0
+        lastExtendedPollAtMs = 0L
+        _monitorTests.value = emptyList()
+        _monitorTestsUpdatedAt.value = 0L
+        _j1979Readings.value = emptyList()
     }
 
     private fun startPollingLoop() {
@@ -614,6 +698,10 @@ class ObdService : Service() {
                     }
                     csvLogger?.log(newTelemetry)
 
+                    // Mode 06 and J1979-2 share the socket with the fast PIDs, so they get one
+                    // slot every 400 ms instead of their own coroutine.
+                    pollExtendedDiagnostics(now)
+
                     delay(30) // Fast cycle rate
                 } catch (e: Exception) {
                     if (isActive && activeDevice != null) {
@@ -623,6 +711,107 @@ class ObdService : Service() {
                 }
             }
         }
+    }
+
+    // --- Extended diagnostics polling (Mode 06 / J1979-2) ---
+
+    /**
+     * Runs at most one extended request per slot, alternating between the Mode 06 monitors and the
+     * J1979-2 parameters. A user-triggered refresh takes the whole slot so it completes in one go.
+     */
+    private suspend fun pollExtendedDiagnostics(now: Long) {
+        if (now - lastExtendedPollAtMs < EXTENDED_POLL_INTERVAL_MS) return
+        lastExtendedPollAtMs = now
+        try {
+            if (monitorScanRequested) {
+                monitorScanRequested = false
+                scanAllMonitorTests()
+                return
+            }
+            if (extendedCursor % 2 == 0) pollNextMonitorTest() else pollNextJ1979Pid(now)
+            extendedCursor++
+        } catch (_: Exception) {
+            // An unsupported or malformed extended response must never take the telemetry loop down.
+        }
+    }
+
+    /**
+     * TIDs the ECU advertised, minus the ones that turned out not to answer, falling back to the
+     * curated probe list when the vehicle does not publish a `06 00` bitmap.
+     */
+    private fun pollableMonitorTids(): List<Int> =
+        monitorTestTids.ifEmpty { Mode06Parser.COMMON_TEST_IDS }.filterNot { it in unsupportedMonitorTids }
+
+    private suspend fun pollNextMonitorTest() {
+        val tids = pollableMonitorTids()
+        if (tids.isEmpty()) return
+        val tid = tids[(extendedCursor / 2) % tids.size]
+        val results = queryMonitorTest(tid) ?: return
+        mergeMonitorTests(results)
+    }
+
+    /**
+     * @return the parsed results for [tid], or null when the ECU does not implement it (the TID is
+     *         then cached so it is never requested again in this session).
+     */
+    private suspend fun queryMonitorTest(tid: Int): List<MonitorTestResult>? {
+        val response = transport.sendCommand("06%02X".format(tid))
+        if (Mode06Parser.isNoData(response) || UdsDecoding.normalize(response).startsWith("7F")) {
+            unsupportedMonitorTids += tid
+            return null
+        }
+        // An empty parse still means "supported but nothing reported right now", so the values are
+        // merged as-is rather than marking the TID unsupported.
+        return Mode06Parser.parse(response)
+    }
+
+    /** Replaces every existing result carrying the same TID, keeping the other monitors intact. */
+    private fun mergeMonitorTests(results: List<MonitorTestResult>) {
+        val touched = results.map { it.tid }.toSet()
+        if (touched.isEmpty()) return
+        val merged = (_monitorTests.value.filterNot { it.tid in touched } + results)
+            .sortedWith(compareBy({ it.tid }, { it.cid }))
+        _monitorTests.value = merged
+        _monitorTestsUpdatedAt.value = System.currentTimeMillis()
+    }
+
+    /** Full pass used by the "Scan monitors" button; bounded so a slow bus cannot stall the UI. */
+    private suspend fun scanAllMonitorTests() {
+        val tids = pollableMonitorTids().take(MAX_MONITOR_SCAN_TIDS)
+        val findings = ArrayList<MonitorTestResult>()
+        val queried = mutableSetOf<Int>()
+        for (tid in tids) {
+            queried += tid
+            queryMonitorTest(tid)?.let { findings += it }
+        }
+        // Only the TIDs just asked about are replaced; monitors that were not part of this pass (for
+        // example beyond the cap) keep the values read earlier in the session.
+        val merged = (_monitorTests.value.filterNot { it.tid in queried } + findings)
+            .sortedWith(compareBy({ it.tid }, { it.cid }))
+        _monitorTests.value = merged
+        // Stamped even when nothing answered: the UI leaves its "scanning" state on this value, and
+        // a vehicle with no Mode 06 support would otherwise spin forever.
+        _monitorTestsUpdatedAt.value = System.currentTimeMillis()
+    }
+
+    private suspend fun pollNextJ1979Pid(now: Long) {
+        val available = J1979Pid.entries.filterNot { it.did in unsupportedJ1979Dids }
+        if (available.isEmpty()) return
+        val target = available[j1979Cursor % available.size]
+        j1979Cursor++
+
+        val response = transport.sendCommand(target.command)
+        if (Mode06Parser.isNoData(response) || UdsDecoding.normalize(response).startsWith("7F")) {
+            // Pre-J1979-2 vehicles simply do not implement these DIDs; stop asking.
+            unsupportedJ1979Dids += target.did
+            _j1979Readings.value = _j1979Readings.value.filterNot { it.pid == target }
+            return
+        }
+        val payload = UdsDecoding.payload(response, 0x22, target.did) ?: return
+        val value = target.decode(payload) ?: return
+        _j1979Readings.value = (
+            _j1979Readings.value.filterNot { it.pid == target } + J1979Reading(target, value, now)
+            ).sortedBy { it.pid.ordinal }
     }
 
     private fun stopPolling() {

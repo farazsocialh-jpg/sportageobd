@@ -44,11 +44,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.obd.HealthGrade
 import com.sportage.obd.obd.HealthReport
+import com.sportage.obd.obd.Mode06Parser
 import com.sportage.obd.trips.TripSummary
 import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertSeverity
@@ -1942,6 +1945,10 @@ fun DiagnosticsPage(
     val scope = rememberCoroutineScope()
 
     var auxScanning by remember { mutableStateOf(false) }
+    var showMonitorTests by remember { mutableStateOf(false) }
+    val monitorResults = viewModel?.monitorTests?.collectAsState()?.value ?: emptyList()
+    val monitorUpdatedAt = viewModel?.monitorTestsUpdatedAt?.collectAsState()?.value ?: 0L
+    val j1979Readings = viewModel?.j1979Readings?.collectAsState()?.value ?: emptyList()
 
     Column(
         modifier = Modifier
@@ -2014,6 +2021,57 @@ fun DiagnosticsPage(
                         Text("Clear Codes (04)", color = CriticalRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                     }
                 }
+            }
+        }
+
+        // Mode 06 needs a wide canvas for the margin bars, so it opens on its own screen rather
+        // than squeezing into another tab.
+        Surface(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showMonitorTests = true },
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, if (monitorResults.isEmpty()) Color(0xFF1E293B) else ElectricCyan.copy(alpha = 0.4f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 9.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.MonitorHeart, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            "ON-BOARD MONITOR TESTS (06) · J1979-2",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            if (monitorResults.isEmpty()) {
+                                "Self-test margins · no results read yet"
+                            } else {
+                                "${monitorResults.size} monitors · ${Mode06Parser.marginal(monitorResults).size} near limit · " +
+                                    "${j1979Readings.size} J1979-2 parameters"
+                            },
+                            color = SecondaryText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                }
+                Text(
+                    "OPEN →",
+                    color = ElectricCyan,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
             }
         }
 
@@ -2196,6 +2254,27 @@ fun DiagnosticsPage(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    if (showMonitorTests) {
+        Dialog(
+            onDismissRequest = { showMonitorTests = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color(0xFF05070B)
+            ) {
+                MonitorTestsScreen(
+                    results = monitorResults,
+                    updatedAt = monitorUpdatedAt,
+                    j1979Readings = j1979Readings,
+                    isConnected = connectionState is ConnectionState.Connected,
+                    onRefresh = { viewModel?.requestMonitorTestScan() },
+                    onDismiss = { showMonitorTests = false }
+                )
             }
         }
     }
