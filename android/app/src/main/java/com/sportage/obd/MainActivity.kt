@@ -6,6 +6,11 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.content.Context
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.view.Surface
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationListener
@@ -72,7 +77,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.m"
+        const val APP_BUILD_TAG = "2026-11-06.n"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -115,6 +120,13 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var currentLat by mutableStateOf(25.2854)
     private var currentLon by mutableStateOf(51.5310)
     private var currentBearing by mutableStateOf(0f)
+    private var gpsCourseBearing: Float? = null
+    private var gpsSpeedMs = 0f
+    private var compassAzimuth: Float? = null
+    private val rotationMatrix = FloatArray(9)
+    private val remappedMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
+    private var sensorManager: SensorManager? = null
     private var weatherTempC by mutableStateOf<String?>(null)
     private var weatherText by mutableStateOf<String?>(null)
     private var lastWeatherFetchAtMs = 0L
@@ -617,11 +629,55 @@ class MainActivity : ComponentActivity(), LocationListener {
         if (!com.sportage.obd.map.TrackerMapPolicy.valid(location.latitude, location.longitude)) return
         currentLat = location.latitude
         currentLon = location.longitude
-        if (location.hasBearing() && location.speed > 0.5f) currentBearing = location.bearing
+        gpsCourseBearing = if (location.hasBearing()) location.bearing else gpsCourseBearing
+        gpsSpeedMs = if (location.hasSpeed()) location.speed else 0f
         currentGpsSpeed = if (location.hasSpeed()) (location.speed * 3.6f).toInt() else null
+        updateEffectiveBearing()
         gpsStatus = (if (location.provider == LocationManager.GPS_PROVIDER) "GPS" else "Network location") +
             (if (location.hasAccuracy()) " · ±${location.accuracy.toInt()} m" else "")
         maybeRefreshWeather()
+    }
+
+    /**
+     * Compass-driven heading. Google-Maps behavior: the location arrow follows the
+     * device's magnetic orientation while stationary (so turning the phone rotates
+     * the arrow) and switches to the more accurate GPS course once the vehicle is
+     * actually moving.
+     */
+    private val headingSensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
+            SensorManager.getRotationMatrix(rotationMatrix, null, event.values, null)
+            val (xAxis, yAxis) = when (runCatching { windowManager.defaultDisplay.rotation }.getOrDefault(Surface.ROTATION_0)) {
+                Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
+                Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
+                Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
+                else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+            }
+            if (!SensorManager.remapCoordinateSystem(rotationMatrix, xAxis, yAxis, remappedMatrix)) return
+            SensorManager.getOrientation(remappedMatrix, orientationAngles)
+            val raw = ((Math.toDegrees(orientationAngles[0].toDouble()).toFloat() % 360f) + 360f) % 360f
+            // Low-pass across the 0/360 wraparound so the arrow does not jitter.
+            compassAzimuth = compassAzimuth?.let { smoothAngle(it, raw, 0.25f) } ?: raw
+            updateEffectiveBearing()
+        }
+
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun smoothAngle(previous: Float, next: Float, alpha: Float): Float {
+        val delta = ((next - previous + 540f) % 360f) - 180f
+        return (previous + alpha * delta + 360f) % 360f
+    }
+
+    /** GPS course while driving, compass orientation while stationary. */
+    private fun updateEffectiveBearing() {
+        currentBearing = when {
+            gpsSpeedMs > 1.5f && gpsCourseBearing != null -> gpsCourseBearing!!
+            compassAzimuth != null -> compassAzimuth!!
+            gpsCourseBearing != null -> gpsCourseBearing!!
+            else -> currentBearing
+        }
     }
 
     /**
@@ -676,10 +732,16 @@ class MainActivity : ComponentActivity(), LocationListener {
         super.onResume()
         refreshPairedDevices()
         initLocationTracking()
+        sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        sensorManager?.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let { sensor ->
+            sensorManager?.registerListener(headingSensorListener, sensor, SensorManager.SENSOR_DELAY_GAME)
+        }
     }
 
     override fun onStop() {
         runCatching { locationManager?.removeUpdates(this) }
+        runCatching { sensorManager?.unregisterListener(headingSensorListener) }
+        sensorManager = null
         currentGpsSpeed = null
         gpsStatus = "Location paused"
         super.onStop()
