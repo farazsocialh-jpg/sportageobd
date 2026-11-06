@@ -79,7 +79,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.p"
+        const val APP_BUILD_TAG = "2026-11-06.q"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -126,8 +126,6 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var gpsSpeedMs = 0f
     private var compassAzimuth: Float? = null
     private val rotationMatrix = FloatArray(9)
-    private val remappedMatrix = FloatArray(9)
-    private val orientationAngles = FloatArray(3)
     private var sensorManager: SensorManager? = null
     private var weatherTempC by mutableStateOf<String?>(null)
     private var weatherText by mutableStateOf<String?>(null)
@@ -671,15 +669,39 @@ class MainActivity : ComponentActivity(), LocationListener {
             // getRotationMatrix() would read the null magnetometer array and crash
             // (NullPointerException "Attempt to read from null array" on rotation).
             SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            val (xAxis, yAxis) = when (runCatching { windowManager.defaultDisplay.rotation }.getOrDefault(Surface.ROTATION_0)) {
-                Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
-                Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
-                Surface.ROTATION_270 -> SensorManager.AXIS_MINUS_Y to SensorManager.AXIS_X
-                else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
+            val r = rotationMatrix
+            // The matrix rows are the world-axis components of each device axis:
+            // row 0 = east, row 1 = north (row 2 = up). The horizontal heading of any
+            // device axis is atan2(east, north) of its world vector.
+            fun headingOf(ax: Float, ay: Float, az: Float): Pair<Float, Float>? {
+                val east = r[0] * ax + r[1] * ay + r[2] * az
+                val north = r[3] * ax + r[4] * ay + r[5] * az
+                val horiz = kotlin.math.hypot(east.toDouble(), north.toDouble())
+                if (horiz < 0.35) return null // axis points too vertically to give a heading
+                val deg = ((Math.toDegrees(Math.atan2(east.toDouble(), north.toDouble())).toFloat() % 360f) + 360f) % 360f
+                return deg to horiz.toFloat()
             }
-            if (!SensorManager.remapCoordinateSystem(rotationMatrix, xAxis, yAxis, remappedMatrix)) return
-            SensorManager.getOrientation(remappedMatrix, orientationAngles)
-            val raw = ((Math.toDegrees(orientationAngles[0].toDouble()).toFloat() % 360f) + 360f) % 360f
+
+            // Candidate 1: the UI "up" axis (top edge of the screen content). Correct
+            // when the phone lies flat or is tilted back, like a dashboard mount.
+            val uiUp = when (runCatching { windowManager.defaultDisplay.rotation }.getOrDefault(Surface.ROTATION_0)) {
+                Surface.ROTATION_90 -> floatArrayOf(-1f, 0f, 0f)
+                Surface.ROTATION_180 -> floatArrayOf(0f, -1f, 0f)
+                Surface.ROTATION_270 -> floatArrayOf(1f, 0f, 0f)
+                else -> floatArrayOf(0f, 1f, 0f)
+            }
+            val upHeading = headingOf(uiUp[0], uiUp[1], uiUp[2])
+            // Candidate 2: the back of the phone (the direction the user looks "through"
+            // the screen). Correct when the phone is upright, like a windscreen mount.
+            // Without this, an upright landscape phone has a near-vertical UI-up axis
+            // and the arrow freezes - the map arrow stopped rotating in landscape.
+            val backHeading = headingOf(0f, 0f, -1f)
+
+            val raw = when {
+                upHeading != null && (backHeading == null || upHeading.second >= backHeading.second) -> upHeading.first
+                backHeading != null -> backHeading.first
+                else -> return // no usable axis; keep the last heading
+            }
             // Low-pass across the 0/360 wraparound so the arrow does not jitter.
             compassAzimuth = compassAzimuth?.let { smoothAngle(it, raw, 0.25f) } ?: raw
             updateEffectiveBearing()
