@@ -90,3 +90,35 @@ The system replaces monolithic activity-bound prototype code with a layered, ser
 - Manifest declarations include `android.intent.category.HOME` and `android.intent.category.DEFAULT`.
 - `onBackPressedDispatcher` intercepts Back button events on the Home screen to prevent closing the launcher, ensuring standard automotive infotainment behavior.
 - In-app **App Drawer** queries all installed launchable applications via `PackageManager.queryIntentActivities(...)` under the `QUERY_ALL_PACKAGES` permission, providing instant access to native radio, music, navigation, and settings apps.
+
+---
+
+## 5. Governance, diagnostics and newer feature modules
+
+| Module | Responsibility |
+|---|---|
+| `diagnostics/Diagnostics.kt` | Consent gate + event allow-list in front of Firebase Analytics/Crashlytics. No-op unless the driver opted in **and** the build has `google-services.json`. Also holds `AppPreferences` (onboarding/consent flags). |
+| `obd/ExtendedPids.kt` | UDS framing (`62`/`61` positive responses, `7F` negative responses), SAE J1979-2 `0xF400 + PID` mapping, a closed `PidFormula` catalogue (no expression evaluator, so no user code is executed), and manufacturer presets explicitly marked unverified. |
+| `obd/Mode06Parser.kt` | SAE J1979 Mode 06 on-board monitor results: `06 00` bitmap decoding, multi-frame parsing, UAS-driven width/signedness/scale, pass window and margin bands. Polled by `ObdService` one TID per 400 ms slot. |
+| `obd/ExtendedPids.kt` (`J1979Pid`) | The standardised J1979-2 `0xF400 + PID` block: DID and command derivation plus Mode 01 scaling for twelve live parameters. |
+| `ui/MonitorTestsScreen.kt` | Full-screen Mode 06 results: per-monitor pass window, remaining margin, severity band, and the J1979-2 live parameter grid. Opened from the Diagnostics page. |
+| `obd/HealthScore.kt` | Deterministic 0–100 health estimate with capped, explained deductions. Pure Kotlin, no Android dependencies. |
+| `trips/TripRecorder.kt` | Speed-sample integration with a capped sample gap, 0–100 km/h timing, harsh-acceleration counting and eco score. Starts/stops with the adapter connection in `MainActivity`. |
+| `trips/TripStore.kt` | Offline-first CSV history in the app's private storage; the same code path produces the shareable export. |
+| `launcher/Settings.kt` | `PageId`, `LauncherSettings`, `DriverProfile`, the `KeyValueStore` seam, `SettingsRepository` and the versioned `SnapshotCodec` shared by preferences and backup files. No Android types, so the whole cockpit configuration is unit tested. |
+| `launcher/Automation.kt` | `DriveModeController` (hysteresis with hold times), `AutoPauseController` (parked detection that never overrides a manual pause) and the `NightDim` window helper. |
+| `ui/DriveModeScreen.kt` | The driving view: speed, gear, RPM bar, temperatures, critical alert. Swallows pointer events so the cockpit underneath cannot be operated blindly. |
+| `ui/HomeOverview.kt` | Unified live-data strip above the home map: health, faults, trip, active driver and pinned apps. |
+| `ui/CockpitSettings.kt` | Setup card for layout, automation, profiles and backup/import. |
+| `ui/OnboardingScreen.kt`, `ui/InfoDialogs.kt` | First-run wizard (adapter, permissions, privacy consent) and the in-app privacy policy / help dialogs. The policy text is read from `assets/privacy_policy.md`, copied from `PRIVACY.md` at build time. |
+
+Threading note: all of the above are synchronous and small; callers invoke the file-backed trip
+store on `Dispatchers.IO`. Telemetry-derived state (health score, trip progress) is updated from the
+existing telemetry collector on the main dispatcher because it is pure arithmetic over one sample.
+
+Extended diagnostics (Mode 06 and J1979-2) are singled out deliberately: the ELM327 transport is one
+socket with no request/response serialisation, so they are issued **only** from inside the existing
+polling loop (one request per 400 ms, alternating between the two families) and never from a second
+coroutine. A UI "scan now" sets a flag that the loop reads at its next slot; the loop also stamps a
+completion timestamp, which is what clears the UI's scanning state even when the vehicle answers
+nothing at all.

@@ -92,9 +92,48 @@ A signed build is named `app-release.apk`; an unsigned one is `app-release-unsig
 v2 only, which is sufficient for the app's `minSdk` of 28 (JAR/v1 signing is only needed below
 Android 7.0, and AGP does not emit it above `minSdk` 24).
 
+## The Play Store bundle (AAB)
+
+Play does not accept an APK for a new app; upload the bundle:
+
+```bash
+cd android
+./gradlew bundleRelease
+# app/build/outputs/bundle/release/app-release.aab
+```
+
+The same signing config is applied to the bundle, and R8 runs on it exactly as on the APK. An AAB
+uploaded to Play must be signed — with no credentials the build produces an unsigned bundle, which
+Play rejects.
+
+### versionCode
+
+Every Play upload needs a versionCode higher than the last one. CI passes the workflow run number:
+
+```bash
+export SPORTAGE_VERSION_CODE=$(git rev-list --count HEAD)
+export SPORTAGE_VERSION_NAME=1.0.1
+./gradlew bundleRelease
+```
+
+Both variables are optional and fall back to `versionCode 1` / `versionName 1.0.0` so local builds
+stay reproducible.
+
+### Mapping file
+
+R8 obfuscates the release, so keep `app/build/outputs/mapping/release/mapping.txt` for every build
+you publish. CI uploads it as the `sportage-obd-mapping` artifact (90-day retention) and, when
+Firebase is configured, pushes it with:
+
+```bash
+./gradlew uploadCrashlyticsMappingFileRelease
+```
+
+Without the matching mapping file a production stack trace is unreadable.
+
 ## Publishing
 
-Push a tag to create a GitHub Release with the signed APKs attached:
+Push a tag to create a GitHub Release with the signed APK **and** AAB attached:
 
 ```bash
 git tag v1.0.0

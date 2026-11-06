@@ -6,7 +6,7 @@ cockpit for the same vehicle — built around a Kia Sportage (QL) 2.0 MPI AWD on
 The repo ships two separate front ends over the same idea: talk to a real ELM327 adapter, decode
 Mode 01 PIDs, and show the result on a screen designed to be glanced at while driving.
 
-[![CI Pipeline](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android.yml/badge.svg)](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android.yml)
+[![CI Pipeline](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android-build.yml/badge.svg)](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android-build.yml)
 ![Platform](https://img.shields.io/badge/Android-9%2B%20(API%2028--35)-brightgreen)
 ![Web](https://img.shields.io/badge/Web-React%2019%20%2B%20Vite%208-61dafb)
 
@@ -53,6 +53,28 @@ cockpit instead of a normal home screen.
   handshake output.
 - **App drawer** — searchable list of every installed app (`QUERY_ALL_PACKAGES`), so the launcher
   never traps the driver.
+- **First-run onboarding** — four short screens: the two-in-one idea, adapter pairing, permission
+  rationale, and an explicit (off-by-default) privacy choice.
+- **Vehicle health score** — bounded 0–100 estimate from battery voltage, coolant, fuel trims,
+  stored codes and readiness monitors, with every deduction explained on the Gauges page.
+- **Automatic trip log** — every drive with the adapter connected records distance, duration, max and
+  average speed, 0–100 km/h time, fuel used (when the ECU reports it) and an eco score; history and
+  CSV export live on the Trip page.
+- **Drive Mode** — at speed the cockpit collapses to speed, gear, RPM, temperatures and the active
+  warning, with page navigation and settings out of reach; it returns to the full cockpit after a
+  sustained stop. Entry/exit thresholds have hysteresis, so traffic cannot flicker it.
+- **Cockpit customisation** — choose app-drawer grid width and icon size, hide pages you never use,
+  pick the page the launcher opens on, and pin up to four apps to the dock and home strip.
+- **Automation** — optional auto-pause of the OBD link after a long standstill, plus the existing
+  night dimming, all evaluated from the same telemetry samples the gauges use.
+- **Driver profiles** — save units, Drive Mode threshold and page layout under a name and switch
+  between drivers from Setup; settings and profiles export/import as a small text file through the
+  system file picker (no account, no cloud).
+- **On-board monitor tests (Mode 06)** — the Diagnostics page opens a results screen that plots every
+  ECU self-test against its own pass window, so a component can be seen drifting towards failure
+  before it stores a code. Values near a limit are called out separately from failures, and the
+  screen also lists the live SAE J1979-2 (`0xF400 + PID`) parameters when the vehicle reports them.
+  Mode 22/21 manufacturer presets ship marked experimental (see [docs/ROADMAP.md](docs/ROADMAP.md)).
 - **Live map surface** — GPS position and speed, with deep links into Waze (`waze://`, `geo:`,
   `waze.com`).
 
@@ -126,18 +148,44 @@ included, so no separate Gradle install is needed.
 
 ```bash
 cd android
-./gradlew lintDebug            # Android Lint (zero errors expected)
-./gradlew testDebugUnitTest    # 21 JVM unit tests: ELM327 framing + PID/DTC decoding
-./gradlew assembleDebug assembleRelease
+./gradlew lintDebug            # Android Lint (CI fails on any error)
+./gradlew testDebugUnitTest    # 89 JVM unit tests: ELM327 framing, PID/DTC decoding,
+                               # Mode 06, UDS/J1979-2, health score, trips, trip CSV store
+./gradlew assembleDebug assembleRelease bundleRelease
 ```
 
 Outputs:
 
 - `android/app/build/outputs/apk/debug/app-debug.apk` (package id `com.sportage.obd.debug`)
-- `android/app/build/outputs/apk/release/app-release-unsigned.apk` — **unsigned**; add a
-  `signingConfig` to produce an installable signed release.
+- `android/app/build/outputs/apk/release/app-release.apk` — signed when credentials are configured,
+  otherwise `app-release-unsigned.apk`
+- `android/app/build/outputs/bundle/release/app-release.aab` — the Play Store upload
+- `android/app/build/outputs/mapping/release/mapping.txt` — R8 mapping for de-obfuscating crashes
+
+Release builds run R8 with resource shrinking (the debug APK is ~58 MB, the shrunk release APK is
+~4 MB). `SPORTAGE_VERSION_CODE` / `SPORTAGE_VERSION_NAME` override the version from the environment,
+which is how CI keeps the Play versionCode monotonic. Signing, AAB and mapping details:
+[android/SIGNING.md](android/SIGNING.md).
 
 Min SDK is 28 (Android 9), target and compile SDK 35, version 1.0.0.
+
+### Tests
+
+135 JVM unit tests cover the OBD decoders, the Mode 06/1979-2 parsers, the health score, trip
+recording and storage, the cockpit settings codec and backup round-trip, Drive Mode hysteresis,
+the parked-pause rule and night-dimming windows. There is no instrumented (on-device) suite yet.
+
+### Privacy and diagnostics
+
+No account, no vendor backend, and **no telemetry unless the driver opts in**. Vehicle data, trips
+and scans stay on the device. Analytics and crash reporting are consent-gated and inert unless the
+build also has a `google-services.json` — see [docs/ANALYTICS.md](docs/ANALYTICS.md).
+
+- [PRIVACY.md](PRIVACY.md) — the policy (also bundled into the APK and shown in Settings)
+- [docs/privacy.html](docs/privacy.html) — publishable public copy for the Play listing
+- [docs/DATA_SAFETY.md](docs/DATA_SAFETY.md) — Data safety form answers
+- [docs/PLAY_CHECKLIST.md](docs/PLAY_CHECKLIST.md) — release checklist
+- [docs/ROADMAP.md](docs/ROADMAP.md) — what is done, partial, or not started
 
 ### Web dashboard
 
@@ -152,12 +200,17 @@ npm run build    # production bundle in dist/
 
 ### CI
 
-- `.github/workflows/android.yml` — lint, unit tests, debug and release APK builds on pushes and pull
-  requests to `main`/`master`, plus manual dispatch.
-- `.github/workflows/build-apk.yml` — debug APK build for artifact download.
+`.github/workflows/android-build.yml` runs on pushes and pull requests to `main`/`master`, on `v*`
+tags, and on manual dispatch:
 
-Both workflows are branch-filtered: work on a feature branch only runs CI once it is pushed to
-`main`/`master` or opened as a pull request against them.
+1. Android Lint (a lint error fails the build)
+2. JVM unit tests
+3. debug APK, release APK and release AAB (signed when `RELEASE_KEYSTORE_*` secrets exist)
+4. R8 `mapping.txt` uploaded as an artifact, and pushed to Crashlytics when
+   `GOOGLE_SERVICES_JSON_BASE64` is configured
+5. lint/test reports uploaded even when a step fails
+
+Tag builds attach the APK and AAB to a GitHub Release and refuse to publish unsigned artifacts.
 
 ---
 

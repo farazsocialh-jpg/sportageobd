@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -50,7 +51,11 @@ data class InstalledAppItem(
 @Composable
 fun AppDrawerDialog(
     isOpen: Boolean,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    /** Grid width chosen in Setup → Cockpit. 0 keeps the orientation default. */
+    columns: Int = 0,
+    iconDp: Int = 56,
+    onPinApp: (InstalledAppItem) -> Unit = {}
 ) {
     if (!isOpen) return
 
@@ -232,7 +237,7 @@ fun AppDrawerDialog(
                     }
                 } else {
                     LazyVerticalGrid(
-                        columns = GridCells.Fixed(if (isLandscape) 6 else 4),
+                        columns = GridCells.Fixed(columns.takeIf { it in 3..6 } ?: if (isLandscape) 6 else 4),
                         modifier = Modifier.weight(1f),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalArrangement = Arrangement.spacedBy(14.dp)
@@ -240,6 +245,8 @@ fun AppDrawerDialog(
                         items(filteredApps, key = { it.packageName + it.activityName }) { app ->
                             AppGridItem(
                                 app = app,
+                                iconDp = iconDp,
+                                onPin = { onPinApp(app) },
                                 onClick = {
                                     try {
                                         val pm = context.packageManager
@@ -263,6 +270,8 @@ fun AppDrawerDialog(
 @Composable
 private fun AppGridItem(
     app: InstalledAppItem,
+    iconDp: Int,
+    onPin: () -> Unit,
     onClick: () -> Unit
 ) {
     Column(
@@ -297,6 +306,22 @@ private fun AppGridItem(
                     )
                 }
             }
+
+            // Pin: puts the app in the dock and on the home overview strip. Tapping the tile still
+            // launches it, so a stray tap never adds a pin by accident.
+            IconButton(
+                onClick = onPin,
+                modifier = Modifier
+                    .size(22.dp)
+                    .background(Color(0xFF0B1118).copy(alpha = 0.85f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Default.PushPin,
+                    contentDescription = "Pin ${app.label} to dock",
+                    tint = ElectricCyan,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -313,6 +338,21 @@ private fun AppGridItem(
             modifier = Modifier.fillMaxWidth()
         )
     }
+}
+
+/**
+ * Loads launcher icons for the pinned apps. A package that was uninstalled (or a settings backup
+ * restored onto another device) simply has no icon and falls back to the generic glyph.
+ */
+suspend fun loadPinnedAppIcons(context: Context, pins: List<PinnedApp>): Map<String, Bitmap> {
+    val icons = HashMap<String, Bitmap>()
+    pins.forEach { pin ->
+        val bitmap = runCatching {
+            drawableToBitmap(context.packageManager.getApplicationIcon(pin.packageName))
+        }.getOrNull()
+        if (bitmap != null) icons[pin.packageName + "/" + pin.activityName] = bitmap
+    }
+    return icons
 }
 
 private fun loadInstalledApps(context: Context): List<InstalledAppItem> {

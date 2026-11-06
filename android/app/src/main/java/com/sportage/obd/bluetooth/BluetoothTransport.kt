@@ -192,6 +192,10 @@ class BluetoothTransport : ElmTransport {
      * nothing". Run it on a worker thread and force-close the socket after a deadline.
      * Returns null on success, or the failure.
      */
+    // The BLUETOOTH_CONNECT check lives in the caller (connect() already catches SecurityException
+    // and reports it through connectionState), and the blocking connect() cannot itself be wrapped
+    // in a try/catch that keeps the timeout behaviour, so the lint suppression is deliberate.
+    @SuppressLint("MissingPermission")
     private fun connectSocketWithTimeout(
         socket: BluetoothSocket,
         timeoutMs: Long = 12_000L

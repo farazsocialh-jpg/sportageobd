@@ -11,6 +11,9 @@ import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.J1979Pid
+import com.sportage.obd.obd.J1979Reading
+import com.sportage.obd.obd.MonitorTestResult
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
 import com.sportage.obd.service.ActiveAlert
@@ -83,6 +86,15 @@ class ObdRepository(private val context: Context) {
 
     private val _isCsvLogging = MutableStateFlow(false)
     val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
+
+    private val _monitorTests = MutableStateFlow<List<MonitorTestResult>>(emptyList())
+    val monitorTests: StateFlow<List<MonitorTestResult>> = _monitorTests.asStateFlow()
+
+    private val _monitorTestsUpdatedAt = MutableStateFlow(0L)
+    val monitorTestsUpdatedAt: StateFlow<Long> = _monitorTestsUpdatedAt.asStateFlow()
+
+    private val _j1979Readings = MutableStateFlow<List<J1979Reading>>(emptyList())
+    val j1979Readings: StateFlow<List<J1979Reading>> = _j1979Readings.asStateFlow()
 
     private var demoJob: Job? = null
     private var serviceCollectorJob: Job? = null
@@ -188,6 +200,27 @@ class ObdRepository(private val context: Context) {
                     s.isCsvLogging.collect {
                         if (!_isDemoMode.value) {
                             _isCsvLogging.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.monitorTests.collect {
+                        if (!_isDemoMode.value) {
+                            _monitorTests.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.monitorTestsUpdatedAt.collect {
+                        if (!_isDemoMode.value) {
+                            _monitorTestsUpdatedAt.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.j1979Readings.collect {
+                        if (!_isDemoMode.value) {
+                            _j1979Readings.value = it
                         }
                     }
                 }
@@ -308,6 +341,9 @@ class ObdRepository(private val context: Context) {
         if (_isDemoMode.value) {
             setDemoMode(false)
         }
+        _monitorTests.value = emptyList()
+        _monitorTestsUpdatedAt.value = 0L
+        _j1979Readings.value = emptyList()
         // Nothing is streaming any more, so retire the foreground service and its notification;
         // the next connect restarts and rebinds it.
         stopServiceIfRunning()
@@ -341,7 +377,13 @@ class ObdRepository(private val context: Context) {
                 protocol = "ISO 15765-4 (CAN 11/500)"
             )
             startDemoSimulation()
+            _monitorTests.value = demoMonitorTests()
+            _monitorTestsUpdatedAt.value = System.currentTimeMillis()
+            _j1979Readings.value = demoJ1979Readings()
         } else {
+            _monitorTests.value = emptyList()
+            _monitorTestsUpdatedAt.value = 0L
+            _j1979Readings.value = emptyList()
             _connectionState.value = obdService?.connectionState?.value ?: ConnectionState.Disconnected
             _telemetry.value = obdService?.telemetry?.value ?: ObdTelemetry()
         }
@@ -470,6 +512,21 @@ class ObdRepository(private val context: Context) {
         }
     }
 
+    /** Asks the service for a fresh Mode 06 pass; the demo ECU fakes one after a short delay. */
+    fun requestMonitorTestScan() {
+        if (_isDemoMode.value) {
+            scope.launch {
+                delay(900)
+                if (_isDemoMode.value) {
+                    _monitorTests.value = demoMonitorTests()
+                    _monitorTestsUpdatedAt.value = System.currentTimeMillis()
+                }
+            }
+        } else {
+            obdService?.requestMonitorTestScan()
+        }
+    }
+
     // --- Warning thresholds ---
 
     fun alertThresholds(): AlertThresholds =
@@ -519,6 +576,32 @@ class ObdRepository(private val context: Context) {
         } else {
             obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
         }
+    }
+
+    /**
+     * Bench Mode 06 data. Values are chosen to exercise every severity band, including one monitor
+     * whose margin is all but exhausted — the case the screen exists to surface.
+     */
+    private fun demoMonitorTests(): List<MonitorTestResult> = listOf(
+        MonitorTestResult(tid = 0x01, cid = 0x00, unitAndScale = 0x01, value = 12.0, minLimit = 0.0, maxLimit = 200.0),
+        MonitorTestResult(tid = 0x02, cid = 0x00, unitAndScale = 0x01, value = 0.0, minLimit = 0.0, maxLimit = 40.0),
+        MonitorTestResult(tid = 0x21, cid = 0x00, unitAndScale = 0x02, value = 0.42, minLimit = 0.0, maxLimit = 0.55),
+        MonitorTestResult(tid = 0x41, cid = 0x00, unitAndScale = 0x02, value = 0.55, minLimit = 0.10, maxLimit = 1.0),
+        MonitorTestResult(tid = 0x51, cid = 0x00, unitAndScale = 0x02, value = 0.98, minLimit = 0.20, maxLimit = 1.0)
+    )
+
+    private fun demoJ1979Readings(): List<J1979Reading> {
+        val now = System.currentTimeMillis()
+        return listOf(
+            J1979Reading(J1979Pid.ENGINE_LOAD, 27.5f, now),
+            J1979Reading(J1979Pid.COOLANT_TEMP, 89f, now),
+            J1979Reading(J1979Pid.RPM, 2140f, now),
+            J1979Reading(J1979Pid.SPEED, 62f, now),
+            J1979Reading(J1979Pid.INTAKE_TEMP, 33f, now),
+            J1979Reading(J1979Pid.MAF, 9.4f, now),
+            J1979Reading(J1979Pid.THROTTLE, 14f, now),
+            J1979Reading(J1979Pid.FUEL_LEVEL, 64f, now)
+        )
     }
 
     private fun startDemoSimulation() {

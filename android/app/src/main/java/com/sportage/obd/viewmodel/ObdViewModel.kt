@@ -7,6 +7,8 @@ import androidx.lifecycle.viewModelScope
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.J1979Reading
+import com.sportage.obd.obd.MonitorTestResult
 import com.sportage.obd.obd.ReadinessState
 import com.sportage.obd.repository.ObdRepository
 import com.sportage.obd.service.ActiveAlert
@@ -66,6 +68,16 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     val isCsvLogging: StateFlow<Boolean> = repository.isCsvLogging
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    val monitorTests: StateFlow<List<MonitorTestResult>> = repository.monitorTests
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Epoch millis of the last Mode 06 update; 0 when nothing has been read this session. */
+    val monitorTestsUpdatedAt: StateFlow<Long> = repository.monitorTestsUpdatedAt
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
+    val j1979Readings: StateFlow<List<J1979Reading>> = repository.j1979Readings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isScanningDtc = MutableStateFlow(false)
     val isScanningDtc: StateFlow<Boolean> = _isScanningDtc.asStateFlow()

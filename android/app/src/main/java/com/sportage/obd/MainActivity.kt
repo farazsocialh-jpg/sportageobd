@@ -36,6 +36,9 @@ import com.sportage.obd.fuel.TripRecord
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
+import com.sportage.obd.ui.HelpDialog
+import com.sportage.obd.ui.OnboardingScreen
+import com.sportage.obd.ui.PrivacyPolicyDialog
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.SportageObdTheme
 import kotlinx.coroutines.CoroutineScope
@@ -45,6 +48,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -183,6 +187,26 @@ class MainActivity : ComponentActivity(), LocationListener {
         themeId = uiPrefs.getString("themeId", "cockpit-dark") ?: "cockpit-dark"
         accentOverride = uiPrefs.getString("accentOverride", null)
 
+        settingsRepo = SettingsRepository(object : KeyValueStore {
+            override fun getString(key: String, default: String?): String? = uiPrefs.getString(key, default)
+            override fun putString(key: String, value: String) {
+                uiPrefs.edit().putString(key, value).apply()
+            }
+        })
+        launcherSettings = settingsRepo.load().also { loaded ->
+            driveModeController.configure(loaded.driveModeEnterKmh, loaded.driveModeExitKmh)
+            autoPauseController.configure(loaded.autoPauseMinutes)
+        }
+        driverProfiles = settingsRepo.profiles()
+        activeProfile = settingsRepo.activeProfile()
+        activePage = launcherSettings.defaultPage.index
+
+        appPrefs = AppPreferences(this)
+        onboardingCompleted = appPrefs.onboardingCompleted
+        diagnosticsEnabled = appPrefs.diagnosticsEnabled
+        tripStore = TripStore(TripStore.tripFile(File(filesDir, "trips")))
+        runCatching { trips = tripStore.load().sortedByDescending { it.startedAtMs } }
+
         checkAndRequestPermissions()
         initLocationTracking()
         refreshPairedDevices()
@@ -224,17 +248,64 @@ class MainActivity : ComponentActivity(), LocationListener {
                     liveGear = t.estimatedGear
                     liveTransmissionGear = t.transmissionGear
                     measuredHz = t.sampleRateHz.takeIf { hz -> hz > 0f }
+
+                    // Health estimate: recommendations in Safety/Health separation. Only live
+                    // sensor values plus stored codes, never anything transmitted off-device.
+                    healthReport = healthReportFor(t)
+
+                    // Automatic trip logging: the recorder ignores adapter pauses but keeps the
+                    // clock, so a paused polling session does not invent or lose distance.
+                    if (tripRecorder.isActive) {
+                        val fuelRateLph = t.fuelEconomyL100?.let { economy ->
+                            val speed = t.speedKmh
+                            if (speed != null && speed > 5) economy * speed / 100f else null
+                        }
+                        tripRecorder.onSample(t.speedKmh, t.timestamp, fuelRateLph)
+                    }
+
+                    // Automation rules run off the same samples, so they never need a second timer.
+                    // The controller owns the state, so a manual tap and the speed rule cannot
+                    // fight: switching automation off disables auto-entry only, it must not tear
+                    // down a Drive Mode the driver just opened by hand.
+                    val nextDriveMode = driveModeController.update(
+                        speedKmh = t.speedKmh,
+                        nowMs = t.timestamp,
+                        allowAutoEntry = launcherSettings.driveModeEnabled
+                    )
+                    if (nextDriveMode != driveModeActive) driveModeActive = nextDriveMode
+
+                    if (launcherSettings.autoPauseEnabled) {
+                        val parked = autoPauseController.update(t.speedKmh, t.timestamp)
+                        if (parked && !autoPausedByRule) {
+                            autoPausedByRule = true
+                            if (!pollingPaused) togglePausePolling()
+                        } else if (!parked && autoPausedByRule) {
+                            // Back in motion: undo only the pause this rule applied, never a manual one.
+                            autoPausedByRule = false
+                            if (pollingPaused) togglePausePolling()
+                        }
+                    }
                 }
             }
 
             LaunchedEffect(Unit) {
                 viewModel.connectionState.collect { state ->
                     when (state) {
-                        is ConnectionState.Connected ->
+                        is ConnectionState.Connected -> {
                             logTerminal("INFO", "LINK ACTIVE: ${state.deviceName} \u00b7 ${state.protocol}")
-                        is ConnectionState.Error -> logTerminal("ERR", "Adapter error: ${state.message}")
+                            Diagnostics.log(Diagnostics.Event.OBD_CONNECT_SUCCESS)
+                            if (!tripRecorder.isActive) tripRecorder.start()
+                        }
+                        is ConnectionState.Error -> {
+                            logTerminal("ERR", "Adapter error: ${state.message}")
+                            Diagnostics.log(Diagnostics.Event.OBD_CONNECT_FAILURE)
+                            finishActiveTrip()
+                        }
                         is ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket to ${state.address ?: "adapter"}...")
-                        ConnectionState.Disconnected -> logTerminal("INFO", "Adapter link closed.")
+                        ConnectionState.Disconnected -> {
+                            logTerminal("INFO", "Adapter link closed.")
+                            finishActiveTrip()
+                        }
                     }
                 }
             }
@@ -242,6 +313,24 @@ class MainActivity : ComponentActivity(), LocationListener {
             SportageObdTheme(themeId = themeId, accentOverride = accentOverride) {
                 val isNight = isSystemInDarkTheme()
                 Box(modifier = Modifier.fillMaxSize()) {
+                if (!onboardingCompleted) {
+                    OnboardingScreen(
+                        onFinish = { shareDiagnostics ->
+                            appPrefs.onboardingCompleted = true
+                            appPrefs.privacyAcknowledged = true
+                            appPrefs.diagnosticsEnabled = shareDiagnostics
+                            Diagnostics.setEnabled(this@MainActivity, shareDiagnostics)
+                            diagnosticsEnabled = shareDiagnostics
+                            onboardingCompleted = true
+                            Diagnostics.log(Diagnostics.Event.ONBOARDING_COMPLETED)
+                            // The wizard explained the permissions; ask for them now rather than
+                            // at first launch, so every prompt has visible context.
+                            checkAndRequestPermissions()
+                        },
+                        onRequestPermissions = { checkAndRequestPermissions() },
+                        onOpenPrivacyPolicy = { showPrivacyPolicy = true }
+                    )
+                } else {
                     // Inset the dashboard so the status bar / navigation bar never cover controls.
                     Box(
                         modifier = Modifier
@@ -270,7 +359,10 @@ class MainActivity : ComponentActivity(), LocationListener {
                         currentBearing = currentBearing,
                         gpsStatus = gpsStatus,
                         activePage = activePage,
-                        onNavigatePage = { activePage = it },
+                        onNavigatePage = { page ->
+                            activePage = page
+                            Diagnostics.log(Diagnostics.Event.PAGE_VIEW, mapOf("page" to page))
+                        },
                         onOpenBluetoothClick = {
                             refreshPairedDevices()
                             showBluetoothDialog = true
@@ -323,6 +415,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 .background(Color.Black.copy(alpha = nightDimLevel))
                         )
                     }
+                }
                 }
 
                 // Bluetooth Connection & Terminal Modal
@@ -394,9 +487,86 @@ class MainActivity : ComponentActivity(), LocationListener {
                 // All Installed Applications Drawer Modal
                 AppDrawerDialog(
                     isOpen = showAppDrawer,
-                    onClose = { showAppDrawer = false }
+                    onClose = { showAppDrawer = false },
+                    columns = launcherSettings.drawerColumns,
+                    iconDp = launcherSettings.drawerIconDp,
+                    onPinApp = { app ->
+                        pinApp(PinnedApp(app.packageName, app.activityName, app.label))
+                    }
                 )
+
+                if (showPrivacyPolicy) {
+                    PrivacyPolicyDialog(onDismiss = { showPrivacyPolicy = false })
+                }
+
+                if (showHelp) {
+                    HelpDialog(onDismiss = { showHelp = false })
+                }
             }
+        }
+    }
+
+    /** Builds the health score from the latest telemetry and the codes currently stored in the ECU. */
+    private fun healthReportFor(t: com.sportage.obd.service.ObdTelemetry): HealthReport {
+        val codes = viewModel.dtcList.value
+        return HealthScorer.score(
+            HealthInput(
+                coolantTempC = t.coolantTempC,
+                batteryVoltage = t.batteryVoltage,
+                shortTermFuelTrimPct = t.shortTermFuelTrimPct,
+                longTermFuelTrimPct = t.longTermFuelTrimPct,
+                engineLoadPct = t.engineLoadPct,
+                milOn = codes.isNotEmpty(),
+                criticalDtcCount = codes.count { it.severity == com.sportage.obd.obd.DtcSeverity.CRITICAL },
+                warningDtcCount = codes.count { it.severity != com.sportage.obd.obd.DtcSeverity.CRITICAL },
+                incompleteMonitorCount = viewModel.readiness.value?.let { readiness ->
+                    (readiness.sparkIgnitionMonitors + readiness.compressionIgnitionMonitors)
+                        .count { !it.complete }
+                } ?: 0
+            )
+        )
+    }
+
+    /** Persists the trip that just ended, if it recorded anything worth keeping. */
+    private fun finishActiveTrip() {
+        val summary = tripRecorder.finish() ?: return
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { runCatching { tripStore.append(summary) } }
+            trips = (listOf(summary) + trips).sortedByDescending { it.startedAtMs }
+            Diagnostics.log(
+                Diagnostics.Event.TRIP_RECORDED,
+                mapOf("distance_km" to summary.distanceKm.toInt(), "minutes" to summary.durationMinutes)
+            )
+        }
+    }
+
+    private fun clearTrips() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { runCatching { tripStore.clear() } }
+            trips = emptyList()
+        }
+    }
+
+    /** Writes the whole trip history to a shareable CSV through the existing FileProvider. */
+    private fun shareTripsCsv() {
+        try {
+            val exportDir = File(cacheDir, "exports").apply { mkdirs() }
+            val exportFile = File(exportDir, "sportage_trips.csv")
+            exportFile.writeText(tripStore.exportCsv(trips))
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                exportFile
+            )
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "SportageOBD trip history")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Export trips"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not export trips: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -522,6 +692,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         lifecycleScope.launch {
             logTerminal("TX", "03 (Read Stored Diagnostic Trouble Codes)")
             val found = viewModel.scanDtcNow()
+            Diagnostics.log(
+                Diagnostics.Event.DTC_SCAN_COMPLETED,
+                mapOf("code_count" to found.size, "mil_on" to found.isNotEmpty())
+            )
             if (found.isEmpty()) {
                 Toast.makeText(this@MainActivity, "No Diagnostic Trouble Codes detected. ECU clean.", Toast.LENGTH_LONG).show()
             } else {
@@ -563,6 +737,124 @@ class MainActivity : ComponentActivity(), LocationListener {
         val paused = viewModel.togglePausePolling()
         val message = if (paused) "OBD Polling Paused (Ignition Off Mode)" else "OBD Polling Resumed"
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    // ----------------------------------------------------------------- cockpit settings & Phase 4
+
+    private fun updateLauncherSettings(next: LauncherSettings) {
+        val sanitized = next.sanitized()
+        launcherSettings = sanitized
+        settingsRepo.save(sanitized)
+        driveModeController.configure(sanitized.driveModeEnterKmh, sanitized.driveModeExitKmh)
+        autoPauseController.configure(sanitized.autoPauseMinutes)
+    }
+
+    private fun applyProfile(profile: DriverProfile) {
+        val next = profile.applyTo(launcherSettings)
+        updateLauncherSettings(next)
+        activeProfile = profile.name
+        settingsRepo.setActiveProfile(profile.name, next)
+        // A profile may change which pages exist and which one the cockpit opens on.
+        val current = PageId.fromIndex(activePage) ?: PageId.HOME
+        if (!next.isVisible(current)) activePage = next.defaultPage.index
+    }
+
+    private fun saveCurrentAsProfile(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        driverProfiles = settingsRepo.upsertProfile(DriverProfile.fromSettings(trimmed, launcherSettings))
+        activeProfile = trimmed
+        settingsRepo.setActiveProfile(trimmed, launcherSettings)
+        Toast.makeText(this, "Profile \"$trimmed\" saved", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun deleteProfile(name: String) {
+        driverProfiles = settingsRepo.deleteProfile(name)
+        if (activeProfile.equals(name, ignoreCase = true)) {
+            activeProfile = SettingsRepository.DEFAULT_PROFILE
+            settingsRepo.setActiveProfile(activeProfile, launcherSettings)
+        }
+        Toast.makeText(this, "Profile \"$name\" deleted", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun pinApp(pin: PinnedApp) {
+        val alreadyPinned = launcherSettings.pinnedApps.any {
+            it.packageName == pin.packageName && it.activityName == pin.activityName
+        }
+        when {
+            alreadyPinned -> Toast.makeText(this, "${pin.label} is already pinned", Toast.LENGTH_SHORT).show()
+            launcherSettings.pinnedApps.size >= LauncherSettings.MAX_PINS ->
+                Toast.makeText(this, "Dock is full (${LauncherSettings.MAX_PINS} pins) - remove one first", Toast.LENGTH_LONG).show()
+            else -> {
+                updateLauncherSettings(launcherSettings.copy(pinnedApps = launcherSettings.pinnedApps + pin))
+                Toast.makeText(this, "Pinned ${pin.label} to the dock", Toast.LENGTH_SHORT).show()
+                showAppDrawer = false
+            }
+        }
+    }
+
+    private fun launchPinned(pin: PinnedApp) {
+        val intent = packageManager.getLaunchIntentForPackage(pin.packageName) ?: run {
+            Toast.makeText(this, "${pin.label} is no longer installed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open ${pin.label}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Backup uses the system file picker (Storage Access Framework) rather than a share sheet:
+     * the driver picks a folder on a USB stick or the head unit's own storage, and no storage
+     * permission is requested.
+     */
+    private val createSettingsBackup = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val ok = runCatching {
+            contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(settingsRepo.backup().toByteArray())
+            } ?: error("could not open destination")
+        }.isSuccess
+        Toast.makeText(
+            this,
+            if (ok) "Cockpit settings exported" else "Export failed - the file could not be written",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private val openSettingsBackup = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val text = runCatching {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        if (text == null) {
+            Toast.makeText(this, "Import failed - the file could not be read", Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        if (settingsRepo.restore(text)) {
+            launcherSettings = settingsRepo.load()
+            driverProfiles = settingsRepo.profiles()
+            activeProfile = settingsRepo.activeProfile()
+            activePage = launcherSettings.defaultPage.index
+            Toast.makeText(this, "Cockpit settings imported", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "Not a Sportage cockpit backup file", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exportSettings() {
+        createSettingsBackup.launch("sportage-cockpit-${System.currentTimeMillis() / 1000}.txt")
+    }
+
+    private fun importSettings() {
+        openSettingsBackup.launch(arrayOf("text/plain", "*/*"))
     }
 
     private fun startTripTicker() {
