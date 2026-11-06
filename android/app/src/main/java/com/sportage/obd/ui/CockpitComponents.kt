@@ -75,7 +75,9 @@ private val destinations = listOf(
     CockpitDestination(7, "Boards", Icons.Default.Dashboard),
     CockpitDestination(6, "Sensors", Icons.Default.Sensors),
     CockpitDestination(2, "Diagnostics", Icons.Default.Warning),
+    CockpitDestination(9, "Advanced", Icons.Default.Insights),
     CockpitDestination(3, "Trip", Icons.Default.Route),
+    CockpitDestination(8, "Fuel", Icons.Default.LocalGasStation),
     CockpitDestination(4, "Media", Icons.Default.Radio),
     CockpitDestination(-1, "Apps", Icons.Default.Apps),
     CockpitDestination(5, "Setup", Icons.Default.Settings)
@@ -133,7 +135,7 @@ fun CockpitNavigation(activePage: Int, onNavigate: (Int) -> Unit, onOpenApps: ()
                     )
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    destinations.filter { it.page in listOf(6, 2, -1, 5) }.forEach { item ->
+                    destinations.filter { it.page in listOf(6, 2, 9, -1, 5, 8) }.forEach { item ->
                         DropdownMenuItem(text = { Text(item.label) },
                             leadingIcon = { Icon(item.icon, null) },
                             onClick = { expanded = false; select(item.page) })
