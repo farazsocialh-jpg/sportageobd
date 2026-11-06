@@ -34,12 +34,17 @@ workflows:
             gradle wrapper --gradle-version 8.9
           fi
           chmod +x gradlew
-      - name: Build Android APK
+      - name: Build Android Debug APK (smoke test)
         script: |
           cd "$CM_BUILD_DIR/android"
           ./gradlew assembleDebug --stacktrace
+      - name: Build Release AAB (Play Store ready)
+        script: |
+          cd "$CM_BUILD_DIR/android"
+          ./gradlew bundleRelease --stacktrace
     artifacts:
       - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
     publishing:
       email:
         recipients:

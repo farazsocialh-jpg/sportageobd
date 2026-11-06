@@ -126,18 +126,45 @@ included, so no separate Gradle install is needed.
 
 ```bash
 cd android
-./gradlew lintDebug            # Android Lint (zero errors expected)
-./gradlew testDebugUnitTest    # 21 JVM unit tests: ELM327 framing + PID/DTC decoding
-./gradlew assembleDebug assembleRelease
+./gradlew lintDebug                      # Android Lint (zero errors expected)
+./gradlew testDebugUnitTest              # 21 JVM unit tests: ELM327 framing + PID/DTC decoding
+./gradlew assembleDebug                  # debug APK (package id com.sportage.obd.debug)
+./gradlew bundleRelease                  # Play Store AAB (unsigned unless signing configured)
 ```
 
 Outputs:
 
 - `android/app/build/outputs/apk/debug/app-debug.apk` (package id `com.sportage.obd.debug`)
-- `android/app/build/outputs/apk/release/app-release-unsigned.apk` — **unsigned**; add a
-  `signingConfig` to produce an installable signed release.
+- `android/app/build/outputs/bundle/release/app-release.aab` — App Bundle for Google Play
+- `android/app/build/outputs/apk/release/app-release-unsigned.apk` — **unsigned** unless signing is configured
 
-Min SDK is 28 (Android 9), target and compile SDK 35, version 1.0.0.
+Min SDK is 28 (Android 9), target and compile SDK 35.
+
+#### Release signing
+
+Release signing is configured via environment variables or `android/keystore.properties`.
+See `app/build.gradle.kts` for the exact variable names (`SPORTAGE_KEYSTORE_FILE`,
+`SPORTAGE_KEYSTORE_PASSWORD`, `SPORTAGE_KEY_ALIAS`, `SPORTAGE_KEY_PASSWORD`).
+With no credentials the release build stays unsigned.
+
+#### Play Store readiness
+
+- `PRIVACY.md` — user-facing privacy policy (also linked from in-app Settings).
+- `DATA_SAFETY.md` — Google Play Data Safety form content.
+- Firebase Crashlytics + Analytics are integrated; `google-services.json` is required to
+  enable them. A placeholder is committed so the build works without real credentials.
+- R8/ProGuard is enabled for release builds; mapping.txt is generated automatically.
+- In-app onboarding wizard and Privacy Policy screen are on the Settings page.
+
+#### Upload to Play Console
+
+```bash
+# Upload mapping files for deobfuscated crash reports:
+./gradlew crashlyticsUploadDistributionRelease
+
+# Or manually upload the AAB from:
+# android/app/build/outputs/bundle/release/app-release.aab
+```
 
 ### Web dashboard
 

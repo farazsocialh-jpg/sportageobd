@@ -36,6 +36,8 @@ import com.sportage.obd.fuel.TripRecord
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
+import com.sportage.obd.ui.OnboardingScreen
+import com.sportage.obd.ui.PrivacyPolicyScreen
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.SportageObdTheme
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +51,7 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import androidx.core.os.bundleOf
 import com.sportage.obd.bluetooth.BluetoothDeviceInfo
 import androidx.compose.material3.Button
 import androidx.compose.material3.Surface
@@ -148,6 +151,12 @@ class MainActivity : ComponentActivity(), LocationListener {
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        // Track permission request outcome (anonymous, no personal data).
+        val btGranted = permissions.entries.any { it.key.contains("BLUETOOTH") && it.value }
+        analyticsLogEvent(
+            "permissions_obtained",
+            "bluetooth_granted" to (btGranted ?: false)
+        )
         val btEntries = permissions.entries.filter { it.key.contains("BLUETOOTH") }
         val btGranted = btEntries.all { it.value }
         if (btGranted) {
@@ -166,7 +175,21 @@ class MainActivity : ComponentActivity(), LocationListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // Track app launch (first-run detection for onboarding analytics).
+        val prefs = getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+        val launchCount = prefs.getInt("launch_count", 0) + 1
+        prefs.edit().putInt("launch_count", launchCount).apply()
+        val hasCompletedOnboarding = prefs.getBoolean("onboarding_complete", false)
+        val isFirstLaunch = !hasCompletedOnboarding
+
         showPreviousCrashReport()
+
+        // Track onboarding / first-launch flow.
+        analyticsLogEvent(
+            "app_launch",
+            "is_first_launch" to isFirstLaunch,
+            "launch_count" to launchCount
+        )
 
         // targetSdk 35 forces edge-to-edge on Android 15, which drew the cockpit strip underneath
         // the status bar. Opt in explicitly with transparent bars, then pad the root layout with the
@@ -247,34 +270,24 @@ class MainActivity : ComponentActivity(), LocationListener {
                         modifier = Modifier
                             .fillMaxSize()
                             .windowInsetsPadding(WindowInsets.safeDrawing)
-                    ) {
-                    CarLauncherScreen(
-                        connectionState = connState,
-                        measuredHz = measuredHz,
-                        speed = liveSpeed,
-                        rpm = liveRpm,
-                        coolant = liveCoolant,
-                        intakeTemp = liveIntakeTemp,
-                        fuelLevel = liveFuelLevel,
-                        throttle = liveThrottle,
-                        load = liveLoad,
-                        voltage = liveVoltage,
-                        gear = liveGear,
-                        transmissionGear = liveTransmissionGear,
-                        weatherTempC = weatherTempC,
-                        weatherText = weatherText,
-                        speedHistory = speedHist,
-                        rpmHistory = rpmHist,
-                        currentLat = currentLat,
-                        currentLon = currentLon,
-                        currentBearing = currentBearing,
-                        gpsStatus = gpsStatus,
-                        activePage = activePage,
-                        onNavigatePage = { activePage = it },
-                        onOpenBluetoothClick = {
-                            refreshPairedDevices()
-                            showBluetoothDialog = true
-                        },
+                    ) {                CarLauncherScreen(
+                    connectionState = connState,
+                    measuredHz = measuredHz, speed = liveSpeed, rpm = liveRpm, coolant = liveCoolant, intakeTemp = liveIntakeTemp,
+                    fuelLevel = liveFuelLevel, throttle = liveThrottle, load = liveLoad, voltage = liveVoltage, gear = liveGear,
+                    transmissionGear = liveTransmissionGear,
+                    weatherTempC = weatherTempC, weatherText = weatherText,
+                    speedHistory = speedHist, rpmHistory = rpmHist,
+                    currentLat = currentLat, currentLon = currentLon, currentBearing = currentBearing,
+                    gpsStatus = gpsStatus,
+                    activePage = activePage,
+                    onNavigatePage = { page ->
+                        activePage = page
+                        analyticsLogLauncherPage(page)
+                    },
+                    onOpenBluetoothClick = {
+                        refreshPairedDevices()
+                        showBluetoothDialog = true
+                    },
                         dtcCodes = dtcs,
                         isScanningDtc = isScanning,
                         onScanDtc = { scanDtcCodes() },
@@ -310,7 +323,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                         onSetAccentOverride = { hex ->
                             accentOverride = hex
                             uiPrefs.edit().putString("accentOverride", hex).apply()
-                        }
+                        },
+                        onOpenPrivacyPolicy = ::openPrivacyPolicy
                     )
                     }
 
@@ -396,8 +410,36 @@ class MainActivity : ComponentActivity(), LocationListener {
                     isOpen = showAppDrawer,
                     onClose = { showAppDrawer = false }
                 )
+
+                // Privacy Policy screen
+                if (showPrivacyPolicy) {
+                    PrivacyPolicyScreen(
+                        onNavigateBack = { showPrivacyPolicy = false }
+                    )
+                }
+
+                // First-run onboarding wizard
+                if (showOnboarding) {
+                    OnboardingScreen(
+                        onComplete = { completeOnboarding() },
+                        onDismiss = { completeOnboarding() }
+                    )
+                }
             }
         }
+    }
+
+    private var showPrivacyPolicy by mutableStateOf(false)
+    private var showOnboarding by mutableStateOf(!hasCompletedOnboarding)
+
+    private fun openPrivacyPolicy() {
+        showPrivacyPolicy = true
+    }
+
+    private fun completeOnboarding() {
+        showOnboarding = false
+        prefs.edit().putBoolean("onboarding_complete", true).apply()
+        analyticsLogEvent("onboarding_complete", "method" to "welcome_button")
     }
 
     private fun logTerminal(direction: String, text: String) {
@@ -478,6 +520,10 @@ class MainActivity : ComponentActivity(), LocationListener {
             // Starts (if needed) and binds ObdService, which owns the transport link and polling loop,
             // so telemetry keeps streaming after this activity is backgrounded or destroyed.
             viewModel.connectDevice(device, ble)
+            analyticsLogObdConnection(
+                success = true,
+                method = if (ble) "ble" else "classic"
+            )
         } catch (e: Exception) {
             // Nothing in the connect path may ever kill the process; surface it instead.
             logTerminal("ERR", "Connection request failed: ${e.localizedMessage ?: "unexpected error"}")
@@ -517,11 +563,14 @@ class MainActivity : ComponentActivity(), LocationListener {
     private fun scanDtcCodes() {
         if (!viewModel.isConnected() && !viewModel.isDemoMode.value) {
             Toast.makeText(this, "Connect to OBD adapter before scanning DTCs", Toast.LENGTH_SHORT).show()
+            analyticsLogEvent("dtc_scan", "aborted" to "not_connected")
             return
         }
         lifecycleScope.launch {
             logTerminal("TX", "03 (Read Stored Diagnostic Trouble Codes)")
             val found = viewModel.scanDtcNow()
+            val hasCritical = found.any { it.severity == com.sportage.obd.obd.DtcSeverity.CRITICAL }
+            analyticsLogDtcScan(found.size, hasCritical)
             if (found.isEmpty()) {
                 Toast.makeText(this@MainActivity, "No Diagnostic Trouble Codes detected. ECU clean.", Toast.LENGTH_LONG).show()
             } else {
@@ -790,6 +839,49 @@ class MainActivity : ComponentActivity(), LocationListener {
         currentGpsSpeed = null
         gpsStatus = "Location paused"
         super.onStop()
+    }
+
+    // --- Analytics helper ---
+
+    /**
+     * Logs an anonymous analytics event to Firebase Analytics.
+     * No personal data, no device identifiers beyond what Firebase automatically
+     * collects. Analytics is always-on in this app but can be gated by user
+     * consent in a future update.
+     *
+     * All context values are primitives or short strings; nothing that identifies
+     * the user, their vehicle VIN, or their location is sent.
+     */
+    private fun analyticsLogEvent(eventName: String, vararg parameters: Pair<String, Any?>) {
+        try {
+            val bundle = bundleOf(*parameters.map { (k, v) -> k to (v?.toString() ?: "null") }.toTypedArray())
+            (application as? SportageObdApp)?.firebaseAnalytics?.logEvent(eventName, bundle)
+        } catch (_: Exception) {
+            // Analytics must never break the app.
+        }
+    }
+
+    /** Convenience: track an OBD connection attempt result. */
+    private fun analyticsLogObdConnection(success: Boolean, method: String = "unknown") {
+        analyticsLogEvent(
+            "obd_connection",
+            "success" to success,
+            "method" to method
+        )
+    }
+
+    /** Convenience: track a DTC scan completion. */
+    private fun analyticsLogDtcScan(dtcCount: Int, hasCritical: Boolean) {
+        analyticsLogEvent(
+            "dtc_scan",
+            "dtc_count" to dtcCount,
+            "has_critical" to hasCritical
+        )
+    }
+
+    /** Convenience: track launcher page navigation. */
+    private fun analyticsLogLauncherPage(page: Int) {
+        analyticsLogEvent("launcher_page", "page" to page)
     }
 
     private fun checkAndRequestPermissions() {

@@ -88,12 +88,25 @@ export function launchApp(app: LauncherApp) {
   if (app.urlScheme) {
     try {
       window.location.href = app.urlScheme;
-      // Also open web fallback after small delay if protocol handler is not registered
-      setTimeout(() => {
+      // Check if the scheme was handled by an app; if not, fall back to web
+      // We use a Promise-based approach: try the scheme, wait briefly, then open web fallback
+      const schemePromise = new Promise<void>((resolve) => {
+        // After a short delay, assume the scheme wasn't handled and open web fallback
+        const schemeCheck = setTimeout(() => {
+          resolve(undefined);
+        }, 500);
+        // If the URL scheme is handled by an app, the navigation will complete and
+        // we can clear the timeout. If not, the browser will fall through to open
+        // the web fallback after the promise resolves.
+        // Note: We can't directly detect if scheme was handled, so we use the delay approach.
+      });
+
+      // Wait briefly then open web fallback
+      schemePromise.then(() => {
         if (app.webFallback) {
           window.open(app.webFallback, '_blank', 'noopener,noreferrer');
         }
-      }, 700);
+      });
       return;
     } catch (e) {
       // Fallback

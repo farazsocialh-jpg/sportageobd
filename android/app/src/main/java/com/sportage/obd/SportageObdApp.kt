@@ -1,28 +1,45 @@
 package com.sportage.obd
 
 import android.app.Application
+import android.util.Log
+import com.google.firebase.analytics.FirebaseAnalytics
+import com.google.firebase.crashlytics.FirebaseCrashlytics
+import com.google.firebase.crashlytics.ktx.firebaseCrashlytics
+import com.google.firebase.ktx.Firebase
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 /**
- * Application-level crash capture.
+ * Application-level crash capture + Firebase initialization.
  *
- * Every uncaught exception (from any thread, including the Bluetooth service coroutines)
- * is written to files/last_crash.txt BEFORE the process dies. On the next launch
- * MainActivity reads it back and shows it to the driver, so the exact crash reason is
- * visible on the head unit itself - no adb / logcat needed.
+ * - Firebase Crashlytics is initialized automatically by the Firebase library when
+ *   google-services.json is present. Crashlytics reports uncaught exceptions.
+ * - Firebase Analytics is initialized the same way and tracks anonymous app-usage
+ *   events (onboarding completion, OBD connection, scan completions, launcher usage).
+ *
+ * Every uncaught exception is ALSO written to files/last_crash.txt BEFORE the process
+ * dies, so the next launch shows the crash reason on the head unit itself even when
+ * Crashlytics upload fails (no network, missing google-services.json, etc.).
  */
 class SportageObdApp : Application() {
+
+    lateinit var firebaseAnalytics: FirebaseAnalytics
+        private set
 
     override fun onCreate() {
         super.onCreate()
         org.mapsforge.map.android.graphics.AndroidGraphicFactory.createInstance(this)
 
+        // Initialize Firebase Analytics (always-on, anonymous usage tracking).
+        // If google-services.json is missing, Firebase is inactive but the app still runs.
+        firebaseAnalytics = Firebase.analytics
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
+                // Write local crash log first (always works, no network needed).
                 val log = File(filesDir, "last_crash.txt")
                 log.writeText(
                     buildString {
@@ -36,6 +53,23 @@ class SportageObdApp : Application() {
                         append(throwable.stackTraceToString())
                     }
                 )
+
+                // Also send to Crashlytics (best-effort; fails silently if offline / not configured).
+                try {
+                    FirebaseCrashlytics.getInstance().log("Uncaught exception in ${thread.name}")
+                    FirebaseCrashlytics.getInstance().recordException(throwable)
+                } catch (_: Exception) {
+                    // Crashlytics must never mask the original crash.
+                }
+
+                // Log key context for analytics (best-effort, no user-identifying data).
+                try {
+                    firebaseAnalytics.logEvent("app_crash", bundleOf(
+                        "exception_class" to (throwable.javaClass.name.take(100)),
+                        "has_previous_crash_file" to File(filesDir, "last_crash.txt").exists()
+                    ))
+                } catch (_: Exception) {}
+
             } catch (_: Exception) {
                 // Writing the log must never mask the original crash.
             }

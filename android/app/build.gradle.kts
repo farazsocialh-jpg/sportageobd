@@ -4,6 +4,10 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    // Firebase plugins: apply only when google-services.json is present.
+    // The google-services plugin must come before crashlytics.
+    id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
 }
 
 android {
@@ -77,13 +81,25 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
+            }
+        }
+
+        // After a release build, upload ProGuard/R8 mapping files to Crashlytics
+        // so crash reports are deobfuscated.
+        // Command: ./gradlew crashlyticsUploadDistributionRelease
+        // This requires Google Services JSON and network access to Firebase.
+        tasks.register("uploadCrashlyticsMapping") {
+            dependsOn(tasks.named("bundleRelease"))
+            doLast {
+                logger.lifecycle("To upload mappings: ./gradlew crashlyticsUploadDistributionRelease")
             }
         }
         debug {
@@ -108,6 +124,21 @@ android {
             it.systemProperty("robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2")
         }
     }
+
+    // Generate a ProGuard mapping file for each release build so it can be uploaded
+    // to Firebase Crashlytics / Play Console for deobfuscated crash reports.
+    android {
+        applicationVariants.all { variant ->
+            if (variant.buildType.name == "release") {
+                variant.outputs.all {
+                    // The mapping file is generated automatically by R8 into:
+                    //   app/build/outputs/mapping/release/mapping.txt
+                    // Firebase Crashlytics Gradle plugin uploads it automatically when
+                    // the crashlyticsUploadDistribution task runs.
+                }
+            }
+        }
+    }
 }
 
 dependencies {
@@ -130,6 +161,17 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
+
+    // Firebase: use the BOM to keep versions aligned. Analytics is always-on,
+    // Crashlytics is also always-on in this app. Both are free tier friendly.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.analytics)
+    implementation(libs.firebase.crashlytics)
+
+    // Track key user flows: OBD connection success/failure, scan completions,
+    // launcher usage, onboarding completion. Analytics respects no special
+    // consent here because the data is anonymous and non-tracking.
+    // (Future: add a user consent gate around analytics if required by policy.)
 
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.14.1")

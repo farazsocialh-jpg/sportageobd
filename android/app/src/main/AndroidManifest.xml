@@ -3,11 +3,12 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <!-- Essential Internet & Network Permissions for the Online Map & Traffic -->
+    <!-- Network & Internet for weather API and online map tiles (OpenFreeMap / MapLibre) -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
 
-    <!-- Bluetooth Classic & BLE Permissions -->
+    <!-- Bluetooth: connect to ELM327 OBD adapters. Android 12+ uses runtime permissions. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
@@ -15,16 +16,19 @@
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
 
-    <!-- Location for Real GPS speed, live coordinates & Maps Navigation -->
+    <!-- Location: required by Android to scan for Bluetooth devices, and used for the
+         embedded map and weather. Not used for tracking or advertising. Can be denied
+         without breaking core OBD diagnostics. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <!-- Foreground service to keep OBD streaming active when switching to Maps/other apps -->
+    <!-- Foreground service keeps OBD streaming alive when the user switches to Maps/other apps. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
-    <!-- Query all packages for Home Car Launcher App Drawer -->
+    <!-- QUERY_ALL_PACKAGES: only so the launcher app drawer can list installed apps.
+         Not used for advertising, profiling, or any purpose other than the launcher UI. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
@@ -81,13 +85,11 @@
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize"
             android:windowSoftInputMode="adjustPan">
             
-            <!-- Standard App Launch Intent -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Home Car Launcher Category: Makes app function as the primary Android Head Unit / Car Launcher -->
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.HOME" />

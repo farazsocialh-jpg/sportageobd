@@ -118,7 +118,8 @@ fun CarLauncherScreen(
     themeId: String = "cockpit-dark",
     accentOverride: String? = null,
     onSetThemeId: (String) -> Unit = {},
-    onSetAccentOverride: (String?) -> Unit = {}
+    onSetAccentOverride: (String?) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -188,11 +189,35 @@ fun CarLauncherScreen(
                 return
             } catch (_: Exception) {}
         }
-        // Standard intents found nothing; open the first player the broader
-        // package scan knows about (Spotify and friends declare no music intent).
-        val discovered = MediaApps.musicApps(context).firstOrNull()?.launchIntent
-        if (discovered != null && runCatching { context.startActivity(discovered) }.isSuccess) return
-        Toast.makeText(context, "No compatible music app is installed. Choose an app from the app drawer.", Toast.LENGTH_LONG).show()
+        // Show app picker dialog for user to choose music app
+        showMusicAppPicker(context)
+    }
+
+    /** Shows a dialog with all installed music apps for the user to choose from. */
+    private fun showMusicAppPicker(context: Context) {
+        val apps = MediaApps.musicApps(context)
+        if (apps.isEmpty()) {
+            Toast.makeText(context, "No music apps found on this device.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val chosenApp = chosenMusicApp(context)
+        val defaultIdx = if (chosenApp != null) apps.indexOfFirst { it.packageName == chosenApp } else 0
+        var selectedIdx = defaultIdx
+        AlertDialog.Builder(context)
+            .setTitle("Select Music App")
+            .setSingleChoiceItems(
+                apps.map { it.label }.toTypedArray(),
+                defaultIdx,
+                { dialog, which -> selectedIdx = which }
+            )
+            .setPositiveButton("Open") { _ ->
+                val selected = apps[selectedIdx]
+                runCatching { context.startActivity(selected.launchIntent) }
+                // Save the user's choice for future launches
+                saveChosenMusicApp(context, selected.packageName)
+            }
+            .setNegativeButton("Cancel") { _ -> }
+            .show()
     }
 
     fun launchHeadUnitRadioApp() {
@@ -364,7 +389,8 @@ fun CarLauncherScreen(
                                 themeId = themeId,
                                 accentOverride = accentOverride,
                                 onSetThemeId = onSetThemeId,
-                                onSetAccentOverride = onSetAccentOverride
+                                onSetAccentOverride = onSetAccentOverride,
+                                onOpenPrivacyPolicy = onOpenPrivacyPolicy
                             )
                         }
                     }
@@ -515,7 +541,8 @@ fun CarLauncherScreen(
                             themeId = themeId,
                             accentOverride = accentOverride,
                             onSetThemeId = onSetThemeId,
-                            onSetAccentOverride = onSetAccentOverride
+                            onSetAccentOverride = onSetAccentOverride,
+                            onOpenPrivacyPolicy = { /* handled in SettingsPage */ }
                         )
                     }
                 }
@@ -1578,7 +1605,8 @@ fun SettingsPage(
     themeId: String = "cockpit-dark",
     accentOverride: String? = null,
     onSetThemeId: (String) -> Unit = {},
-    onSetAccentOverride: (String?) -> Unit = {}
+    onSetAccentOverride: (String?) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
@@ -1930,6 +1958,26 @@ private fun ThemeCustomizationCard(
             Column {
                 Text("THEME & COLORS", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                 Text("Restyle the whole app instantly · ${selected.title}", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+            }
+
+            HorizontalDivider(color = DarkSurfaceElevated())
+
+            ListItem(
+                headlineContent = { Text("Privacy Policy", color = PrimaryText(), fontWeight = FontWeight.Medium) },
+                supportingContent = { Text("View our privacy policy and data practices", color = SecondaryText()) },
+                leadingContent = {
+                    Icon(
+                        Icons.Default.PrivacyTip,
+                        contentDescription = null,
+                        tint = ElectricCyan(),
+                        modifier = Modifier.size(24.dp)
+                    )
+                },
+                modifier = Modifier.fillMaxWidth(),
+                colors = ListItemDefaults.colors(containerColor = DarkSurface()),
+                shape = RoundedCornerShape(0.dp)
+            ) {
+                onOpenPrivacyPolicy()
             }
 
             // Full-app theme presets.
