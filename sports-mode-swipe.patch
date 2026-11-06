@@ -1,0 +1,475 @@
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt b/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
+index 1100564..6e33ced 100644
+--- a/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
++++ b/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
+@@ -15,12 +15,15 @@ import android.webkit.WebViewClient
+ import android.widget.Toast
+ import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.ExperimentalFoundationApi
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.*
+ import androidx.compose.foundation.horizontalScroll
+ import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.pager.HorizontalPager
++import androidx.compose.foundation.pager.rememberPagerState
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.foundation.lazy.items
+@@ -33,6 +36,8 @@ import androidx.compose.runtime.*
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Path
+ import androidx.compose.ui.graphics.StrokeCap
+@@ -41,6 +46,7 @@ import androidx.compose.ui.platform.LocalConfiguration
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.font.FontFamily
+ import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
+ import androidx.compose.ui.viewinterop.AndroidView
+@@ -391,7 +397,7 @@ fun CarLauncherScreen(
+ 
+                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                         when (activePage) {
+-                            0 -> PermanentHomeSplitView(
++                            0 -> SwipeableHomeContainer(
+                                 isLandscape = true,
+                                 aspectRatio = aspectRatio,
+                                 currentLat = currentLat,
+@@ -506,7 +512,7 @@ fun CarLauncherScreen(
+ 
+                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                     when (activePage) {
+-                        0 -> PermanentHomeSplitView(
++                        0 -> SwipeableHomeContainer(
+                             isLandscape = false,
+                             aspectRatio = aspectRatio,
+                             currentLat = currentLat,
+@@ -857,7 +863,418 @@ fun TopCockpitStatusStrip(
+ }
+ 
+ // =========================================================================
+-// SUB-VIEW: PERMANENT HOME SPLIT SCREEN (Dominant Live Map + Live OBD Gauges)
++// SWIPEABLE HOME: Normal split view  ←→  Aggressive Sports Mode
++// Horizontal swipe on the Home page switches between the two dashboards.
++// =========================================================================
++@OptIn(ExperimentalFoundationApi::class)
++@Composable
++fun SwipeableHomeContainer(
++    isLandscape: Boolean,
++    aspectRatio: Float = 1.7f,
++    currentLat: Double,
++    currentLon: Double,
++    speed: Int?,
++    speedUnit: String,
++    onToggleSpeedUnit: () -> Unit,
++    rpm: Int?,
++    coolant: Int?,
++    voltage: Float?,
++    load: Float?,
++    throttle: Float?,
++    gear: Int,
++    connectionState: ConnectionState,
++    measuredHz: Float?,
++    isDemoMode: Boolean,
++    onOpenFullMap: () -> Unit
++) {
++    val pagerState = rememberPagerState(pageCount = { 2 })
++
++    Box(modifier = Modifier.fillMaxSize()) {
++        HorizontalPager(
++            state = pagerState,
++            modifier = Modifier.fillMaxSize()
++        ) { page ->
++            when (page) {
++                0 -> PermanentHomeSplitView(
++                    isLandscape = isLandscape,
++                    aspectRatio = aspectRatio,
++                    currentLat = currentLat,
++                    currentLon = currentLon,
++                    speed = speed,
++                    speedUnit = speedUnit,
++                    onToggleSpeedUnit = onToggleSpeedUnit,
++                    rpm = rpm,
++                    coolant = coolant,
++                    voltage = voltage,
++                    load = load,
++                    throttle = throttle,
++                    gear = gear,
++                    connectionState = connectionState,
++                    measuredHz = measuredHz,
++                    isDemoMode = isDemoMode,
++                    onOpenFullMap = onOpenFullMap
++                )
++                1 -> SportsModeDashboard(
++                    speed = speed,
++                    speedUnit = speedUnit,
++                    rpm = rpm,
++                    coolant = coolant,
++                    voltage = voltage,
++                    load = load,
++                    throttle = throttle,
++                    gear = gear,
++                    measuredHz = measuredHz,
++                    connectionState = connectionState,
++                    isDemoMode = isDemoMode
++                )
++            }
++        }
++
++        // Subtle page dots so the driver knows the home screen is swipeable
++        Row(
++            modifier = Modifier
++                .align(Alignment.BottomCenter)
++                .padding(bottom = 10.dp),
++            horizontalArrangement = Arrangement.spacedBy(7.dp),
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            repeat(2) { index ->
++                val selected = pagerState.currentPage == index
++                Box(
++                    modifier = Modifier
++                        .size(if (selected) 9.dp else 6.dp)
++                        .background(
++                            color = if (selected) {
++                                if (index == 1) CriticalRed else ElectricCyan
++                            } else {
++                                Color.White.copy(alpha = 0.28f)
++                            },
++                            shape = CircleShape
++                        )
++                )
++            }
++        }
++    }
++}
++
++// =========================================================================
++// SPORTS MODE DASHBOARD — aggressive full-bleed RPM / Speed instrument cluster
++// =========================================================================
++@Composable
++fun SportsModeDashboard(
++    speed: Int?,
++    speedUnit: String,
++    rpm: Int?,
++    coolant: Int?,
++    voltage: Float?,
++    load: Float?,
++    throttle: Float?,
++    gear: Int,
++    measuredHz: Float?,
++    connectionState: ConnectionState,
++    isDemoMode: Boolean
++) {
++    val safeRpm = (rpm ?: 0).coerceIn(0, 8000)
++    val safeSpeed = speed ?: 0
++    val redline = 6200
++    val isRedline = safeRpm >= redline
++    val rpmProgress = (safeRpm / 7000f).coerceIn(0f, 1f)
++
++    val accent = if (isRedline) CriticalRed else Color(0xFFFF3B30)
++    val glowAccent = if (isRedline) Color(0xFFFF6B6B) else Color(0xFFFF5A4A)
++
++    Box(
++        modifier = Modifier
++            .fillMaxSize()
++            .background(
++                Brush.verticalGradient(
++                    colors = listOf(
++                        Color(0xFF050508),
++                        Color(0xFF0C0C12),
++                        Color(0xFF120808)
++                    )
++                )
++            )
++            .padding(10.dp)
++    ) {
++        Column(
++            modifier = Modifier.fillMaxSize(),
++            verticalArrangement = Arrangement.spacedBy(8.dp)
++        ) {
++            // Header
++            Row(
++                modifier = Modifier.fillMaxWidth(),
++                horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically
++            ) {
++                Text(
++                    text = "SPORT MODE",
++                    color = accent,
++                    fontSize = 14.sp,
++                    fontWeight = FontWeight.Black,
++                    fontFamily = FontFamily.Monospace,
++                    letterSpacing = 2.sp
++                )
++                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
++                    if (isDemoMode) {
++                        Text("DEMO", color = WarningAmber, fontSize = 10.sp, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
++                    }
++                    Text(
++                        text = when (connectionState) {
++                            is ConnectionState.Connected -> "LIVE"
++                            is ConnectionState.Connecting -> "LINK…"
++                            else -> "NO ECU"
++                        },
++                        color = if (connectionState is ConnectionState.Connected) TealAccent else CriticalRed,
++                        fontSize = 10.sp,
++                        fontFamily = FontFamily.Monospace,
++                        fontWeight = FontWeight.Bold
++                    )
++                    measuredHz?.let {
++                        Text(
++                            text = String.format(Locale.US, "%.1f Hz", it),
++                            color = SecondaryText,
++                            fontSize = 10.sp,
++                            fontFamily = FontFamily.Monospace
++                        )
++                    }
++                }
++            }
++
++            // Main gauges row
++            Row(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .weight(1f),
++                horizontalArrangement = Arrangement.spacedBy(10.dp)
++            ) {
++                // Large RPM arc gauge
++                Card(
++                    modifier = Modifier
++                        .weight(1.15f)
++                        .fillMaxHeight(),
++                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0A10)),
++                    shape = RoundedCornerShape(16.dp),
++                    border = BorderStroke(1.dp, accent.copy(alpha = 0.45f))
++                ) {
++                    Box(
++                        modifier = Modifier
++                            .fillMaxSize()
++                            .padding(12.dp),
++                        contentAlignment = Alignment.Center
++                    ) {
++                        Canvas(modifier = Modifier.fillMaxSize()) {
++                            val stroke = 22f
++                            val diameter = minOf(size.width, size.height) - stroke
++                            val topLeft = Offset(
++                                (size.width - diameter) / 2f,
++                                (size.height - diameter) / 2f
++                            )
++                            val arcSize = Size(diameter, diameter)
++
++                            // Background track
++                            drawArc(
++                                color = Color(0xFF1A1A24),
++                                startAngle = 135f,
++                                sweepAngle = 270f,
++                                useCenter = false,
++                                topLeft = topLeft,
++                                size = arcSize,
++                                style = Stroke(width = stroke, cap = StrokeCap.Round)
++                            )
++
++                            // Redline zone (last portion)
++                            drawArc(
++                                color = CriticalRed.copy(alpha = 0.25f),
++                                startAngle = 135f + 270f * (redline / 7000f),
++                                sweepAngle = 270f * (1f - redline / 7000f),
++                                useCenter = false,
++                                topLeft = topLeft,
++                                size = arcSize,
++                                style = Stroke(width = stroke, cap = StrokeCap.Round)
++                            )
++
++                            // Active RPM arc
++                            drawArc(
++                                color = accent,
++                                startAngle = 135f,
++                                sweepAngle = 270f * rpmProgress,
++                                useCenter = false,
++                                topLeft = topLeft,
++                                size = arcSize,
++                                style = Stroke(width = stroke, cap = StrokeCap.Round)
++                            )
++                        }
++
++                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
++                            Text(
++                                text = "RPM",
++                                color = SecondaryText,
++                                fontSize = 11.sp,
++                                fontFamily = FontFamily.Monospace,
++                                fontWeight = FontWeight.Bold
++                            )
++                            Text(
++                                text = if (rpm != null) String.format(Locale.US, "%,d", safeRpm) else "----",
++                                color = if (isRedline) CriticalRed else Color.White,
++                                fontSize = 42.sp,
++                                fontWeight = FontWeight.Black,
++                                fontFamily = FontFamily.Monospace,
++                                textAlign = TextAlign.Center
++                            )
++                            if (isRedline) {
++                                Text(
++                                    text = "REDLINE",
++                                    color = CriticalRed,
++                                    fontSize = 12.sp,
++                                    fontWeight = FontWeight.Bold,
++                                    fontFamily = FontFamily.Monospace
++                                )
++                            }
++                        }
++                    }
++                }
++
++                // Huge digital speed + gear
++                Card(
++                    modifier = Modifier
++                        .weight(0.85f)
++                        .fillMaxHeight(),
++                    colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0A10)),
++                    shape = RoundedCornerShape(16.dp),
++                    border = BorderStroke(1.dp, Color(0xFF2A2A38))
++                ) {
++                    Column(
++                        modifier = Modifier
++                            .fillMaxSize()
++                            .padding(14.dp),
++                        verticalArrangement = Arrangement.Center,
++                        horizontalAlignment = Alignment.CenterHorizontally
++                    ) {
++                        Text(
++                            text = "SPEED",
++                            color = SecondaryText,
++                            fontSize = 11.sp,
++                            fontFamily = FontFamily.Monospace,
++                            fontWeight = FontWeight.Bold
++                        )
++                        Text(
++                            text = if (speed != null) "$safeSpeed" else "--",
++                            color = Color.White,
++                            fontSize = 72.sp,
++                            fontWeight = FontWeight.Black,
++                            fontFamily = FontFamily.Monospace,
++                            textAlign = TextAlign.Center,
++                            lineHeight = 72.sp
++                        )
++                        Text(
++                            text = speedUnit.uppercase(),
++                            color = ElectricCyan,
++                            fontSize = 16.sp,
++                            fontFamily = FontFamily.Monospace,
++                            fontWeight = FontWeight.Bold
++                        )
++                        Spacer(modifier = Modifier.height(16.dp))
++                        Text(
++                            text = if (gear > 0) "GEAR $gear" else "GEAR —",
++                            color = glowAccent,
++                            fontSize = 22.sp,
++                            fontWeight = FontWeight.Black,
++                            fontFamily = FontFamily.Monospace
++                        )
++                    }
++                }
++            }
++
++            // Secondary real-time stats strip
++            Row(
++                modifier = Modifier
++                    .fillMaxWidth()
++                    .height(78.dp),
++                horizontalArrangement = Arrangement.spacedBy(6.dp)
++            ) {
++                SportStatTile(
++                    label = "THROTTLE",
++                    value = throttle?.let { String.format(Locale.US, "%.0f", it) } ?: "--",
++                    unit = "%",
++                    accent = Color(0xFFFF9500),
++                    modifier = Modifier.weight(1f)
++                )
++                SportStatTile(
++                    label = "LOAD",
++                    value = load?.let { String.format(Locale.US, "%.0f", it) } ?: "--",
++                    unit = "%",
++                    accent = Color(0xFFAF52DE),
++                    modifier = Modifier.weight(1f)
++                )
++                SportStatTile(
++                    label = "COOLANT",
++                    value = coolant?.toString() ?: "--",
++                    unit = "°C",
++                    accent = if ((coolant ?: 0) > 105) CriticalRed else ElectricCyan,
++                    modifier = Modifier.weight(1f)
++                )
++                SportStatTile(
++                    label = "VOLTAGE",
++                    value = voltage?.let { String.format(Locale.US, "%.1f", it) } ?: "--",
++                    unit = "V",
++                    accent = if ((voltage ?: 14f) < 12.2f) CriticalRed else TealAccent,
++                    modifier = Modifier.weight(1f)
++                )
++            }
++        }
++    }
++}
++
++@Composable
++private fun SportStatTile(
++    label: String,
++    value: String,
++    unit: String,
++    accent: Color,
++    modifier: Modifier = Modifier
++) {
++    Card(
++        modifier = modifier.fillMaxHeight(),
++        colors = CardDefaults.cardColors(containerColor = Color(0xFF0E0E16)),
++        shape = RoundedCornerShape(12.dp),
++        border = BorderStroke(1.dp, accent.copy(alpha = 0.35f))
++    ) {
++        Column(
++            modifier = Modifier
++                .fillMaxSize()
++                .padding(horizontal = 8.dp, vertical = 8.dp),
++            verticalArrangement = Arrangement.Center,
++            horizontalAlignment = Alignment.CenterHorizontally
++        ) {
++            Text(
++                text = label,
++                color = SecondaryText,
++                fontSize = 9.sp,
++                fontFamily = FontFamily.Monospace,
++                fontWeight = FontWeight.Bold
++            )
++            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
++                Text(
++                    text = value,
++                    color = Color.White,
++                    fontSize = 22.sp,
++                    fontWeight = FontWeight.Black,
++                    fontFamily = FontFamily.Monospace
++                )
++                Text(
++                    text = unit,
++                    color = accent,
++                    fontSize = 11.sp,
++                    fontFamily = FontFamily.Monospace,
++                    fontWeight = FontWeight.Bold,
++                    modifier = Modifier.padding(bottom = 3.dp)
++                )
++            }
++        }
++    }
++}
++
+ // =========================================================================
+ // SUB-VIEW: PERMANENT HOME SPLIT SCREEN (Dominant Live Map + Live OBD Gauges)
+ // =========================================================================
