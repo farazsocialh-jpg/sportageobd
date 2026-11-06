@@ -51,8 +51,8 @@ android {
         applicationId = "com.sportage.obd"
         minSdk = 28 // Android 9+ as specified in PRD Section 1.1
         targetSdk = 35
-        versionCode = 12
-        versionName = "1.3.0"
+        versionCode = 13
+        versionName = "1.3.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

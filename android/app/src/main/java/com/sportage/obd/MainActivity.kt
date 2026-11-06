@@ -79,7 +79,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.o"
+        const val APP_BUILD_TAG = "2026-11-06.p"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -667,7 +667,10 @@ class MainActivity : ComponentActivity(), LocationListener {
     private val headingSensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent) {
             if (event.sensor.type != Sensor.TYPE_ROTATION_VECTOR) return
-            SensorManager.getRotationMatrix(rotationMatrix, null, event.values, null)
+            // TYPE_ROTATION_VECTOR delivers a quaternion, not gravity/magnetic arrays.
+            // getRotationMatrix() would read the null magnetometer array and crash
+            // (NullPointerException "Attempt to read from null array" on rotation).
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
             val (xAxis, yAxis) = when (runCatching { windowManager.defaultDisplay.rotation }.getOrDefault(Surface.ROTATION_0)) {
                 Surface.ROTATION_90 -> SensorManager.AXIS_Y to SensorManager.AXIS_MINUS_X
                 Surface.ROTATION_180 -> SensorManager.AXIS_MINUS_X to SensorManager.AXIS_MINUS_Y
