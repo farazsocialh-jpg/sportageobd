@@ -306,6 +306,18 @@ fun CarLauncherScreen(
                                 onReset = onResetTrip,
                                 viewModel = viewModel
                             )
+                            8 -> FuelAnalyticsPage(
+                                distanceKm = tripDistanceKm,
+                                tripDurationSeconds = tripDurationSeconds,
+                                maxSpeedKmh = tripMaxSpeed,
+                                avgSpeedKmh = tripAvgSpeed,
+                                onResetTrip = onResetTrip,
+                                viewModel = viewModel
+                            )
+                            9 -> AdvancedDiagnosticsPage(
+                                dtcCodes = dtcCodes,
+                                viewModel = viewModel
+                            )
                             4 -> MediaRadioPage(
                                 radioFreq = radioFreq,
                                 onFreqChange = { radioFreq = it },
@@ -443,6 +455,18 @@ fun CarLauncherScreen(
                             currentLat = currentLat,
                             currentLon = currentLon,
                             onReset = onResetTrip,
+                            viewModel = viewModel
+                        )
+                        8 -> FuelAnalyticsPage(
+                            distanceKm = tripDistanceKm,
+                            tripDurationSeconds = tripDurationSeconds,
+                            maxSpeedKmh = tripMaxSpeed,
+                            avgSpeedKmh = tripAvgSpeed,
+                            onResetTrip = onResetTrip,
+                            viewModel = viewModel
+                        )
+                        9 -> AdvancedDiagnosticsPage(
+                            dtcCodes = dtcCodes,
                             viewModel = viewModel
                         )
                         4 -> MediaRadioPage(
