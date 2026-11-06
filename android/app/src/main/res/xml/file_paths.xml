@@ -3,4 +3,7 @@
     <!-- CSV OBD telemetry logs written by the CsvLogger -->
     <external-files-path name="obd_logs" path="obd_logs/" />
     <files-path name="internal_logs" path="obd_logs/" />
+    <!-- Trip history CSV, written on demand from the Trip page -->
+    <files-path name="trips" path="trips/" />
+    <cache-path name="exports" path="exports/" />
 </paths>

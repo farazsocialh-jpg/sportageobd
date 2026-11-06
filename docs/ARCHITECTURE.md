@@ -90,3 +90,21 @@ The system replaces monolithic activity-bound prototype code with a layered, ser
 - Manifest declarations include `android.intent.category.HOME` and `android.intent.category.DEFAULT`.
 - `onBackPressedDispatcher` intercepts Back button events on the Home screen to prevent closing the launcher, ensuring standard automotive infotainment behavior.
 - In-app **App Drawer** queries all installed launchable applications via `PackageManager.queryIntentActivities(...)` under the `QUERY_ALL_PACKAGES` permission, providing instant access to native radio, music, navigation, and settings apps.
+
+---
+
+## 5. Governance, diagnostics and newer feature modules
+
+| Module | Responsibility |
+|---|---|
+| `diagnostics/Diagnostics.kt` | Consent gate + event allow-list in front of Firebase Analytics/Crashlytics. No-op unless the driver opted in **and** the build has `google-services.json`. Also holds `AppPreferences` (onboarding/consent flags). |
+| `obd/ExtendedPids.kt` | UDS framing (`62`/`61` positive responses, `7F` negative responses), SAE J1979-2 `0xF400 + PID` mapping, a closed `PidFormula` catalogue (no expression evaluator, so no user code is executed), and manufacturer presets explicitly marked unverified. |
+| `obd/Mode06Parser.kt` | SAE J1979 Mode 06 on-board monitor results: multi-frame parsing, UAS-driven width/signedness, pass window and margin. |
+| `obd/HealthScore.kt` | Deterministic 0–100 health estimate with capped, explained deductions. Pure Kotlin, no Android dependencies. |
+| `trips/TripRecorder.kt` | Speed-sample integration with a capped sample gap, 0–100 km/h timing, harsh-acceleration counting and eco score. Starts/stops with the adapter connection in `MainActivity`. |
+| `trips/TripStore.kt` | Offline-first CSV history in the app's private storage; the same code path produces the shareable export. |
+| `ui/OnboardingScreen.kt`, `ui/InfoDialogs.kt` | First-run wizard (adapter, permissions, privacy consent) and the in-app privacy policy / help dialogs. The policy text is read from `assets/privacy_policy.md`, copied from `PRIVACY.md` at build time. |
+
+Threading note: all of the above are synchronous and small; callers invoke the file-backed trip
+store on `Dispatchers.IO`. Telemetry-derived state (health score, trip progress) is updated from the
+existing telemetry collector on the main dispatcher because it is pure arithmetic over one sample.

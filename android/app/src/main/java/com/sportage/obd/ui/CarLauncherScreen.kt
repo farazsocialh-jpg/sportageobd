@@ -47,6 +47,9 @@ import androidx.compose.ui.viewinterop.AndroidView
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
+import com.sportage.obd.obd.HealthGrade
+import com.sportage.obd.obd.HealthReport
+import com.sportage.obd.trips.TripSummary
 import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertSeverity
 import com.sportage.obd.service.AlertThresholds
@@ -200,7 +203,15 @@ fun CarLauncherScreen(
     autoNightDim: Boolean = true,
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
-    onSetNightDimLevel: (Float) -> Unit = {}
+    onSetNightDimLevel: (Float) -> Unit = {},
+    diagnosticsEnabled: Boolean = false,
+    onSetDiagnosticsEnabled: (Boolean) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {},
+    onOpenHelp: () -> Unit = {},
+    healthReport: HealthReport? = null,
+    trips: List<TripSummary> = emptyList(),
+    onExportTrips: () -> Unit = {},
+    onClearTrips: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -423,7 +434,8 @@ fun CarLauncherScreen(
                                 gear = gear,
                                 speedHistory = speedHistory,
                                 rpmHistory = rpmHistory,
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                healthReport = healthReport
                             )
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
@@ -443,7 +455,10 @@ fun CarLauncherScreen(
                                 currentLat = currentLat,
                                 currentLon = currentLon,
                                 onReset = onResetTrip,
-                                viewModel = viewModel
+                                viewModel = viewModel,
+                                trips = trips,
+                                onExportTrips = onExportTrips,
+                                onClearTrips = onClearTrips
                             )
                             4 -> MediaRadioPage(
                                 radioFreq = radioFreq,
@@ -483,7 +498,11 @@ fun CarLauncherScreen(
                                 autoNightDim = autoNightDim,
                                 nightDimLevel = nightDimLevel,
                                 onSetAutoNightDim = onSetAutoNightDim,
-                                onSetNightDimLevel = onSetNightDimLevel
+                                onSetNightDimLevel = onSetNightDimLevel,
+                                diagnosticsEnabled = diagnosticsEnabled,
+                                onSetDiagnosticsEnabled = onSetDiagnosticsEnabled,
+                                onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+                                onOpenHelp = onOpenHelp
                             )
                         }
                     }
@@ -538,7 +557,8 @@ fun CarLauncherScreen(
                             gear = gear,
                             speedHistory = speedHistory,
                             rpmHistory = rpmHistory,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            healthReport = healthReport
                         )
                         2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
@@ -558,7 +578,10 @@ fun CarLauncherScreen(
                             currentLat = currentLat,
                             currentLon = currentLon,
                             onReset = onResetTrip,
-                            viewModel = viewModel
+                            viewModel = viewModel,
+                            trips = trips,
+                            onExportTrips = onExportTrips,
+                            onClearTrips = onClearTrips
                         )
                         4 -> MediaRadioPage(
                             radioFreq = radioFreq,
@@ -598,7 +621,11 @@ fun CarLauncherScreen(
                             autoNightDim = autoNightDim,
                             nightDimLevel = nightDimLevel,
                             onSetAutoNightDim = onSetAutoNightDim,
-                            onSetNightDimLevel = onSetNightDimLevel
+                            onSetNightDimLevel = onSetNightDimLevel,
+                            diagnosticsEnabled = diagnosticsEnabled,
+                            onSetDiagnosticsEnabled = onSetDiagnosticsEnabled,
+                            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+                            onOpenHelp = onOpenHelp
                         )
                     }
                 }
@@ -1626,6 +1653,75 @@ fun SensorMiniTile(
 // =========================================================================
 // SUB-VIEW: GAUGES & REAL-TIME CANVAS GRAPHS PAGE
 // =========================================================================
+/**
+ * Compact vehicle-health estimate: score, grade and the biggest single contributor.
+ * Deliberately shows the reason next to the number so the driver can act on it.
+ */
+@Composable
+private fun HealthScoreStrip(report: HealthReport) {
+    val accent = when (report.grade) {
+        HealthGrade.EXCELLENT -> TealAccent
+        HealthGrade.GOOD -> ElectricCyan
+        HealthGrade.FAIR -> AmberWarning
+        HealthGrade.POOR -> CriticalRed
+    }
+    val topIssue = report.issues.firstOrNull()
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = Color(0xFF090D14),
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.5f))
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = "${report.score}",
+                    color = accent,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = "/100",
+                    color = SecondaryText,
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    modifier = Modifier.padding(bottom = 3.dp)
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = report.headline.uppercase(),
+                    color = Color.White,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+                Text(
+                    text = topIssue?.reason ?: "No stored faults or sensor warnings detected",
+                    color = SecondaryText,
+                    fontSize = 9.sp,
+                    fontFamily = FontFamily.Monospace
+                )
+            }
+            Text(
+                text = "HEALTH",
+                color = accent,
+                fontSize = 9.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+        }
+    }
+}
+
 @Composable
 fun GaugesAndGraphsPage(
     speed: Int?,
@@ -1640,7 +1736,8 @@ fun GaugesAndGraphsPage(
     gear: Int,
     speedHistory: List<Pair<Long, Int>>,
     rpmHistory: List<Pair<Long, Int>>,
-    viewModel: ObdViewModel? = null
+    viewModel: ObdViewModel? = null,
+    healthReport: HealthReport? = null
 ) {
     val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
     Column(
@@ -1649,6 +1746,10 @@ fun GaugesAndGraphsPage(
             .padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Health estimate: a glanceable number plus the single biggest reason for it. Only shown
+        // when the adapter has produced enough data to be worth scoring.
+        healthReport?.let { HealthScoreStrip(it) }
+
         // Real-Time Canvas Line Chart: Speed & RPM over time
         Card(
             modifier = Modifier
@@ -2237,7 +2338,10 @@ fun TripComputerPage(
     currentLat: Double,
     currentLon: Double,
     onReset: () -> Unit,
-    viewModel: ObdViewModel? = null
+    viewModel: ObdViewModel? = null,
+    trips: List<TripSummary> = emptyList(),
+    onExportTrips: () -> Unit = {},
+    onClearTrips: () -> Unit = {}
 ) {
     val hrs = durationSeconds / 3600
     val mins = (durationSeconds % 3600) / 60
@@ -2386,6 +2490,86 @@ fun TripComputerPage(
                     fontFamily = FontFamily.Monospace
                 )
             }
+        }
+
+        // Journey history: recorded automatically whenever the adapter is connected.
+        if (trips.isNotEmpty()) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = Color(0xFF090D14),
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.4f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "JOURNEY HISTORY (${trips.size})",
+                            color = TealAccent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            TextButton(onClick = onExportTrips) {
+                                Text("Export CSV", color = ElectricCyan, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+                            TextButton(onClick = onClearTrips) {
+                                Text("Clear", color = SecondaryText, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        trips.take(12).forEach { trip -> TripHistoryChip(trip) }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TripHistoryChip(trip: TripSummary) {
+    Surface(
+        color = Color(0xFF0E1722),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, Color(0xFF1E293B))
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+            Text(
+                text = SimpleDateFormat("dd MMM · HH:mm", Locale.US).format(Date(trip.startedAtMs)),
+                color = SecondaryText,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "%.1f km · %d km/h".format(trip.distanceKm, trip.maxSpeedKmh),
+                color = Color.White,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace
+            )
+            Text(
+                text = "ECO ${trip.ecoScore}" +
+                    (trip.zeroToHundredSeconds?.let { " · 0-100 $it s" } ?: ""),
+                color = TealAccent,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace
+            )
         }
     }
 }
@@ -2638,7 +2822,11 @@ fun SettingsPage(
     autoNightDim: Boolean = true,
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
-    onSetNightDimLevel: (Float) -> Unit = {}
+    onSetNightDimLevel: (Float) -> Unit = {},
+    diagnosticsEnabled: Boolean = false,
+    onSetDiagnosticsEnabled: (Boolean) -> Unit = {},
+    onOpenPrivacyPolicy: () -> Unit = {},
+    onOpenHelp: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
@@ -2954,6 +3142,80 @@ fun SettingsPage(
                             colors = SliderDefaults.colors(thumbColor = Color(0xFF8B5CF6), activeTrackColor = Color(0xFF8B5CF6).copy(alpha = 0.5f))
                         )
                         Text("${((1f - nightDimLevel) * 100).toInt()}%", color = Color.White, fontSize = 10.sp, fontFamily = FontFamily.Monospace)
+                    }
+                }
+            }
+        }
+
+        // 6. Privacy & diagnostics. Both the policy and the opt-in live here, and the switch is
+        // the same preference the onboarding wizard writes, so there is one source of truth.
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            color = Color(0xFF090D14),
+            shape = RoundedCornerShape(10.dp),
+            border = BorderStroke(1.dp, Color(0xFF1E293B))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    "PRIVACY & DIAGNOSTICS",
+                    color = ElectricCyan,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Share anonymous diagnostics",
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace
+                        )
+                        Text(
+                            "Crash reports and coarse usage events. Never includes VIN, location or adapter details.",
+                            color = SecondaryText,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace
+                        )
+                    }
+                    Switch(
+                        checked = diagnosticsEnabled,
+                        onCheckedChange = onSetDiagnosticsEnabled,
+                        colors = SwitchDefaults.colors(
+                            checkedThumbColor = ElectricCyan,
+                            checkedTrackColor = ElectricCyan.copy(alpha = 0.4f)
+                        )
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onOpenPrivacyPolicy,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF1E293B))
+                    ) {
+                        Text("Privacy policy", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    }
+                    OutlinedButton(
+                        onClick = onOpenHelp,
+                        shape = RoundedCornerShape(6.dp),
+                        border = BorderStroke(1.dp, Color(0xFF1E293B))
+                    ) {
+                        Text("Help & quick start", color = ElectricCyan, fontFamily = FontFamily.Monospace, fontSize = 11.sp)
                     }
                 }
             }

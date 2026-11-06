@@ -26,14 +26,27 @@ import androidx.lifecycle.lifecycleScope
 import androidx.activity.viewModels
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.viewmodel.ObdViewModel
+import com.sportage.obd.diagnostics.AppPreferences
+import com.sportage.obd.diagnostics.Diagnostics
+import com.sportage.obd.obd.HealthInput
+import com.sportage.obd.obd.HealthReport
+import com.sportage.obd.obd.HealthScorer
+import com.sportage.obd.trips.TripRecorder
+import com.sportage.obd.trips.TripStore
+import com.sportage.obd.trips.TripSummary
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
+import com.sportage.obd.ui.HelpDialog
+import com.sportage.obd.ui.OnboardingScreen
+import com.sportage.obd.ui.PrivacyPolicyDialog
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.SportageObdTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -120,6 +133,22 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var autoNightDim by mutableStateOf(true)
     private var nightDimLevel by mutableStateOf(0.55f)
 
+    // Governance / onboarding state. Diagnostics consent is stored in AppPreferences so it can be
+    // read before any analytics SDK initialises (see SportageObdApp).
+    private lateinit var appPrefs: AppPreferences
+    private var onboardingCompleted by mutableStateOf(false)
+    private var diagnosticsEnabled by mutableStateOf(false)
+    private var showPrivacyPolicy by mutableStateOf(false)
+    private var showHelp by mutableStateOf(false)
+
+    // Vehicle health estimate, refreshed from live telemetry + stored codes.
+    private var healthReport by mutableStateOf<HealthReport?>(null)
+
+    // Automatic trip logging (Room was traded for a CSV store: see trips/TripStore.kt).
+    private lateinit var tripStore: TripStore
+    private val tripRecorder = TripRecorder()
+    private var trips by mutableStateOf<List<TripSummary>>(emptyList())
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -155,6 +184,12 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
+
+        appPrefs = AppPreferences(this)
+        onboardingCompleted = appPrefs.onboardingCompleted
+        diagnosticsEnabled = appPrefs.diagnosticsEnabled
+        tripStore = TripStore(TripStore.tripFile(File(filesDir, "trips")))
+        runCatching { trips = tripStore.load().sortedByDescending { it.startedAtMs } }
 
         checkAndRequestPermissions()
         initLocationTracking()
@@ -196,17 +231,41 @@ class MainActivity : ComponentActivity(), LocationListener {
                     liveVoltage = t.batteryVoltage
                     liveGear = t.estimatedGear
                     measuredHz = t.sampleRateHz.takeIf { hz -> hz > 0f }
+
+                    // Health estimate: recommendations in Safety/Health separation. Only live
+                    // sensor values plus stored codes, never anything transmitted off-device.
+                    healthReport = healthReportFor(t)
+
+                    // Automatic trip logging: the recorder ignores adapter pauses but keeps the
+                    // clock, so a paused polling session does not invent or lose distance.
+                    if (tripRecorder.isActive) {
+                        val fuelRateLph = t.fuelEconomyL100?.let { economy ->
+                            val speed = t.speedKmh
+                            if (speed != null && speed > 5) economy * speed / 100f else null
+                        }
+                        tripRecorder.onSample(t.speedKmh, t.timestamp, fuelRateLph)
+                    }
                 }
             }
 
             LaunchedEffect(Unit) {
                 viewModel.connectionState.collect { state ->
                     when (state) {
-                        is ConnectionState.Connected ->
+                        is ConnectionState.Connected -> {
                             logTerminal("INFO", "LINK ACTIVE: ${state.deviceName} \u00b7 ${state.protocol}")
-                        is ConnectionState.Error -> logTerminal("ERR", "Adapter error: ${state.message}")
+                            Diagnostics.log(Diagnostics.Event.OBD_CONNECT_SUCCESS)
+                            if (!tripRecorder.isActive) tripRecorder.start()
+                        }
+                        is ConnectionState.Error -> {
+                            logTerminal("ERR", "Adapter error: ${state.message}")
+                            Diagnostics.log(Diagnostics.Event.OBD_CONNECT_FAILURE)
+                            finishActiveTrip()
+                        }
                         is ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket to ${state.address ?: "adapter"}...")
-                        ConnectionState.Disconnected -> logTerminal("INFO", "Adapter link closed.")
+                        ConnectionState.Disconnected -> {
+                            logTerminal("INFO", "Adapter link closed.")
+                            finishActiveTrip()
+                        }
                     }
                 }
             }
@@ -214,6 +273,24 @@ class MainActivity : ComponentActivity(), LocationListener {
             SportageObdTheme {
                 val isNight = isSystemInDarkTheme()
                 Box(modifier = Modifier.fillMaxSize()) {
+                if (!onboardingCompleted) {
+                    OnboardingScreen(
+                        onFinish = { shareDiagnostics ->
+                            appPrefs.onboardingCompleted = true
+                            appPrefs.privacyAcknowledged = true
+                            appPrefs.diagnosticsEnabled = shareDiagnostics
+                            Diagnostics.setEnabled(this@MainActivity, shareDiagnostics)
+                            diagnosticsEnabled = shareDiagnostics
+                            onboardingCompleted = true
+                            Diagnostics.log(Diagnostics.Event.ONBOARDING_COMPLETED)
+                            // The wizard explained the permissions; ask for them now rather than
+                            // at first launch, so every prompt has visible context.
+                            checkAndRequestPermissions()
+                        },
+                        onRequestPermissions = { checkAndRequestPermissions() },
+                        onOpenPrivacyPolicy = { showPrivacyPolicy = true }
+                    )
+                } else {
                     // Inset the dashboard so the status bar / navigation bar never cover controls.
                     Box(
                         modifier = Modifier
@@ -237,7 +314,10 @@ class MainActivity : ComponentActivity(), LocationListener {
                         currentLat = currentLat,
                         currentLon = currentLon,
                         activePage = activePage,
-                        onNavigatePage = { activePage = it },
+                        onNavigatePage = { page ->
+                            activePage = page
+                            Diagnostics.log(Diagnostics.Event.PAGE_VIEW, mapOf("page" to page))
+                        },
                         onOpenBluetoothClick = {
                             refreshPairedDevices()
                             showBluetoothDialog = true
@@ -267,7 +347,18 @@ class MainActivity : ComponentActivity(), LocationListener {
                         onSetNightDimLevel = { level ->
                             nightDimLevel = level.coerceIn(0.1f, 0.85f)
                             uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
-                        }
+                        },
+                        diagnosticsEnabled = diagnosticsEnabled,
+                        onSetDiagnosticsEnabled = { enabled ->
+                            diagnosticsEnabled = enabled
+                            Diagnostics.setEnabled(this@MainActivity, enabled)
+                        },
+                        onOpenPrivacyPolicy = { showPrivacyPolicy = true },
+                        onOpenHelp = { showHelp = true },
+                        healthReport = healthReport,
+                        trips = trips,
+                        onExportTrips = { shareTripsCsv() },
+                        onClearTrips = { clearTrips() }
                     )
                     }
 
@@ -280,6 +371,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 .background(Color.Black.copy(alpha = nightDimLevel))
                         )
                     }
+                }
                 }
 
                 // Bluetooth Connection & Terminal Modal
@@ -353,7 +445,79 @@ class MainActivity : ComponentActivity(), LocationListener {
                     isOpen = showAppDrawer,
                     onClose = { showAppDrawer = false }
                 )
+
+                if (showPrivacyPolicy) {
+                    PrivacyPolicyDialog(onDismiss = { showPrivacyPolicy = false })
+                }
+
+                if (showHelp) {
+                    HelpDialog(onDismiss = { showHelp = false })
+                }
             }
+        }
+    }
+
+    /** Builds the health score from the latest telemetry and the codes currently stored in the ECU. */
+    private fun healthReportFor(t: com.sportage.obd.service.ObdTelemetry): HealthReport {
+        val codes = viewModel.dtcList.value
+        return HealthScorer.score(
+            HealthInput(
+                coolantTempC = t.coolantTempC,
+                batteryVoltage = t.batteryVoltage,
+                shortTermFuelTrimPct = t.shortTermFuelTrimPct,
+                longTermFuelTrimPct = t.longTermFuelTrimPct,
+                engineLoadPct = t.engineLoadPct,
+                milOn = codes.isNotEmpty(),
+                criticalDtcCount = codes.count { it.severity == com.sportage.obd.obd.DtcSeverity.CRITICAL },
+                warningDtcCount = codes.count { it.severity != com.sportage.obd.obd.DtcSeverity.CRITICAL },
+                incompleteMonitorCount = viewModel.readiness.value?.let { readiness ->
+                    (readiness.sparkIgnitionMonitors + readiness.compressionIgnitionMonitors)
+                        .count { !it.complete }
+                } ?: 0
+            )
+        )
+    }
+
+    /** Persists the trip that just ended, if it recorded anything worth keeping. */
+    private fun finishActiveTrip() {
+        val summary = tripRecorder.finish() ?: return
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { runCatching { tripStore.append(summary) } }
+            trips = (listOf(summary) + trips).sortedByDescending { it.startedAtMs }
+            Diagnostics.log(
+                Diagnostics.Event.TRIP_RECORDED,
+                mapOf("distance_km" to summary.distanceKm.toInt(), "minutes" to summary.durationMinutes)
+            )
+        }
+    }
+
+    private fun clearTrips() {
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) { runCatching { tripStore.clear() } }
+            trips = emptyList()
+        }
+    }
+
+    /** Writes the whole trip history to a shareable CSV through the existing FileProvider. */
+    private fun shareTripsCsv() {
+        try {
+            val exportDir = File(cacheDir, "exports").apply { mkdirs() }
+            val exportFile = File(exportDir, "sportage_trips.csv")
+            exportFile.writeText(tripStore.exportCsv(trips))
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                exportFile
+            )
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "text/csv"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                putExtra(Intent.EXTRA_SUBJECT, "SportageOBD trip history")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Export trips"))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Could not export trips: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -488,6 +652,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         lifecycleScope.launch {
             logTerminal("TX", "03 (Read Stored Diagnostic Trouble Codes)")
             val found = viewModel.scanDtcNow()
+            Diagnostics.log(
+                Diagnostics.Event.DTC_SCAN_COMPLETED,
+                mapOf("code_count" to found.size, "mil_on" to found.isNotEmpty())
+            )
             if (found.isEmpty()) {
                 Toast.makeText(this@MainActivity, "No Diagnostic Trouble Codes detected. ECU clean.", Toast.LENGTH_LONG).show()
             } else {

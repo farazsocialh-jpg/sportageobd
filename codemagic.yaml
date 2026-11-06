@@ -34,12 +34,21 @@ workflows:
             gradle wrapper --gradle-version 8.9
           fi
           chmod +x gradlew
-      - name: Build Android APK
+      # Lint and unit tests gate the build; a regression should never reach an artifact.
+      - name: Lint and unit tests
         script: |
           cd "$CM_BUILD_DIR/android"
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew lintDebug testDebugUnitTest --stacktrace
+      - name: Build Android APK and Play AAB
+        script: |
+          cd "$CM_BUILD_DIR/android"
+          ./gradlew assembleDebug assembleRelease bundleRelease --stacktrace
     artifacts:
       - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+      # Needed to de-obfuscate crash reports from R8-minified release builds.
+      - android/app/build/outputs/mapping/release/mapping.txt
+      - android/app/build/reports/**/*
     publishing:
       email:
         recipients:

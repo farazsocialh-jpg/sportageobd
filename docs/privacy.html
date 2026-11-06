@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>SportageOBD Intelligence — Privacy Policy</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; background: #0b1118; color: #eaf5fa;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 780px; margin: 0 auto; padding: 48px 20px 96px; }
+  h1 { font-size: 2rem; line-height: 1.2; margin: 0 0 4px; }
+  h2 { font-size: 1.15rem; margin: 36px 0 10px; color: #5cdcf4; }
+  p, li { color: #cfdfe8; }
+  .updated { color: #9bb2c0; font-size: .9rem; margin-bottom: 28px; }
+  a { color: #5cdcf4; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: .92rem; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #1e293b; vertical-align: top; }
+  th { color: #9bb2c0; font-weight: 600; }
+  code { background: #14212b; padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+  .summary { background: #101a24; border: 1px solid #1e293b; border-radius: 10px; padding: 16px 20px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>SportageOBD Intelligence — Privacy Policy</h1>
+  <p class="updated">Last updated: 6 November 2026 · Applies to the Android app <code>com.sportage.obd</code></p>
+
+  <div class="summary">
+    <p><strong>In short:</strong> no account, no advertising, no data sale. Vehicle data is decoded
+    on the device. Trips, scan history and CSV logs stay on the device unless you export them.
+    Analytics and crash reporting are off until you opt in.</p>
+  </div>
+
+  <h2>1. Information the app accesses</h2>
+  <table>
+    <thead><tr><th>Data</th><th>Why</th><th>Where it goes</th></tr></thead>
+    <tbody>
+      <tr><td>Bluetooth adapter name and MAC address</td><td>Connect and reconnect to your ELM327 adapter</td><td>Private app storage on the device</td></tr>
+      <tr><td>OBD-II vehicle data: RPM, speed, temperatures, throttle, load, fuel level, battery voltage, fuel trims, trouble codes, freeze frame, readiness monitors, VIN</td><td>Dashboard, diagnostics, health score, trip recording</td><td>Decoded and stored on the device only</td></tr>
+      <tr><td>Location (GPS)</td><td>Map pane, GPS speed, trip distance</td><td>Used in memory; coordinates are part of map-tile requests</td></tr>
+      <tr><td>Installed applications</td><td>Launcher app drawer</td><td>Read on the device only</td></tr>
+      <tr><td>CSV logs, trip exports, reports you create</td><td>So you can review/share your own data</td><td>Private app storage; shared only when you choose</td></tr>
+      <tr><td>Crash traces</td><td>Fix crashes</td><td>Private file on device; uploaded only if you enable diagnostics</td></tr>
+    </tbody>
+  </table>
+  <p>The app does not read contacts, SMS, call log, calendar, photos, camera, microphone or files
+  outside its own storage.</p>
+
+  <h2>2. Network connections</h2>
+  <ol>
+    <li><strong>Map tiles.</strong> The map pane fetches tiles over HTTPS; the tile server sees your
+    IP address and the viewed area's coordinates, as with any online map.</li>
+    <li><strong>Optional diagnostics (opt-in).</strong> If enabled: Firebase Crashlytics (stack
+    trace, app version, device model, Android version, random installation ID) and Firebase
+    Analytics (coarse events such as onboarding completion, connection success/failure, scan
+    completion, page views). No vehicle data, location, VIN or free text is included.</li>
+    <li><strong>Optional AI explanations (opt-in, off by default).</strong> If a build exposes the
+    bring-your-own-key AI feature and you enable it, only the displayed trouble code and sensor
+    snapshot are sent to the provider you configured. The key stays on the device.</li>
+  </ol>
+
+  <h2>3. Permissions</h2>
+  <table>
+    <thead><tr><th>Permission</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Bluetooth (connect / scan / legacy pair)</td><td>Talk to the OBD-II adapter</td></tr>
+      <tr><td>Location (fine / coarse)</td><td>GPS speed and the map pane</td></tr>
+      <tr><td>Foreground service + notifications</td><td>Keep telemetry streaming while you use navigation</td></tr>
+      <tr><td>Internet / network state</td><td>Map tiles</td></tr>
+      <tr><td><code>QUERY_ALL_PACKAGES</code></td><td>Launcher app drawer</td></tr>
+    </tbody>
+  </table>
+
+  <h2>4. Your choices</h2>
+  <p>Turn analytics and crash reporting on or off under <em>Settings → Privacy &amp; diagnostics</em>
+  in the app. Clearing app storage or uninstalling removes all locally stored data.</p>
+
+  <h2>5. Children</h2>
+  <p>The app is not directed at children and collects no personal information from anyone by default.</p>
+
+  <h2>6. Changes and contact</h2>
+  <p>Material changes are published here with a new date. Questions or data requests:
+  <a href="https://github.com/farazsocialh-jpg/sportageobd/issues">open an issue</a>.</p>
+</main>
+</body>
+</html>
