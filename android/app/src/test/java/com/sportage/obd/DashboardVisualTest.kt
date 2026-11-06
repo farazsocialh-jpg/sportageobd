@@ -37,14 +37,14 @@ class DashboardVisualTest {
     private var scans = 0
     private var clears = 0
 
-    private fun launch(fontScale: Float = 1f, drivingSpeed: Int = 64) {
+    private fun launch(fontScale: Float = 1f, drivingSpeed: Int = 64, connected: Boolean = true) {
         val page = mutableIntStateOf(0)
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
               SportageObdTheme {
                 activity = LocalContext.current as Activity
                 CarLauncherScreen(
-                    connectionState = ConnectionState.Connected("ELM327", "00:11:22:33:44:55"),
+                    connectionState = if (connected) ConnectionState.Connected("ELM327", "00:11:22:33:44:55") else ConnectionState.Disconnected,
                     measuredHz = 8.7f, speed = drivingSpeed, rpm = 2100, coolant = 89, intakeTemp = 32,
                     fuelLevel = 68, throttle = 24f, load = 37f, voltage = 13.8f, gear = 4,
                     speedHistory = listOf(1000L to 0, 2000L to 18, 3000L to 32, 4000L to 47, 5000L to 56, 6000L to 64),
@@ -155,5 +155,30 @@ class DashboardVisualTest {
         assertEquals(0, clears)
         compose.onNodeWithText("Media").performClick()
         snapshot("media-portrait")
+    }
+
+    @Test fun mapThemesDockAndSensorWorkspaceAreReachable() {
+        launch(connected = false)
+        compose.onNodeWithContentDescription("Choose map theme").performClick()
+        compose.onNodeWithText("Night").assertExists()
+        compose.onNodeWithText("Qatar offline").performClick()
+        compose.onNodeWithContentDescription("Open music app").assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithContentDescription("Play or pause media").assertWidthIsAtLeast(48.dp)
+        compose.onNodeWithContentDescription("Quick actions").performClick()
+        compose.onNodeWithText("Next track").assertExists()
+        compose.onNodeWithText("OBD Bluetooth").performClick()
+        compose.onNodeWithText("More").performClick()
+        compose.onNodeWithText("Sensors").performClick()
+        compose.onNodeWithText("OBD workspace").assertExists()
+        compose.onNodeWithText("All", substring = false).performClick()
+        compose.onNodeWithText("Search sensors, category or PID").performTextInput("5C")
+        compose.onNodeWithText("Engine oil temperature").assertExists()
+        compose.onNodeWithContentDescription("Favorite Engine oil temperature").performClick()
+        compose.onNodeWithText("Favorites").performClick()
+        compose.onNodeWithText("Engine oil temperature").assertExists()
+        snapshot("sensors-portrait")
+        compose.onNodeWithText("Vehicle / tests").performClick()
+        compose.onNodeWithText("VIN", substring = false).assertExists()
+        snapshot("vehicle-portrait")
     }
 }

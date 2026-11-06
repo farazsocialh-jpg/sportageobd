@@ -314,6 +314,8 @@ class ObdRepository(private val context: Context) {
         unbindService()
         _connectionState.value = ConnectionState.Disconnected
         _telemetry.value = ObdTelemetry()
+        _supportedPids.value = emptySet()
+        _vin.value = null
     }
 
     fun togglePausePolling(pause: Boolean) {
@@ -449,6 +451,14 @@ class ObdRepository(private val context: Context) {
     }
 
     /** Mode 09 PID 02 VIN. */
+    suspend fun refreshSensorCapabilities() {
+        if (!_isDemoMode.value) obdService?.refreshSensorCapabilities()
+    }
+
+    suspend fun readVehicleInformation() {
+        if (!_isDemoMode.value) obdService?.readVehicleInformation()
+    }
+
     suspend fun readVin(): String? {
         return if (_isDemoMode.value) {
             delay(800)

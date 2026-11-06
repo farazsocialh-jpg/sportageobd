@@ -26,3 +26,15 @@ and LICENSE-MAPSFORGE-LESSER.txt.
 No paid tile account, app account, API key, or external navigation app is needed
 to display the bundled Qatar street map. Online worldwide street tiles, when
 outside the bundled map's coverage, need internet access.
+
+Primary online native renderer: MapLibre Native Android 12.0.1
+Source: https://github.com/maplibre/maplibre-native
+BSD 2-Clause license and copyright notices: LICENSE-MAPLIBRE.txt
+https://raw.githubusercontent.com/maplibre/maplibre-native/main/LICENSE.md
+
+Online vector provider and cartography:
+OpenFreeMap https://openfreemap.org/
+OpenMapTiles https://openmaptiles.org/
+Data from OpenStreetMap https://www.openstreetmap.org/copyright
+Provider's source attribution and MapLibre attribution controls remain enabled.
+Online style themes are fetched from OpenFreeMap, not sold or bulk-downloaded.

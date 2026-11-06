@@ -304,35 +304,22 @@ object PidDecoders {
 
         val a = clean.substring(idx + 4, idx + 6).toInt(16)
         val b = clean.substring(idx + 6, idx + 8).toInt(16)
+        val c = clean.substring(idx + 8, idx + 10).toInt(16)
         val d = clean.substring(idx + 10, idx + 12).toInt(16)
-
-        val milOn = (a and 0x80) != 0
-        val dtcCount = a and 0x7F
-
-        // B's low bits and byte C indicate support, not incomplete status.
-        // B bits 4–6 and byte D carry the incomplete flags.
-        val spark = listOf(
-            ReadinessMonitor("Misfire", (b and 0x10) == 0),
-            ReadinessMonitor("Fuel System", (b and 0x20) == 0),
-            ReadinessMonitor("Components", (b and 0x40) == 0),
-            ReadinessMonitor("Catalyst", (d and 0x01) == 0),
-            ReadinessMonitor("Heated Catalyst", (d and 0x02) == 0),
-            ReadinessMonitor("Evaporative System", (d and 0x04) == 0),
-            ReadinessMonitor("O2 Sensor", (d and 0x20) == 0),
-            ReadinessMonitor("O2 Sensor Heater", (d and 0x40) == 0),
-            ReadinessMonitor("Secondary Air", (d and 0x08) == 0),
-            ReadinessMonitor("EGR", (d and 0x80) == 0)
-        )
-        val compression = listOf(
-            ReadinessMonitor("Misfire", (b and 0x10) == 0),
-            ReadinessMonitor("Fuel System", (b and 0x20) == 0),
-            ReadinessMonitor("Components", (b and 0x40) == 0),
-            ReadinessMonitor("NOx Trap", (d and 0x02) == 0),
-            ReadinessMonitor("Particulate Filter", (d and 0x40) == 0),
-            ReadinessMonitor("EGR", (d and 0x80) == 0),
-            ReadinessMonitor("Boost Pressure", (d and 0x08) == 0)
-        )
-        return ReadinessState(milOn, dtcCount, spark, compression)
+        val common = listOf("Misfire", "Fuel System", "Components").mapIndexedNotNull { bit, name ->
+            if (b and (1 shl bit) == 0) null else ReadinessMonitor(name, b and (1 shl (bit + 4)) == 0)
+        }
+        val diesel = b and 0x08 != 0
+        val names = if (diesel) mapOf(0 to "NMHC Catalyst", 1 to "NOx / SCR", 3 to "Boost Pressure",
+            5 to "Exhaust Gas Sensor", 6 to "PM Filter", 7 to "EGR / VVT")
+        else mapOf(0 to "Catalyst", 1 to "Heated Catalyst", 2 to "Evaporative System", 3 to "Secondary Air",
+            4 to "Gasoline Particulate Filter", 5 to "O2 Sensor", 6 to "O2 Sensor Heater", 7 to "EGR")
+        val specific = names.mapNotNull { (bit, name) ->
+            if (c and (1 shl bit) == 0) null else ReadinessMonitor(name, d and (1 shl bit) == 0)
+        }
+        val monitors = common + specific
+        return ReadinessState(a and 0x80 != 0, a and 0x7F,
+            if (diesel) emptyList() else monitors, if (diesel) monitors else emptyList())
     }
 
     /**
@@ -340,23 +327,15 @@ object PidDecoders {
      * Returns the set of supported 2-hex-digit PID codes.
      */
     fun decodeSupportedPids(response: String, basePid: Int): Set<String> {
-        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
-        val marker = "41" + String.format("%02X", basePid)
-        val idx = clean.indexOf(marker)
-        if (idx == -1 || clean.length < idx + 12) return emptySet()
-
-        val bytes = listOf(
-            clean.substring(idx + 4, idx + 6).toInt(16),
-            clean.substring(idx + 6, idx + 8).toInt(16),
-            clean.substring(idx + 8, idx + 10).toInt(16),
-            clean.substring(idx + 10, idx + 12).toInt(16)
-        )
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "").uppercase()
+        val marker = "41" + String.format(java.util.Locale.ENGLISH, "%02X", basePid)
         val supported = mutableSetOf<String>()
-        bytes.forEachIndexed { byteIdx, byte ->
-            for (bit in 7 downTo 0) {
-                if ((byte shr bit) and 1 == 1) {
+        Regex(marker + "([0-9A-F]{8})").findAll(clean).forEach { match ->
+            match.groupValues[1].chunked(2).forEachIndexed { byteIdx, hex ->
+                val byte = hex.toInt(16)
+                for (bit in 7 downTo 0) if ((byte shr bit) and 1 == 1) {
                     val pid = basePid + 1 + byteIdx * 8 + (7 - bit)
-                    supported.add(String.format("%02X", pid))
+                    if (pid <= 255) supported.add(String.format(java.util.Locale.ENGLISH, "%02X", pid))
                 }
             }
         }

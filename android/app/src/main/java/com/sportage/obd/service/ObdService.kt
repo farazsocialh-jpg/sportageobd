@@ -41,6 +41,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.min
 
@@ -64,7 +65,9 @@ data class ObdTelemetry(
     val fuelUsedLiters: Float = 0f,
     val estimatedGear: Int = 0,
     val timestamp: Long = System.currentTimeMillis(),
-    val sampleRateHz: Float = 0f
+    val sampleRateHz: Float = 0f,
+    val sensors: Map<String, com.sportage.obd.obd.SensorSample> = emptyMap(),
+    val vehicleInfo: Map<String, String> = emptyMap()
 )
 
 /**
@@ -367,6 +370,39 @@ class ObdService : Service() {
         return transport.sendCommand(command)
     }
 
+    private suspend fun sampleCommand(command: String): String {
+        val generation = connectionGeneration
+        val response = transport.sendCommand(command)
+        if (generation == connectionGeneration && command.startsWith("01") && command.length == 4) {
+            com.sportage.obd.obd.SensorCatalog.decode(command.takeLast(2), response)?.let { sample ->
+                _telemetry.update { it.copy(sensors = it.sensors + (sample.pid to sample)) }
+            }
+        }
+        return response
+    }
+
+    suspend fun refreshSensorCapabilities() {
+        check(connectJob?.isActive != true) { "Adapter is still initializing" }
+        if (connectionState.value is ConnectionState.Connected) discoverVehicleCapabilities()
+    }
+
+    /** Raw diagnostic responses are labelled as such; manufacturer limits are not guessed. */
+    suspend fun readVehicleInformation() {
+        check(connectJob?.isActive != true) { "Adapter is still initializing" }
+        if (connectionState.value !is ConnectionState.Connected) return
+        val generation = connectionGeneration
+        val link = transport
+        val info = linkedMapOf<String, String>()
+        for ((label, command) in listOf("Adapter" to "ATI", "Protocol" to "ATDP",
+            "Calibration ID · raw response" to "0904", "Calibration verification · raw response" to "0906",
+            "ECU name · raw response" to "090A", "On-board monitor tests · raw response" to "06")) {
+            if (generation != connectionGeneration) return
+            val response = link.sendCommand(command)
+            info[label] = response.take(4000).ifBlank { "No response" }
+        }
+        if (generation == connectionGeneration) _telemetry.update { it.copy(vehicleInfo = info) }
+    }
+
     suspend fun scanDtcCodes(): List<DtcItem> {
         return try {
             val response = transport.sendCommand("03")
@@ -405,8 +441,16 @@ class ObdService : Service() {
     /** Mode 02: freeze frame stored with the last confirmed fault. */
     suspend fun readFreezeFrame(): FreezeFrame? {
         return try {
-            val response = transport.sendCommand("02")
-            val parsed = PidDecoders.decodeFreezeFrame(response)
+            val items = mutableListOf<com.sportage.obd.obd.FreezeFrameItem>()
+            for (pid in listOf("04", "05", "0C", "0D", "0F", "10", "11", "2F")) {
+                val response = transport.sendCommand("02${pid}00")
+                val normalized = response.replace(Regex("42\\s*${pid[0]}\\s*${pid[1]}\\s*00", RegexOption.IGNORE_CASE), "42$pid")
+                items += PidDecoders.decodeFreezeFrame(normalized).items
+            }
+            val cause = transport.sendCommand("020200")
+            val code = Regex("420200([0-9A-F]{4})", RegexOption.IGNORE_CASE)
+                .find(cause.replace(Regex("\\s"), ""))?.groupValues?.get(1)
+            val parsed = FreezeFrame(code?.let { PidDecoders.decodeDtcCodes("43$it").firstOrNull() }, items)
             if (parsed.items.isNotEmpty()) {
                 _freezeFrame.value = parsed
                 parsed
@@ -441,6 +485,7 @@ class ObdService : Service() {
     }
 
     suspend fun clearDtcCodes(): Boolean {
+        if ((_telemetry.value.speedKmh ?: 0) > 0) return false
         return try {
             val response = transport.sendCommand("04")
             if (response.contains("OK") || response.contains("44")) {
@@ -466,9 +511,15 @@ class ObdService : Service() {
     // --- CSV logging ---
 
     fun startCsvLogging(): Boolean {
-        val file = csvLogger?.start() ?: return false
-        _isCsvLogging.value = true
-        return file.exists()
+        return try {
+            val file = csvLogger?.start() ?: return false
+            _isCsvLogging.value = file.exists()
+            file.exists()
+        } catch (_: Exception) {
+            csvLogger?.stop()
+            _isCsvLogging.value = false
+            false
+        }
     }
 
     fun stopCsvLogging() {
@@ -507,12 +558,13 @@ class ObdService : Service() {
     private suspend fun discoverVehicleCapabilities() {
         val supported = mutableSetOf<String>()
         try {
-            for (base in listOf(0x00, 0x20, 0x40)) {
+            for (base in 0x00..0xE0 step 0x20) {
                 val cmd = "01" + String.format("%02X", base)
                 val resp = withTimeoutOrNull(2000) { transport.sendCommand(cmd) }
                 supported += PidDecoders.decodeSupportedPids(resp ?: "", base)
+                if ("%02X".format(base + 0x20) !in supported) break
             }
-            if (supported.isNotEmpty()) _supportedPids.value = supported
+            _supportedPids.value = supported
         } catch (e: CancellationException) { throw e } catch (_: Exception) {}
 
         try {
@@ -533,6 +585,9 @@ class ObdService : Service() {
             // slower adapters, never reach the later PIDs (fuel, throttle, load,
             // voltage).
             var auxPidCycle = 0
+            var extraCycle = 0
+            var nextExtraAt = 0L
+            val unavailable = mutableMapOf<String, Int>()
             lastFuelSampleAtMs = System.currentTimeMillis()
 
             while (isActive && activeDevice != null) {
@@ -543,11 +598,11 @@ class ObdService : Service() {
 
                 try {
                     // 1. Engine RPM (PID 010C) - high priority
-                    val rpmResp = transport.sendCommand("010C")
+                    val rpmResp = sampleCommand("010C")
                     val rpm = PidDecoders.decodeRpm(rpmResp)
 
                     // 2. Vehicle Speed (PID 010D) - high priority
-                    val spdResp = transport.sendCommand("010D")
+                    val spdResp = sampleCommand("010D")
                     val speed = PidDecoders.decodeSpeed(spdResp)
 
                     // Measure sampling frequency
@@ -581,47 +636,62 @@ class ObdService : Service() {
 
                     when (auxPidCycle % 10) {
                         0 -> if (pidSupported("05")) {
-                            val resp = transport.sendCommand("0105")
+                            val resp = sampleCommand("0105")
                             coolant = PidDecoders.decodeCoolantTemp(resp) ?: coolant
                         }
                         1 -> if (pidSupported("0F")) {
-                            val resp = transport.sendCommand("010F")
+                            val resp = sampleCommand("010F")
                             intake = PidDecoders.decodeIntakeTemp(resp) ?: intake
                         }
                         2 -> if (pidSupported("2F")) {
-                            val resp = transport.sendCommand("012F")
+                            val resp = sampleCommand("012F")
                             fuel = PidDecoders.decodeFuelLevel(resp) ?: fuel
                         }
                         3 -> if (pidSupported("11")) {
-                            val resp = transport.sendCommand("0111")
+                            val resp = sampleCommand("0111")
                             throttle = PidDecoders.decodeThrottle(resp) ?: throttle
                         }
                         4 -> if (pidSupported("04")) {
-                            val resp = transport.sendCommand("0104")
+                            val resp = sampleCommand("0104")
                             load = PidDecoders.decodeLoad(resp) ?: load
                         }
                         5 -> {
-                            val resp = transport.sendCommand("ATRV")
+                            val resp = sampleCommand("ATRV")
                             voltage = PidDecoders.decodeBatteryVoltage(resp) ?: voltage
                         }
                         6 -> if (pidSupported("10")) {
-                            val resp = transport.sendCommand("0110")
+                            val resp = sampleCommand("0110")
                             maf = PidDecoders.decodeMaf(resp) ?: maf
                         }
                         7 -> if (pidSupported("06")) {
-                            val resp = transport.sendCommand("0106")
+                            val resp = sampleCommand("0106")
                             stft = PidDecoders.decodeShortTermFuelTrim(resp) ?: stft
                         }
                         8 -> if (pidSupported("07")) {
-                            val resp = transport.sendCommand("0107")
+                            val resp = sampleCommand("0107")
                             ltft = PidDecoders.decodeLongTermFuelTrim(resp) ?: ltft
                         }
                         9 -> if (pidSupported("0E")) {
-                            val resp = transport.sendCommand("010E")
+                            val resp = sampleCommand("010E")
                             timing = PidDecoders.decodeTimingAdvance(resp) ?: timing
                         }
                     }
                     auxPidCycle = (auxPidCycle + 1) % 10
+
+                    // One extra request per 750 ms at most. Core readings retain priority.
+                    if (android.os.SystemClock.elapsedRealtime() >= nextExtraAt) {
+                        val extras = com.sportage.obd.obd.SensorCatalog.extraPids(supported)
+                            .filter { (unavailable[it] ?: 0) < 3 }
+                        if (extras.isNotEmpty()) {
+                            val pid = extras[extraCycle.mod(extras.size)]
+                            extraCycle = (extraCycle + 1).mod(extras.size)
+                            val response = sampleCommand("01$pid")
+                            if (com.sportage.obd.obd.SensorCatalog.decode(pid, response) == null)
+                                unavailable[pid] = (unavailable[pid] ?: 0) + 1
+                            else unavailable.remove(pid)
+                        }
+                        nextExtraAt = android.os.SystemClock.elapsedRealtime() + 750L
+                    }
 
                     // Fuel economy from MAF: stoich AFR 14.7, gasoline ~0.745 g/ml.
                     // L/h = maf(g/s) * 3.6 / (14.7 * 0.745); L/100km = L/h / kmh * 100.
@@ -653,10 +723,12 @@ class ObdService : Service() {
                         fuelUsedLiters = fuelUsedLiters,
                         estimatedGear = gear,
                         timestamp = now,
-                        sampleRateHz = currentHz
+                        sampleRateHz = currentHz,
+                        sensors = _telemetry.value.sensors,
+                        vehicleInfo = _telemetry.value.vehicleInfo
                     )
 
-                    _telemetry.value = newTelemetry
+                    _telemetry.update { newTelemetry.copy(sensors = it.sensors, vehicleInfo = it.vehicleInfo) }
                     alertEngine?.evaluate(newTelemetry)
                     val criticalAlert = alertEngine?.activeAlerts?.value?.firstOrNull { it.severity == AlertSeverity.CRITICAL }
                     if (criticalAlert != null && now - lastAlertNotificationAtMs >= 60_000L) {
@@ -665,7 +737,10 @@ class ObdService : Service() {
                     } else if (criticalAlert == null) {
                         lastAlertNotificationAtMs = 0L
                     }
-                    csvLogger?.log(newTelemetry)
+                    if (_isCsvLogging.value && csvLogger?.log(newTelemetry) != true) {
+                        stopCsvLogging()
+                        updateNotification("OBD recording stopped: storage unavailable")
+                    }
 
                     delay(30) // Fast cycle rate
                 } catch (e: Exception) {

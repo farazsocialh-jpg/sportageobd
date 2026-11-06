@@ -1,5 +1,7 @@
 # Sportage Android visual refresh and free map options
 
+Build-i research/history note: the later build `2026-11-06.j` now implements MapLibre/OpenFreeMap, selectable map themes, offline Qatar fallback, a quick dock and expanded OBD support. Current behavior and verification limits are documented in [MapLibre and OBD upgrade](MAPLIBRE_AND_OBD_UPGRADE.md); the research and earlier design review below remain historical context.
+
 Build `2026-11-05.i`, version `1.0.5` (6), refines the working Android app. The React/Vite web application is untouched, and this build keeps the functioning native offline map rather than silently introducing another map engine during a visual pass.
 
 ## Visual changes

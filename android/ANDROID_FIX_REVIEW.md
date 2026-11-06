@@ -1,8 +1,8 @@
 # Android Bluetooth and map repair
 
-Build: `2026-11-05.i`, version `1.0.5`, version code `6`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
+Latest build: `2026-11-06.j`, version `1.1.0`, version code `7`. The change set is scoped to `android/`; the React/Vite web application, its package files, and root APKs are unchanged.
 
-The latest revision is an Android visual refinement with a clearer dashboard, responsive gauges/trip layouts, accessible map controls, and better-contained settings/diagnostics actions. See [visual refresh and free-map research](VISUAL_REFRESH_AND_MAP_OPTIONS.md) and [Android design conventions](DESIGN.md). The working free offline map and Android navigation-app picker remain in place; MapLibre/OpenFreeMap is researched and recommended, not silently integrated.
+Build j integrates MapLibre/OpenFreeMap with selectable themes, retained Qatar fallback, a music/actions dock and 81 standard read-only OBD PID definitions. See [upgrade behavior and limitations](MAPLIBRE_AND_OBD_UPGRADE.md) for the current implementation and acceptance checks. The sections below preserve the earlier native-map and visual-refinement repair history.
 
 ## Latest map presentation revision
 

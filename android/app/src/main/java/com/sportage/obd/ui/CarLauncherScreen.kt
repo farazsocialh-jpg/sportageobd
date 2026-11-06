@@ -4,7 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.view.KeyEvent
-import com.sportage.obd.map.NativeLocationMap
+import com.sportage.obd.map.HybridLocationMap
 import com.sportage.obd.map.NavigationLauncher
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -99,7 +99,8 @@ fun CarLauncherScreen(
     autoNightDim: Boolean = true,
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
-    onSetNightDimLevel: (Float) -> Unit = {}
+    onSetNightDimLevel: (Float) -> Unit = {},
+    gpsStatus: String? = null
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -137,6 +138,7 @@ fun CarLauncherScreen(
                 return
             } catch (_: Exception) {}
         }
+        Toast.makeText(context, "No compatible music app is installed. Choose an app from the app drawer.", Toast.LENGTH_LONG).show()
     }
 
     fun launchHeadUnitRadioApp() {
@@ -198,6 +200,7 @@ fun CarLauncherScreen(
                                 aspectRatio = aspectRatio,
                                 currentLat = currentLat,
                                 currentLon = currentLon,
+                                gpsStatus = gpsStatus,
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
                                 onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
@@ -231,6 +234,7 @@ fun CarLauncherScreen(
                                 rpmHistory = rpmHistory,
                                 viewModel = viewModel
                             )
+                            6 -> SensorExplorer(viewModel)
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
@@ -293,6 +297,17 @@ fun CarLauncherScreen(
                             )
                         }
                     }
+                    QuickActionDock(
+                        onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+                        onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+                        onBluetooth = onOpenBluetoothClick,
+                        logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+                        canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+                        onLogging = {
+                            if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+                            else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+                        }
+                    )
                 }
             }
         } else {
@@ -313,6 +328,7 @@ fun CarLauncherScreen(
                             aspectRatio = aspectRatio,
                             currentLat = currentLat,
                             currentLon = currentLon,
+                            gpsStatus = gpsStatus,
                             speed = displaySpeed,
                             speedUnit = speedUnit,
                             onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
@@ -346,7 +362,8 @@ fun CarLauncherScreen(
                             rpmHistory = rpmHistory,
                             viewModel = viewModel
                         )
-                        2 -> DiagnosticsPage(
+                        6 -> SensorExplorer(viewModel)
+                            2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
                             onScan = onScanDtc,
@@ -409,6 +426,17 @@ fun CarLauncherScreen(
                     }
                 }
 
+                QuickActionDock(
+                    onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+                    onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+                    onBluetooth = onOpenBluetoothClick,
+                    logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+                    canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+                    onLogging = {
+                        if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+                        else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+                    }
+                )
                 CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
             }
         }
@@ -475,7 +503,8 @@ fun PermanentHomeSplitView(
     connectionState: ConnectionState,
     measuredHz: Float?,
     isDemoMode: Boolean,
-    onOpenNavigation: () -> Unit
+    onOpenNavigation: () -> Unit,
+    gpsStatus: String? = null
 ) {
     if (isLandscape) {
         // Landscape: Adaptive Dominant Live Map Pane (approx 58-64%) + Persistent OBD Pane (approx 36-42%)
@@ -494,7 +523,8 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     speed = speed,
                     speedUnit = speedUnit,
-                    onOpenNavigation = onOpenNavigation
+                    onOpenNavigation = onOpenNavigation,
+                    gpsStatus = gpsStatus
                 )
             }
 
@@ -529,7 +559,8 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     speed = speed,
                     speedUnit = speedUnit,
-                    onOpenNavigation = onOpenNavigation
+                    onOpenNavigation = onOpenNavigation,
+                    gpsStatus = gpsStatus
                 )
             }
 
@@ -559,7 +590,8 @@ fun PermanentHomeSplitView(
 @Composable
 fun LiveMapSurface(
     currentLat: Double, currentLon: Double, speed: Int?, speedUnit: String,
-    onOpenNavigation: () -> Unit
+    onOpenNavigation: () -> Unit,
+    gpsStatus: String? = null
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
@@ -569,8 +601,11 @@ fun LiveMapSurface(
                 Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Map", modifier = Modifier.weight(1f), color = PrimaryText,
-                    style = MaterialTheme.typography.titleMedium)
+                Column(Modifier.weight(1f)) {
+                    Text("Map", color = PrimaryText, style = MaterialTheme.typography.titleMedium)
+                    gpsStatus?.let { Text(it, color = SecondaryText, style = MaterialTheme.typography.labelSmall,
+                        maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
+                }
                 FilledIconButton(
                     onClick = onOpenNavigation, modifier = Modifier.size(48.dp),
                     shape = RoundedCornerShape(12.dp),
@@ -579,7 +614,7 @@ fun LiveMapSurface(
                     )
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) { NativeLocationMap(currentLat, currentLon, 0) }
+            Box(Modifier.fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0) }
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
@@ -960,8 +995,9 @@ fun DiagnosticsPage(
                                             color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif
                                         )
                                     }
-                                    Text("SPARK IGNITION MONITORS (GASOLINE)", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                                    readiness.sparkIgnitionMonitors.forEach { m ->
+                                    Text(if (readiness.compressionIgnitionMonitors.isNotEmpty()) "DIESEL READINESS MONITORS" else "GASOLINE READINESS MONITORS",
+                                        color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                                    (readiness.sparkIgnitionMonitors + readiness.compressionIgnitionMonitors).forEach { m ->
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(m.name, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                             Text(

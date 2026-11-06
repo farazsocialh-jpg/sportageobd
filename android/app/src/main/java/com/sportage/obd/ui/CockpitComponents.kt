@@ -66,6 +66,7 @@ private data class CockpitDestination(val page: Int, val label: String, val icon
 private val destinations = listOf(
     CockpitDestination(0, "Home", Icons.Default.Home),
     CockpitDestination(1, "Gauges", Icons.Default.Speed),
+    CockpitDestination(6, "Sensors", Icons.Default.Sensors),
     CockpitDestination(2, "Diagnostics", Icons.Default.Warning),
     CockpitDestination(3, "Trip", Icons.Default.Route),
     CockpitDestination(4, "Media", Icons.Default.Radio),
@@ -114,7 +115,7 @@ fun CockpitNavigation(activePage: Int, onNavigate: (Int) -> Unit, onOpenApps: ()
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                 Row(Modifier.height(80.dp)) {
                     NavigationBarItem(
-                        selected = activePage in listOf(2, 5), onClick = { expanded = true },
+                        selected = activePage in listOf(2, 5, 6), onClick = { expanded = true },
                         icon = { Icon(Icons.Default.MoreHoriz, "More", Modifier.size(22.dp)) },
                         label = { Text("More", maxLines = 1) },
                         colors = NavigationBarItemDefaults.colors(
@@ -125,7 +126,7 @@ fun CockpitNavigation(activePage: Int, onNavigate: (Int) -> Unit, onOpenApps: ()
                     )
                 }
                 DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-                    destinations.filter { it.page in listOf(2, -1, 5) }.forEach { item ->
+                    destinations.filter { it.page in listOf(6, 2, -1, 5) }.forEach { item ->
                         DropdownMenuItem(text = { Text(item.label) },
                             leadingIcon = { Icon(item.icon, null) },
                             onClick = { expanded = false; select(item.page) })

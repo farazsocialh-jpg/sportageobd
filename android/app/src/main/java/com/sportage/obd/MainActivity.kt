@@ -68,7 +68,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-05.i"
+        const val APP_BUILD_TAG = "2026-11-06.j"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var currentLat by mutableStateOf(25.2854)
     private var currentLon by mutableStateOf(51.5310)
     private var currentGpsSpeed by mutableStateOf<Int?>(null)
+    private var gpsStatus by mutableStateOf("Waiting for GPS")
 
     // Auto night dimming (persisted)
     private val uiPrefs by lazy { getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
@@ -232,6 +233,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                         rpmHistory = rpmHist,
                         currentLat = currentLat,
                         currentLon = currentLon,
+                        gpsStatus = gpsStatus,
                         activePage = activePage,
                         onNavigatePage = { activePage = it },
                         onOpenBluetoothClick = {
@@ -560,29 +562,35 @@ class MainActivity : ComponentActivity(), LocationListener {
                     it == LocationManager.NETWORK_PROVIDER ||
                         (hasFine && it == LocationManager.GPS_PROVIDER)
                 }
+                gpsStatus = if (providers.isEmpty()) "Enable device location" else "Waiting for location"
                 val best = providers.mapNotNull {
                     runCatching { lm.getLastKnownLocation(it) }.getOrNull()
                 }.maxByOrNull { it.time }
                 if (best != null) {
                     currentLat = best.latitude
                     currentLon = best.longitude
+                    gpsStatus = "Last known location"
                 }
 
                 for (provider in providers) {
                     runCatching { lm.requestLocationUpdates(provider, 2000L, 5f, this) }
                 }
-            }
-        } catch (_: SecurityException) {} catch (_: Exception) {}
+            } else gpsStatus = "Location permission needed"
+        } catch (_: SecurityException) { gpsStatus = "Location permission needed" }
+        catch (_: Exception) { gpsStatus = "Waiting for location" }
     }
 
     override fun onLocationChanged(location: Location) {
+        if (!com.sportage.obd.map.TrackerMapPolicy.valid(location.latitude, location.longitude)) return
         currentLat = location.latitude
         currentLon = location.longitude
         currentGpsSpeed = if (location.hasSpeed()) (location.speed * 3.6f).toInt() else null
+        gpsStatus = (if (location.provider == LocationManager.GPS_PROVIDER) "GPS" else "Network location") +
+            (if (location.hasAccuracy()) " · ±${location.accuracy.toInt()} m" else "")
     }
 
     override fun onProviderEnabled(provider: String) { initLocationTracking() }
-    override fun onProviderDisabled(provider: String) {}
+    override fun onProviderDisabled(provider: String) { initLocationTracking() }
     @Deprecated("Required by LocationListener on Android 9/10")
     override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
 
@@ -595,6 +603,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     override fun onStop() {
         runCatching { locationManager?.removeUpdates(this) }
         currentGpsSpeed = null
+        gpsStatus = "Location paused"
         super.onStop()
     }
 

@@ -78,19 +78,23 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val rpmHistory: StateFlow<List<Pair<Long, Int>>> = _rpmHistory.asStateFlow()
 
     init {
-        // Collect telemetry and append to history window (last 60 data points)
+        // A real 60-second window. Sensor-only state updates must not duplicate core samples.
         viewModelScope.launch {
             repository.telemetry.collect { telem ->
                 val now = telem.timestamp
                 val spd = telem.speedKmh
                 val rpm = telem.rpm
 
-                if (spd != null) {
-                    val updatedSpd = (_speedHistory.value + Pair(now, spd)).takeLast(60)
+                if (spd == null && rpm == null) {
+                    _speedHistory.value = emptyList()
+                    _rpmHistory.value = emptyList()
+                }
+                if (spd != null && _speedHistory.value.lastOrNull()?.first != now) {
+                    val updatedSpd = (_speedHistory.value + Pair(now, spd)).filter { it.first >= now - 60_000 }.takeLast(3000)
                     _speedHistory.value = updatedSpd
                 }
-                if (rpm != null) {
-                    val updatedRpm = (_rpmHistory.value + Pair(now, rpm)).takeLast(60)
+                if (rpm != null && _rpmHistory.value.lastOrNull()?.first != now) {
+                    val updatedRpm = (_rpmHistory.value + Pair(now, rpm)).filter { it.first >= now - 60_000 }.takeLast(3000)
                     _rpmHistory.value = updatedRpm
                 }
             }
@@ -135,6 +139,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun readReadinessNow(): ReadinessState? = repository.readReadiness()
 
     suspend fun readVinNow(): String? = repository.readVin()
+
+    suspend fun refreshSensorCapabilities() = repository.refreshSensorCapabilities()
+
+    suspend fun readVehicleInformation() = repository.readVehicleInformation()
 
     suspend fun clearDtcNow(): Boolean = repository.clearDtcCodes()
 

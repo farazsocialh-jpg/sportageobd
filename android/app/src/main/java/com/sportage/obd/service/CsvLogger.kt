@@ -15,34 +15,36 @@ import java.util.Locale
 class CsvLogger(private val context: Context) {
 
     private var currentFile: File? = null
+    private var lastFile: File? = null
     private var bytesWritten = 0L
 
-    val activeFile: File? get() = currentFile
+    val activeFile: File? get() = currentFile ?: lastFile
 
     val isLogging: Boolean get() = currentFile != null
 
-    fun start(): File {
+    @Synchronized fun start(): File {
         stop()
         val dir = File(context.getExternalFilesDir(null), "obd_logs").apply { mkdirs() }
         val ts = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val file = File(dir, "session_$ts.csv")
+        val file = File.createTempFile("session_${ts}_", ".csv", dir)
         file.appendText(CSV_HEADER)
         bytesWritten = CSV_HEADER.length.toLong()
         currentFile = file
+        lastFile = file
         return file
     }
 
-    fun stop() {
+    @Synchronized fun stop() {
         currentFile = null
         bytesWritten = 0
     }
 
     /** Appends one telemetry row. Returns false when not logging. */
-    fun log(telemetry: ObdTelemetry): Boolean {
+    @Synchronized fun log(telemetry: ObdTelemetry): Boolean {
         val file = currentFile ?: return false
         return try {
             val row = buildString {
-                append(System.currentTimeMillis()).append(',')
+                append(telemetry.timestamp).append(',')
                     .append(telemetry.rpm).append(',')
                     .append(telemetry.speedKmh).append(',')
                     .append(telemetry.coolantTempC).append(',')
@@ -55,10 +57,20 @@ class CsvLogger(private val context: Context) {
                     .append(telemetry.shortTermFuelTrimPct).append(',')
                     .append(telemetry.longTermFuelTrimPct).append(',')
                     .append(telemetry.timingAdvanceDeg).append(',')
-                    .append(telemetry.fuelEconomyL100).append('\n')
+                    .append(telemetry.fuelEconomyL100).append(',')
+                val extra = org.json.JSONObject()
+                telemetry.sensors.forEach { (pid, sample) ->
+                    val values = org.json.JSONArray()
+                    sample.values.forEach { value ->
+                        values.put(org.json.JSONObject().put("label", value.label)
+                            .put("value", value.value).put("unit", value.unit))
+                    }
+                    extra.put(pid, org.json.JSONObject().put("timestamp", sample.timestamp).put("values", values))
+                }
+                append('"').append(extra.toString().replace("\"", "\"\"")).append('"').append('\n')
             }
             file.appendText(row)
-            bytesWritten += row.length
+            bytesWritten += row.toByteArray(Charsets.UTF_8).size
             if (bytesWritten > MAX_FILE_BYTES) {
                 roll()
             }
@@ -81,6 +93,6 @@ class CsvLogger(private val context: Context) {
         private const val MAX_FILE_BYTES = 5L * 1024 * 1024 // 5 MB per session file
 
         private const val CSV_HEADER =
-            "timestamp,rpm,speed_kmh,coolant_c,intake_c,throttle_pct,load_pct,fuel_pct,battery_v,maf_gs,stft_pct,ltft_pct,timing_deg,l_per_100km\n"
+            "timestamp,rpm,speed_kmh,coolant_c,intake_c,throttle_pct,load_pct,fuel_pct,battery_v,maf_gs,stft_pct,ltft_pct,timing_deg,l_per_100km,extended_sensor_samples_json\n"
     }
 }

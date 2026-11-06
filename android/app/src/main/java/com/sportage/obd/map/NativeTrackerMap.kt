@@ -33,7 +33,7 @@ import org.mapsforge.map.android.rendertheme.AssetsRenderTheme
 import java.io.File
 
 /** Native Android Canvas rendering. No browser, JavaScript, remote style or API key. */
-class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
+class NativeTrackerMap(context: Context, file: File, private val offlineOnly: Boolean = false) : FrameLayout(context) {
     private val map = MapView(context)
     private val data = EnglishMapFile(file)
     private val factory = AndroidGraphicFactory.INSTANCE
@@ -81,7 +81,7 @@ class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
     fun updateFix(latitude: Double, longitude: Double, recenter: Int): Boolean {
         if (disposed || !TrackerMapPolicy.valid(latitude, longitude)) return offlineMode
         val fix = LatLong(latitude, longitude)
-        val useOffline = data.boundingBox().contains(fix)
+        val useOffline = offlineOnly || data.boundingBox().contains(fix)
         if (useOffline != offlineMode) {
             offlineMode = useOffline
             offline.isVisible = useOffline
@@ -97,6 +97,9 @@ class NativeTrackerMap(context: Context, file: File) : FrameLayout(context) {
         }
         return useOffline
     }
+
+    fun covers(latitude: Double, longitude: Double): Boolean =
+        TrackerMapPolicy.valid(latitude, longitude) && data.boundingBox().contains(LatLong(latitude, longitude))
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
@@ -138,11 +141,12 @@ internal fun prepareBundledMap(context: Context): File {
 }
 
 @Composable
-fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int) {
+fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int, offlineOnly: Boolean = false) {
     val context = LocalContext.current
     var file by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     var offline by remember { mutableStateOf(true) }
+    var covered by remember { mutableStateOf(true) }
     var retry by remember { mutableIntStateOf(0) }
     LaunchedEffect(retry) {
         error = null
@@ -158,14 +162,17 @@ fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int) {
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     try {
-                        NativeTrackerMap(ctx, ready).apply { updateFix(latitude, longitude, recenter) }
+                        NativeTrackerMap(ctx, ready, offlineOnly).apply { updateFix(latitude, longitude, recenter) }
                     } catch (e: Exception) {
                         error = "Native map initialization failed: ${e.message}"
                         FrameLayout(ctx)
                     }
                 },
                 update = { view ->
-                    if (view is NativeTrackerMap) offline = view.updateFix(latitude, longitude, recenter)
+                    if (view is NativeTrackerMap) {
+                        offline = view.updateFix(latitude, longitude, recenter)
+                        covered = view.covers(latitude, longitude)
+                    }
                 },
                 onRelease = { view -> (view as? NativeTrackerMap)?.release() }
             )
@@ -187,6 +194,10 @@ fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int) {
                 modifier = Modifier.align(Alignment.TopEnd).background(Color(0xDDFFFFFF)).padding(4.dp)
             )
         }
+        if (offlineOnly && !covered) Text(
+            "Outside bundled Qatar coverage.\nChoose an online theme with an internet connection.",
+            color = Color.Black, modifier = Modifier.align(Alignment.Center)
+                .background(Color(0xEEFFFFFF)).padding(12.dp))
         Text("© OpenStreetMap contributors", color = Color.Black, fontSize = 9.sp,
             modifier = Modifier.align(Alignment.BottomStart).background(Color(0xDDFFFFFF))
                 .clickable {
