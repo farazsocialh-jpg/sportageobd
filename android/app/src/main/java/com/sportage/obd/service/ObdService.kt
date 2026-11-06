@@ -276,8 +276,11 @@ class ObdService : Service() {
                 updateNotification("Connected to ${BluetoothDeviceInfo.displayName(this@ObdService, device)} · Polling active")
                 initializeElm327()
                 discoverVehicleCapabilities()
+                // CSV auto-start is optional; polling is not. Both used to be indented under the
+                // same `if`, so a driver who never enabled CSV logging got a connected adapter
+                // with no telemetry at all.
                 if (prefs().getBoolean(KEY_CSV_AUTOSTART, false)) startCsvLogging()
-                    startPollingLoop()
+                startPollingLoop()
             } else {
                 updateNotification("Connection failed. Retrying...")
                 scheduleReconnect()
