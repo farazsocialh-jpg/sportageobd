@@ -28,6 +28,18 @@ object SensorCatalog {
         fun pct(pid: String, title: String, category: String) = scalar(pid, title, category, 1, "%") { it[0] * 100.0 / 255 }
         fun temp(pid: String, title: String) = scalar(pid, title, "Temperatures", 1, "°C") { it[0] - 40.0 }
         pct("04", "Calculated engine load", "Engine")
+        // PID 03 fuel system status: bit-encoded (open loop, closed loop, etc.).
+        add(SensorDefinition("03", "Fuel system status", "Fuel", 1) {
+            val bits = it[0]
+            val status = when {
+                bits and 0x02 != 0 -> "Closed loop (O2 feedback)"
+                bits and 0x04 != 0 -> "Open loop (load)"
+                bits and 0x08 != 0 -> "Open loop (failure)"
+                bits and 0x10 != 0 -> "Closed loop (fault)"
+                else -> "Open loop (warm-up)"
+            }
+            listOf(SensorValue("Status", 0.0, status))
+        })
         temp("05", "Coolant temperature")
         for ((pid, title) in listOf("06" to "Short fuel trim bank 1", "07" to "Long fuel trim bank 1",
             "08" to "Short fuel trim bank 2", "09" to "Long fuel trim bank 2"))

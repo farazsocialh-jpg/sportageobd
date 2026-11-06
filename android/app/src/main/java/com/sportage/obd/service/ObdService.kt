@@ -63,6 +63,17 @@ data class ObdTelemetry(
     val timingAdvanceDeg: Float? = null,
     val fuelEconomyL100: Float? = null,
     val fuelUsedLiters: Float = 0f,
+    /** Direct ECU fuel rate from PID 5E when supported, L/h. */
+    val fuelRateEcuLh: Float? = null,
+    /** Tank-to-tank calibration factor applied to calculated usage (1.0 = none). */
+    val fuelCalibrationFactor: Float = 1f,
+    /** ECU_DIRECT or CALCULATED, so the UI can label every fuel figure. */
+    val fuelSource: String? = null,
+    val idleFuelLiters: Float = 0f,
+    val cityFuelLiters: Float = 0f,
+    val highwayFuelLiters: Float = 0f,
+    val cityDistanceKm: Float = 0f,
+    val highwayDistanceKm: Float = 0f,
     val estimatedGear: Int = 0,
     /** Actual transmission gear from PID 01A4 when the ECU supports it: -2 P, -1 R, 0 N, 1..10 forward. */
     val transmissionGear: Int? = null,
@@ -169,6 +180,12 @@ class ObdService : Service() {
     // Trip fuel accounting
     private var fuelUsedLiters = 0f
     private var lastFuelSampleAtMs = 0L
+    private var fuelCalibrationFactor = 1f
+    private var idleFuelLiters = 0f
+    private var cityFuelLiters = 0f
+    private var highwayFuelLiters = 0f
+    private var cityDistanceKm = 0f
+    private var highwayDistanceKm = 0f
 
     // Critical-alert notifications are throttled: the polling loop runs at ~30 Hz and used to
     // re-post the same warning on every iteration.
@@ -512,6 +529,25 @@ class ObdService : Service() {
 
     // --- Warning thresholds ---
 
+    /**
+     * Sets the tank-to-tank calibration factor applied to calculated fuel usage.
+     * Direct ECU fuel-rate readings are not scaled.
+     */
+    fun setFuelCalibration(factor: Float) {
+        fuelCalibrationFactor = factor.coerceIn(0.5f, 2.5f)
+    }
+
+    /** Resets the trip fuel accumulators (called from the trip reset workflow). */
+    fun resetTripFuel() {
+        fuelUsedLiters = 0f
+        idleFuelLiters = 0f
+        cityFuelLiters = 0f
+        highwayFuelLiters = 0f
+        cityDistanceKm = 0f
+        highwayDistanceKm = 0f
+        lastFuelSampleAtMs = 0L
+    }
+
     fun updateAlertThresholds(thresholds: AlertThresholds) {
         alertEngine?.updateThresholds(thresholds)
     }
@@ -710,15 +746,39 @@ class ObdService : Service() {
                         nextExtraAt = android.os.SystemClock.elapsedRealtime() + 750L
                     }
 
-                    // Fuel economy from MAF: stoich AFR 14.7, gasoline ~0.745 g/ml.
-                    // L/h = maf(g/s) * 3.6 / (14.7 * 0.745); L/100km = L/h / kmh * 100.
+                    // Fuel rate: prefer the ECU's direct PID 5E reading; fall back to the
+                    // MAF estimate (stoich AFR 14.7, gasoline ~0.745 g/ml). Calculated
+                    // figures are scaled by the tank-to-tank calibration factor and are
+                    // always labeled as estimates - never as ECU measurements.
+                    val sensorsNow = _telemetry.value.sensors
+                    val ecuRateLh = sensorsNow["5E"]?.values
+                        ?.firstOrNull { it.unit == "L/h" }?.value?.toFloat()
+                    var rateLh: Float? = null
+                    var fuelIsDirect = false
+                    if (ecuRateLh != null && ecuRateLh >= 0f) {
+                        rateLh = ecuRateLh
+                        fuelIsDirect = true
+                    } else if (maf != null) {
+                        rateLh = (com.sportage.obd.fuel.FuelMath.litersPerHourFromMaf(maf.toDouble()) * fuelCalibrationFactor).toFloat()
+                    }
                     var economy: Float? = null
-                    if (maf != null && speed != null && speed > 3) {
-                        val litersPerHour = maf * 3.6f / (14.7f * 0.745f)
-                        economy = litersPerHour / speed * 100f
+                    if (rateLh != null) {
+                        if (speed != null && speed > 3) economy = rateLh / speed * 100f
                         val dtSec = (now - lastFuelSampleAtMs) / 1000f
                         if (dtSec in 0f..30f) {
-                            fuelUsedLiters += litersPerHour * dtSec / 3600f
+                            val used = (rateLh ?: 0f) * dtSec / 3600f
+                            fuelUsedLiters += used
+                            when (com.sportage.obd.fuel.FuelMath.classify((speed ?: 0).toDouble())) {
+                                com.sportage.obd.fuel.DriveClass.IDLE -> idleFuelLiters += used
+                                com.sportage.obd.fuel.DriveClass.CITY -> {
+                                    cityFuelLiters += used
+                                    cityDistanceKm += (speed ?: 0) * dtSec / 3600f
+                                }
+                                com.sportage.obd.fuel.DriveClass.HIGHWAY -> {
+                                    highwayFuelLiters += used
+                                    highwayDistanceKm += (speed ?: 0) * dtSec / 3600f
+                                }
+                            }
                         }
                     }
                     lastFuelSampleAtMs = now
@@ -738,6 +798,19 @@ class ObdService : Service() {
                         timingAdvanceDeg = timing,
                         fuelEconomyL100 = economy,
                         fuelUsedLiters = fuelUsedLiters,
+                        fuelRateEcuLh = if (fuelIsDirect) rateLh else null,
+                        fuelCalibrationFactor = fuelCalibrationFactor,
+                        fuelSource = when {
+                            rateLh == null -> null
+                            fuelIsDirect -> "ECU_DIRECT"
+                            fuelCalibrationFactor != 1f -> "CALIBRATED"
+                            else -> "CALCULATED"
+                        },
+                        idleFuelLiters = idleFuelLiters,
+                        cityFuelLiters = cityFuelLiters,
+                        highwayFuelLiters = highwayFuelLiters,
+                        cityDistanceKm = cityDistanceKm,
+                        highwayDistanceKm = highwayDistanceKm,
                         estimatedGear = gear,
                         transmissionGear = actualGear,
                         timestamp = now,

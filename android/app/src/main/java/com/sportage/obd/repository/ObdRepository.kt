@@ -475,6 +475,14 @@ class ObdRepository(private val context: Context) {
     fun alertThresholds(): AlertThresholds =
         obdService?.alertThresholds() ?: AlertThresholds()
 
+    fun setFuelCalibration(factor: Float) {
+        scope.launch { obdService?.setFuelCalibration(factor) }
+    }
+
+    fun resetTripFuel() {
+        scope.launch { obdService?.resetTripFuel() }
+    }
+
     fun updateAlertThresholds(thresholds: AlertThresholds) {
         obdService?.updateAlertThresholds(thresholds)
     }

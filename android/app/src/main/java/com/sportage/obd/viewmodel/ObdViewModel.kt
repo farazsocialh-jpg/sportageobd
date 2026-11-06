@@ -146,6 +146,10 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun clearDtcNow(): Boolean = repository.clearDtcCodes()
 
+    fun setFuelCalibration(factor: Float) = repository.setFuelCalibration(factor)
+
+    fun resetTripFuel() = repository.resetTripFuel()
+
     fun alertThresholds(): AlertThresholds = repository.alertThresholds()
 
     fun updateAlertThresholds(thresholds: AlertThresholds) {
