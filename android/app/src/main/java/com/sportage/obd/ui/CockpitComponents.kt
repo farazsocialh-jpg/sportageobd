@@ -23,6 +23,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, onOpenBluetoothClick: () -> Unit) {
@@ -38,13 +39,13 @@ fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, on
         else -> "Connect"
     }
     Row(
-        Modifier.fillMaxWidth().background(DarkBackground).padding(horizontal = 16.dp, vertical = 8.dp),
+        Modifier.testTag("dashboard_header").fillMaxWidth().background(DarkBackground).padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
-            Text("Sportage", style = MaterialTheme.typography.titleLarge, color = PrimaryText)
+            Text("Sportage", style = MaterialTheme.typography.titleMedium, color = PrimaryText)
             Text(SimpleDateFormat("EEE, d MMM  ·  HH:mm", Locale.ENGLISH).format(time),
-                style = MaterialTheme.typography.labelMedium, color = SecondaryText)
+                style = MaterialTheme.typography.labelSmall, color = SecondaryText)
         }
         FilledTonalButton(
             onClick = onOpenBluetoothClick, modifier = Modifier.heightIn(min = 48.dp),
@@ -149,10 +150,10 @@ fun CockpitTelemetryPane(
             val compact = maxHeight < 550.dp
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
-                    .padding(if (compact) 16.dp else 20.dp),
-                verticalArrangement = Arrangement.SpaceBetween
+                    .padding(if (compact) 12.dp else 16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Vehicle", style = MaterialTheme.typography.titleMedium, color = PrimaryText)
                         Text(
@@ -169,10 +170,10 @@ fun CockpitTelemetryPane(
                         color = SecondaryText, style = MaterialTheme.typography.labelLarge)
                 }
                 if (compact) {
-                    Row(Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.weight(1f)) { CockpitSpeed(speed, speedUnit, onToggleSpeedUnit, 72) }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { CockpitSpeed(speed, speedUnit, onToggleSpeedUnit, 64) }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             CockpitRpm(rpm)
                             CockpitReading("Coolant", coolant?.let { "$it°C" } ?: "--", Modifier.fillMaxWidth(),
                                 if ((coolant ?: 0) > 105) CriticalRed else PrimaryText)
@@ -180,7 +181,7 @@ fun CockpitTelemetryPane(
                         }
                     }
                 } else {
-                    CockpitSpeed(speed, speedUnit, onToggleSpeedUnit, 104)
+                    CockpitSpeed(speed, speedUnit, onToggleSpeedUnit, 88)
                     CockpitRpm(rpm)
                     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         CockpitReading("Coolant", coolant?.let { "$it°C" } ?: "--", Modifier.weight(1f),
@@ -188,7 +189,7 @@ fun CockpitTelemetryPane(
                         CockpitReading("Battery", voltage?.let { "%.1f V".format(it) } ?: "--", Modifier.weight(1f))
                     }
                 }
-                HorizontalDivider(color = DarkSurfaceElevated, modifier = Modifier.padding(vertical = 12.dp))
+                HorizontalDivider(color = DarkSurfaceElevated, modifier = Modifier.padding(vertical = 4.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                     CockpitReading("Engine load", load?.let { "%.0f%%".format(it) } ?: "--", Modifier.weight(1f))
                     CockpitReading("Throttle", throttle?.let { "%.0f%%".format(it) } ?: "--", Modifier.weight(1f))

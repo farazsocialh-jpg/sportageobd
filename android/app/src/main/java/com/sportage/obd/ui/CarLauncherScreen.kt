@@ -5,6 +5,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.view.KeyEvent
 import com.sportage.obd.map.HybridLocationMap
+import androidx.compose.ui.platform.testTag
 import com.sportage.obd.map.NavigationLauncher
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
@@ -514,8 +515,8 @@ fun PermanentHomeSplitView(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(6.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Box(modifier = Modifier.weight(mapWeight).fillMaxHeight()) {
                 LiveMapSurface(
@@ -546,14 +547,15 @@ fun PermanentHomeSplitView(
             }
         }
     } else {
-        // Portrait (e.g. Samsung Galaxy S24 Ultra): Top Map (44%) + Bottom OBD Telemetry (56%)
+        // Portrait: prioritize map height, retaining extra telemetry room at enlarged font scales.
+        val portraitMapWeight = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) 0.52f else 0.56f
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Box(modifier = Modifier.weight(0.48f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(portraitMapWeight).fillMaxWidth()) {
                 LiveMapSurface(
                     currentLat = currentLat,
                     currentLon = currentLon,
@@ -564,7 +566,7 @@ fun PermanentHomeSplitView(
                 )
             }
 
-            Box(modifier = Modifier.weight(0.52f).fillMaxWidth()) {
+            Box(modifier = Modifier.weight(1f - portraitMapWeight).fillMaxWidth()) {
                 CockpitTelemetryPane(
                     speed = speed,
                     speedUnit = speedUnit,
@@ -595,10 +597,10 @@ fun LiveMapSurface(
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
-    Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxSize()) {
+    Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp), modifier = Modifier.testTag("home_map_card").fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+                Modifier.testTag("home_map_header").fillMaxWidth().padding(start = 12.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
@@ -614,9 +616,9 @@ fun LiveMapSurface(
                     )
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
-            Box(Modifier.fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0) }
+            Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0) }
             Row(
-                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                Modifier.testTag("home_map_footer").fillMaxWidth().padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
