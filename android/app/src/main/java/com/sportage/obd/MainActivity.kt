@@ -79,7 +79,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.q"
+        const val APP_BUILD_TAG = "2026-11-06.r"
     }
 
     private val viewModel: ObdViewModel by viewModels()

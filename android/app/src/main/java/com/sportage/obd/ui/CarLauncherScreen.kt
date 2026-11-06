@@ -188,6 +188,10 @@ fun CarLauncherScreen(
                 return
             } catch (_: Exception) {}
         }
+        // Standard intents found nothing; open the first player the broader
+        // package scan knows about (Spotify and friends declare no music intent).
+        val discovered = MediaApps.musicApps(context).firstOrNull()?.launchIntent
+        if (discovered != null && runCatching { context.startActivity(discovered) }.isSuccess) return
         Toast.makeText(context, "No compatible music app is installed. Choose an app from the app drawer.", Toast.LENGTH_LONG).show()
     }
 

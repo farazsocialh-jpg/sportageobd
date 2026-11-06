@@ -38,34 +38,66 @@ object MediaApps {
             Intent("android.media.browse.MediaBrowserService"), PackageManager.GET_META_DATA
         ).mapNotNull { it.serviceInfo?.let { si -> ComponentName(si.packageName, si.name) } }
 
+    /**
+     * Popular players that declare no queryable music intent and expose no
+     * MediaBrowserService (e.g. Spotify removed its service years ago), so
+     * intent queries alone cannot find them. Checked directly by package name.
+     */
+    private val KNOWN_MUSIC_PACKAGES = listOf(
+        "com.spotify.music",
+        "com.google.android.apps.youtube.music",
+        "com.amazon.mp3",
+        "com.soundcloud.android",
+        "com.sec.android.app.music",          // Samsung Music
+        "com.maxmpz.audioplayer",             // Poweramp
+        "com.aimp.player",
+        "org.videolan.vlc",
+        "com.krosbits.musicolet",
+        "code.name.monkey.retromusic",
+        "com.kabouzeid.gramophone",
+        "com.rhmsoft.pulsar",
+        "com.simplecity.amp",                 // Shuttle
+        "com.jetappfactory.jetaudiolite",
+        "com.syu.music",                      // common head-unit local player
+        "com.ts.main.music"
+    )
+
     /** All launchable music apps (media browsers first, then generic music players). */
     fun musicApps(context: Context): List<MediaAppInfo> {
         val pm = context.packageManager
         val browsers = browseComponents(context)
         val result = mutableListOf<MediaAppInfo>()
         val seen = mutableSetOf<String>()
-        for (component in browsers) {
-            if (seen.add(component.packageName)) {
-                val label = runCatching {
-                    pm.getApplicationInfo(component.packageName, 0).loadLabel(pm).toString()
-                }.getOrDefault(component.packageName)
-                result.add(MediaAppInfo(label, component.packageName, component, null))
+
+        fun addApp(pkg: String, browse: ComponentName?) {
+            if (!seen.add(pkg)) return
+            val launch = runCatching { pm.getLaunchIntentForPackage(pkg) }.getOrNull()
+            if (browse == null && launch == null) return
+            val label = runCatching {
+                pm.getApplicationInfo(pkg, 0).loadLabel(pm).toString()
+            }.getOrDefault(pkg)
+            result.add(MediaAppInfo(label, pkg, browse, launch?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)))
+        }
+
+        for (component in browsers) addApp(component.packageName, component)
+
+        // Apps that declare the standard music category or can open audio files.
+        // Many players (Spotify among them) declare neither, hence the extra
+        // audio/* and MUSIC_PLAYER queries plus the known-package list below.
+        val queries = listOf(
+            Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC),
+            Intent(Intent.ACTION_VIEW).setType("audio/*"),
+            Intent("android.intent.action.MUSIC_PLAYER")
+        )
+        for (query in queries) {
+            for (resolve in runCatching { pm.queryIntentActivities(query, 0) }.getOrDefault(emptyList())) {
+                addApp(resolve.activityInfo.packageName, null)
             }
         }
-        val musicIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC)
-        for (resolve in pm.queryIntentActivities(musicIntent, 0)) {
-            val pkg = resolve.activityInfo.packageName
-            if (seen.add(pkg)) {
-                val label = runCatching {
-                    pm.getApplicationInfo(pkg, 0).loadLabel(pm).toString()
-                }.getOrDefault(pkg)
-                result.add(MediaAppInfo(label, pkg, null, resolve.let {
-                    Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_APP_MUSIC)
-                        .setPackage(pkg).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                }))
-            }
-        }
-        return result
+        for (pkg in KNOWN_MUSIC_PACKAGES) addApp(pkg, null)
+
+        // Media browsers first (they support now-playing sync), the rest by name.
+        return result.sortedWith(compareBy({ it.browseComponent == null }, { it.label }))
     }
 
     /** Launchable apps whose name suggests FM/radio capability. */
