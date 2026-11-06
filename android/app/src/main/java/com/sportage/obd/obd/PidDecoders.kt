@@ -62,6 +62,29 @@ object PidDecoders {
     }
 
     /**
+     * Transmission actual gear (PID 01A4). Encoding is not fully standardized across
+     * manufacturers, so accept the two observed variants:
+     *  - plain enumeration: 0x00 = Neutral, 0x01..0x0A = forward gear 1..10,
+     *    0x7E (126) = Reverse, 0x7F (127) = Park
+     *  - high-nibble enumeration (e.g. Mazda): 0x10 = 1st, 0x20 = 2nd, 0x30 = 3rd ...
+     * Returns null when the value does not map to a known gear.
+     */
+    fun decodeTransmissionGear(response: String): Int? {
+        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "")
+        val idx = clean.indexOf("41A4")
+        if (idx == -1 || clean.length < idx + 6) return null
+        val a = clean.substring(idx + 4, idx + 6).toIntOrNull(16) ?: return null
+        return when (a) {
+            0x00 -> 0          // Neutral
+            in 0x01..0x0A -> a // forward gear
+            0x7E -> -1         // Reverse
+            0x7F -> -2         // Park
+            in 0x10..0xA0 -> if (a % 0x10 == 0) a / 0x10 else null
+            else -> null
+        }
+    }
+
+    /**
      * Engine Coolant Temperature (PID 0105): A - 40 °C
      */
     fun decodeCoolantTemp(response: String): Int? {
@@ -140,26 +163,16 @@ object PidDecoders {
      * Response standard format: "43 01 33 00 00 ...", "47 ..." or "4A ..."
      */
     fun decodeDtcCodes(response: String): List<DtcItem> {
+        // Frame-based parsing. The old whole-string hex-strip turned ELM chatter
+        // ("SEARCHING...", "NO DATA") and interleaved Mode 01 poll replies into
+        // garbage hex that was decoded as random trouble codes.
+        val frames = dtcFrames(response, setOf("43", "47", "4A"))
         val dtcs = mutableListOf<DtcItem>()
-        val clean = response.replace(Regex("[^0-9A-Fa-f]"), "").uppercase()
-
-        // Look for 43, 47 or 4A response prefix
-        val modeIdx = when {
-            clean.contains("43") -> clean.indexOf("43") + 2
-            clean.contains("47") -> clean.indexOf("47") + 2
-            clean.contains("4A") -> clean.indexOf("4A") + 2
-            else -> -1
-        }
-
-        if (modeIdx == -1 || clean.length < modeIdx + 4) {
-            return emptyList()
-        }
-
-        val codePayload = clean.substring(modeIdx)
-        var i = 0
-        while (i + 4 <= codePayload.length) {
-            val chunk = codePayload.substring(i, i + 4)
-            if (chunk != "0000") {
+        for (frame in frames) {
+            var i = 0
+            while (i + 4 <= frame.length) {
+                val chunk = frame.substring(i, i + 4)
+                if (chunk != "0000") {
                 val byte1 = chunk.substring(0, 2).toIntOrNull(16) ?: 0
                 val byte2 = chunk.substring(2, 4)
 
@@ -192,8 +205,43 @@ object PidDecoders {
                 )
             }
             i += 4
+            }
         }
         return dtcs
+    }
+
+    /**
+     * Extracts DTC byte payloads from an ELM327 multi-line response.
+     *
+     * Only lines whose first token (after an optional CAN header such as 7E8) is one of
+     * [modes] are considered. Everything else - the command echo, "SEARCHING...",
+     * "NO DATA", ">" prompts and stray Mode 01 poll replies - is ignored, so stale
+     * poll data can never be misread as trouble codes.
+     */
+    private fun dtcFrames(response: String, modes: Set<String>): List<String> {
+        val frames = mutableListOf<String>()
+        for (rawLine in response.split('\n', '\r')) {
+            var line = rawLine.trim().trimStart('>')
+            if (line.isBlank()) continue
+            val lower = line.uppercase()
+            if (lower.contains("SEARCHING") || lower.contains("NO DATA") ||
+                lower.contains("STOPPED") || lower.contains("UNABLE") || lower.contains("ERROR") ||
+                lower.contains("BUS") || lower.contains("?") || lower.contains("CAN OK")
+            ) continue
+            var tokens = line.split(' ', '\t').filter { it.isNotBlank() }
+            // Strip a CAN header token (e.g. 7E8 / 18DAF110) that precedes the mode byte.
+            if (tokens.isNotEmpty() && Regex("^([0-9A-F]{3}|[0-9A-F]{6,8})$").matches(tokens[0]) &&
+                tokens.size > 1 && tokens[1].uppercase() in modes
+            ) tokens = tokens.drop(1)
+            if (tokens.isEmpty()) continue
+            val mode = tokens[0].uppercase()
+            if (mode !in modes) continue
+            val payload = (listOf(mode) + tokens.drop(1))
+                .joinToString("") { it.replace(Regex("[^0-9A-Fa-f]"), "").uppercase() }
+            // payload starts with the mode byte(s); keep everything after it as DTC bytes.
+            if (payload.length > 2) frames.add(payload.substring(2))
+        }
+        return frames
     }
 
     /**

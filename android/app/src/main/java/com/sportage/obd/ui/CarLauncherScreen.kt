@@ -41,6 +41,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.bluetooth.ConnectionState
+import com.sportage.obd.media.MediaAppInfo
+import com.sportage.obd.media.MediaApps
+import com.sportage.obd.media.NowPlayingController
+import com.sportage.obd.media.chosenMusicApp
+import com.sportage.obd.media.saveChosenMusicApp
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.service.ActiveAlert
@@ -78,10 +83,14 @@ fun CarLauncherScreen(
     load: Float?,
     voltage: Float?,
     gear: Int,
+    transmissionGear: Int? = null,
+    weatherTempC: String? = null,
+    weatherText: String? = null,
     speedHistory: List<Pair<Long, Int>>,
     rpmHistory: List<Pair<Long, Int>>,
     currentLat: Double = 25.2854,
     currentLon: Double = 51.5310,
+    currentBearing: Float = 0f,
     activePage: Int,
     onNavigatePage: (Int) -> Unit,
     onOpenBluetoothClick: () -> Unit,
@@ -383,7 +392,13 @@ fun CarLauncherScreen(
                             voltage = voltage,
                             load = load,
                             throttle = throttle,
+                            intake = intakeTemp,
+                            fuel = fuelLevel,
+                            transmissionGear = transmissionGear,
                             gear = gear,
+                            weatherTempC = weatherTempC,
+                            weatherText = weatherText,
+                            currentBearing = currentBearing,
                             connectionState = connectionState,
                             measuredHz = measuredHz,
                             isDemoMode = isDemoMode,
@@ -550,7 +565,13 @@ fun PermanentHomeSplitView(
     voltage: Float?,
     load: Float?,
     throttle: Float?,
+    intake: Int? = null,
+    fuel: Int? = null,
+    transmissionGear: Int? = null,
     gear: Int,
+    weatherTempC: String? = null,
+    weatherText: String? = null,
+    currentBearing: Float = 0f,
     connectionState: ConnectionState,
     measuredHz: Float?,
     isDemoMode: Boolean,
@@ -572,6 +593,7 @@ fun PermanentHomeSplitView(
                 LiveMapSurface(
                     currentLat = currentLat,
                     currentLon = currentLon,
+                    currentBearing = currentBearing,
                     speed = speed,
                     speedUnit = speedUnit,
                     onOpenNavigation = onOpenNavigation,
@@ -589,7 +611,12 @@ fun PermanentHomeSplitView(
                     voltage = voltage,
                     load = load,
                     throttle = throttle,
+                    intake = intake,
+                    fuel = fuel,
+                    transmissionGear = transmissionGear,
                     gear = gear,
+                    weatherTempC = weatherTempC,
+                    weatherText = weatherText,
                     connectionState = connectionState,
                     measuredHz = measuredHz,
                     isDemoMode = isDemoMode
@@ -609,6 +636,7 @@ fun PermanentHomeSplitView(
                 LiveMapSurface(
                     currentLat = currentLat,
                     currentLon = currentLon,
+                    currentBearing = currentBearing,
                     speed = speed,
                     speedUnit = speedUnit,
                     onOpenNavigation = onOpenNavigation,
@@ -626,7 +654,12 @@ fun PermanentHomeSplitView(
                     voltage = voltage,
                     load = load,
                     throttle = throttle,
+                    intake = intake,
+                    fuel = fuel,
+                    transmissionGear = transmissionGear,
                     gear = gear,
+                    weatherTempC = weatherTempC,
+                    weatherText = weatherText,
                     connectionState = connectionState,
                     measuredHz = measuredHz,
                     isDemoMode = isDemoMode
@@ -643,7 +676,8 @@ fun PermanentHomeSplitView(
 fun LiveMapSurface(
     currentLat: Double, currentLon: Double, speed: Int?, speedUnit: String,
     onOpenNavigation: () -> Unit,
-    gpsStatus: String? = null
+    gpsStatus: String? = null,
+    currentBearing: Float = 0f
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
@@ -666,7 +700,7 @@ fun LiveMapSurface(
                     )
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
-            Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0) }
+            Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0, currentBearing) }
             Row(
                 Modifier.testTag("home_map_footer").fillMaxWidth().padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
@@ -1320,6 +1354,31 @@ fun MediaRadioPage(
     onLaunchNativeRadio: () -> Unit,
     onLaunchLocalMusic: () -> Unit
 ) {
+    val context = LocalContext.current
+    val controller = remember { NowPlayingController(context) }
+    val nowPlaying by controller.state.collectAsState()
+    var showPicker by remember { mutableStateOf(false) }
+    var pickerApps by remember { mutableStateOf<List<MediaAppInfo>>(emptyList()) }
+    var radioApps by remember { mutableStateOf<List<MediaAppInfo>>(emptyList()) }
+
+    // Connect to the saved music app (or the first MediaBrowserService found) while
+    // this page is open, so now-playing info and controls reflect the real session.
+    DisposableEffect(Unit) {
+        controller.connect(chosenMusicApp(context))
+        radioApps = MediaApps.radioApps(context)
+        onDispose { controller.disconnect() }
+    }
+    // Remember the last manually chosen app so the connection follows it next time.
+    fun pickApp(app: MediaAppInfo) {
+        saveChosenMusicApp(context, app.packageName)
+        if (app.browseComponent != null) {
+            controller.connect(app.packageName)
+        } else {
+            controller.disconnect()
+            app.launchIntent?.let { runCatching { context.startActivity(it) } }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -1328,155 +1387,144 @@ fun MediaRadioPage(
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Text("Media", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
-        // Top Frequency Display & Tuner Dial
+
+        // ---- Now playing + music controls ----
         Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier.fillMaxWidth().testTag("media_now_playing"),
+            color = DarkBackground(), shape = RoundedCornerShape(12.dp),
             border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Surface(
-                    color = DarkSurfaceElevated(),
-                    shape = RoundedCornerShape(4.dp),
-                    modifier = Modifier.padding(bottom = 8.dp)
-                ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("NOW PLAYING", color = SecondaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                if (nowPlaying != null) {
+                    Text(nowPlaying?.title ?: "Unknown track", color = PrimaryText(), fontSize = 22.sp,
+                        fontWeight = FontWeight.Medium, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
                     Text(
-                        text = "NOTE: Physical FM chip is managed by Head Unit MCU. Tap 'Open Radio App' below for tuner.",
-                        color = SecondaryText(),
-                        fontSize = 11.sp,
-                        fontFamily = FontFamily.SansSerif,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        (nowPlaying?.artist ?: "") + "  ·  " + (nowPlaying?.appName ?: ""),
+                        color = SecondaryText(), style = MaterialTheme.typography.labelMedium, maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
+                } else {
+                    Text("No connected music app", color = PrimaryText(), fontSize = 18.sp)
+                    Text("Controls send standard media keys to the active player",
+                        color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
                 }
-
-                Text(
-                    text = "FM STEREO TUNER",
-                    color = SecondaryText(),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.SansSerif
-                )
-
-                Text(
-                    text = "${"%.1f".format(radioFreq)} MHz",
-                    color = ElectricCyan(),
-                    fontSize = 44.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    fontFamily = FontFamily.SansSerif
-                )
-
-                Text(
-                    text = radioStationName,
-                    color = PrimaryText(),
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.SansSerif
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                // Playback Controls Row
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     IconButton(
-                        onClick = {
-                            val newF = (radioFreq - 0.1f).coerceAtLeast(87.5f)
-                            onFreqChange(newF)
-                            onPrev()
-                        },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(DarkSurfaceElevated(), CircleShape)
-                    ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = PrimaryText())
-                    }
-
+                        onClick = { if (controller.isConnected) controller.previous() else onPrev() },
+                        modifier = Modifier.size(56.dp).background(DarkSurfaceElevated(), CircleShape)
+                            .testTag("media_prev")
+                    ) { Icon(Icons.Default.SkipPrevious, "Previous track", tint = PrimaryText()) }
                     IconButton(
-                        onClick = onTogglePlayPause,
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(ElectricCyan(), CircleShape)
+                        onClick = { if (controller.isConnected) controller.playPause() else onTogglePlayPause() },
+                        modifier = Modifier.size(64.dp).background(ElectricCyan(), CircleShape)
+                            .testTag("media_play_pause")
                     ) {
                         Icon(
-                            if (isMediaPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = "Play/Pause",
-                            tint = OnAccent(),
-                            modifier = Modifier.size(28.dp)
+                            if (nowPlaying?.isPlaying == true) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            if (nowPlaying?.isPlaying == true) "Pause" else "Play",
+                            tint = OnAccent()
                         )
                     }
-
                     IconButton(
-                        onClick = {
-                            val newF = (radioFreq + 0.1f).coerceAtMost(108.0f)
-                            onFreqChange(newF)
-                            onNext()
-                        },
-                        modifier = Modifier
-                            .size(48.dp)
-                            .background(DarkSurfaceElevated(), CircleShape)
-                    ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = PrimaryText())
-                    }
+                        onClick = { if (controller.isConnected) controller.next() else onNext() },
+                        modifier = Modifier.size(56.dp).background(DarkSurfaceElevated(), CircleShape)
+                            .testTag("media_next")
+                    ) { Icon(Icons.Default.SkipNext, "Next track", tint = PrimaryText()) }
+                }
+                Spacer(Modifier.height(10.dp))
+                Button(
+                    onClick = {
+                        pickerApps = MediaApps.musicApps(context)
+                        showPicker = true
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
+                    shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Apps, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Choose music app", color = PrimaryText(), fontSize = 12.sp)
                 }
             }
         }
 
-        Text("Radio presets", color = SecondaryText(), style = MaterialTheme.typography.titleMedium)
-        val columns = if (LocalConfiguration.current.screenWidthDp >= 700) 4 else 2
-        SPORTAGE_RADIO_PRESETS.take(4).chunked(columns).forEach { row ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                row.forEach { station ->
-                    val selected = kotlin.math.abs(radioFreq - station.freq) < 0.1f
-                    Surface(
-                        onClick = { onStationChange(station.name, station.freq) },
-                        modifier = Modifier.weight(1f).height(112.dp),
-                        color = if (selected) DarkSurfaceElevated() else DarkSurface(),
-                        shape = RoundedCornerShape(12.dp)
+        // ---- Radio ----
+        Surface(
+            modifier = Modifier.fillMaxWidth(), color = DarkBackground(), shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
+        ) {
+            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                Text("RADIO", color = SecondaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "The FM tuner is controlled by the head unit's own radio hardware and app - this " +
+                        "dashboard cannot tune it over generic OBD/Android. Open the radio app below to change station.",
+                    color = SecondaryText(), style = MaterialTheme.typography.labelMedium
+                )
+                Spacer(Modifier.height(10.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = onLaunchNativeRadio,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
+                        shape = RoundedCornerShape(8.dp)
                     ) {
-                        Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Text("%.1f".format(station.freq), color = if (selected) ElectricCyan() else PrimaryText(),
-                                fontSize = 24.sp, fontWeight = FontWeight.Medium)
-                            Text(station.name, color = PrimaryText(), style = MaterialTheme.typography.labelLarge, maxLines = 1,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text(station.genre, color = SecondaryText(), style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                        Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan(), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open Head Unit Radio App", color = PrimaryText(), fontSize = 11.sp)
+                    }
+                    Button(
+                        onClick = onLaunchLocalMusic,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Open Local Music Player", color = PrimaryText(), fontSize = 11.sp)
+                    }
+                }
+                if (radioApps.isNotEmpty()) {
+                    Spacer(Modifier.height(10.dp))
+                    Text("Radio apps on this device", color = PrimaryText(), style = MaterialTheme.typography.labelLarge)
+                    radioApps.forEach { app ->
+                        TextButton(onClick = { app.launchIntent?.let { runCatching { context.startActivity(it) } } }) {
+                            Text(app.label, color = TealAccent(), fontSize = 12.sp)
                         }
                     }
                 }
             }
         }
+    }
 
-        // Launch Native Apps Row
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(
-                onClick = onLaunchNativeRadio,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan(), modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Head Unit Radio App", color = PrimaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+    if (showPicker) {
+        AlertDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = { showPicker = false }) { Text("Close", color = SecondaryText()) }
+            },
+            title = { Text("Choose music app", color = PrimaryText()) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (pickerApps.isEmpty()) {
+                        Text("No music apps found on this device.", color = SecondaryText())
+                    }
+                    pickerApps.forEach { app ->
+                        TextButton(onClick = { pickApp(app); showPicker = false }) {
+                            Column {
+                                Text(app.label, color = PrimaryText())
+                                Text(
+                                    if (app.browseComponent != null) "Shows now-playing info" else "Launch only",
+                                    color = SecondaryText(), style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                    }
+                }
             }
-
-            Button(
-                onClick = onLaunchLocalMusic,
-                modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                shape = RoundedCornerShape(8.dp)
-            ) {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Local Music Player", color = PrimaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-            }
-        }
+        )
     }
 }
 

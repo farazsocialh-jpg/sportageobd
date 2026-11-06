@@ -106,7 +106,7 @@ class DashboardVisualTest {
 
     @Test fun portraitDashboardAndNavigation() {
         launch()
-        compose.onNodeWithText("64", substring = false).assertExists()
+        compose.onNodeWithText("64 km/h", substring = false).assertExists()
         compose.onAllNodesWithContentDescription("Open navigation app").assertCountEquals(1)
         snapshot("portrait")
         compose.onNodeWithText("Trip").performClick()
@@ -138,7 +138,7 @@ class DashboardVisualTest {
     fun narrowPhoneWithLargeTextRetainsControls() {
         launch(fontScale = 1.3f, drivingSpeed = 127)
         val layouts = mutableListOf<TextLayoutResult>()
-        compose.onNodeWithText("127").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        compose.onNodeWithText("127 km/h").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertFalse("Three-digit speed must not clip at enlarged font scale: ${layouts.single()}", layouts.single().didOverflowWidth)
         compose.onNodeWithContentDescription("Open navigation app")
             .assertHeightIsAtLeast(48.dp).assertWidthIsAtLeast(48.dp)
@@ -157,10 +157,11 @@ class DashboardVisualTest {
     fun shortLandscapeRetainsNavigationAndScrollableTelemetry() {
         launch()
         compose.onAllNodesWithContentDescription("Open navigation app").assertCountEquals(1)
-        compose.onNodeWithText("64", substring = false).assertExists()
-        compose.onNodeWithText("2100 rpm", substring = false).assertIsDisplayed()
-        compose.onNodeWithText("89°C", substring = false).assertIsDisplayed()
-        compose.onNodeWithText("13.8 V", substring = false).assertIsDisplayed()
+        compose.onNodeWithText("64 km/h", substring = false).assertExists()
+        // The richer vehicle pane now scrolls on short screens; readings stay reachable.
+        compose.onNodeWithText("2100 rpm", substring = false).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("89°C", substring = false).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("13.8 V", substring = false).performScrollTo().assertIsDisplayed()
         snapshot("phone-landscape")
         compose.onNodeWithText("24%", substring = false).performScrollTo().assertIsDisplayed()
     }

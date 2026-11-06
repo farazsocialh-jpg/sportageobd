@@ -51,8 +51,8 @@ android {
         applicationId = "com.sportage.obd"
         minSdk = 28 // Android 9+ as specified in PRD Section 1.1
         targetSdk = 35
-        versionCode = 9
-        versionName = "1.2.0"
+        versionCode = 10
+        versionName = "1.2.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -126,6 +126,8 @@ dependencies {
     // Kotlin 2.0-compatible native release; do not bypass Kotlin metadata checks.
     implementation("org.maplibre.gl:android-sdk:12.0.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    // MediaBrowserService connection for real now-playing sync with installed music apps.
+    implementation("androidx.media:media:1.7.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

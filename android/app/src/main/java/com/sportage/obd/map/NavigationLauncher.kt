@@ -13,7 +13,13 @@ import android.net.Uri
 object NavigationLauncher {
     fun open(context: Context, latitude: Double, longitude: Double): Boolean {
         if (!TrackerMapPolicy.valid(latitude, longitude)) return false
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("geo:$latitude,$longitude?z=16"))
+        // A bare geo:lat,lon URI makes Waze and some other apps start a route to that
+        // point. ?q= presents the same point as a labeled search pin ("My Location"),
+        // which shows where you are without triggering navigation to it.
+        val intent = Intent(
+            Intent.ACTION_VIEW,
+            Uri.parse("geo:$latitude,$longitude?z=16&q=$latitude,$longitude(My%20Location)")
+        )
         return try {
             context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             true

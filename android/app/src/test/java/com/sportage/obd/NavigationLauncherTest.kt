@@ -20,7 +20,7 @@ class NavigationLauncherTest {
         assertTrue(NavigationLauncher.open(context, 25.1712, 51.567))
         val started = shadowOf(context).nextStartedActivity
         assertEquals(Intent.ACTION_VIEW, started.action)
-        assertEquals("geo:25.1712,51.567?z=16", started.data.toString())
+        assertEquals("geo:25.1712,51.567?z=16&q=25.1712,51.567(My%20Location)", started.data.toString())
         assertNull("Must not restrict selection to a particular vendor", started.`package`)
         assertNull("Must let Android resolve compatible installed apps", started.component)
         assertNotEquals("Forced chooser must not suppress Android's Always option", Intent.ACTION_CHOOSER, started.action)

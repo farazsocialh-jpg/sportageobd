@@ -31,6 +31,10 @@ import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.SportageObdTheme
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -68,7 +72,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.l"
+        const val APP_BUILD_TAG = "2026-11-06.m"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -96,6 +100,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var liveLoad by mutableStateOf<Float?>(null)
     private var liveVoltage by mutableStateOf<Float?>(null)
     private var liveGear by mutableStateOf<Int>(0)
+    private var liveTransmissionGear by mutableStateOf<Int?>(null)
     private var measuredHz by mutableStateOf<Float?>(null)
 
     // Trip Computer State
@@ -109,6 +114,13 @@ class MainActivity : ComponentActivity(), LocationListener {
     // Live GPS Location
     private var currentLat by mutableStateOf(25.2854)
     private var currentLon by mutableStateOf(51.5310)
+    private var currentBearing by mutableStateOf(0f)
+    private var weatherTempC by mutableStateOf<String?>(null)
+    private var weatherText by mutableStateOf<String?>(null)
+    private var lastWeatherFetchAtMs = 0L
+    private var lastWeatherLat = 0.0
+    private var lastWeatherLon = 0.0
+    private val weatherScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var currentGpsSpeed by mutableStateOf<Int?>(null)
     private var gpsStatus by mutableStateOf("Waiting for GPS")
 
@@ -198,6 +210,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                     liveLoad = t.engineLoadPct
                     liveVoltage = t.batteryVoltage
                     liveGear = t.estimatedGear
+                    liveTransmissionGear = t.transmissionGear
                     measuredHz = t.sampleRateHz.takeIf { hz -> hz > 0f }
                 }
             }
@@ -235,10 +248,14 @@ class MainActivity : ComponentActivity(), LocationListener {
                         load = liveLoad,
                         voltage = liveVoltage,
                         gear = liveGear,
+                        transmissionGear = liveTransmissionGear,
+                        weatherTempC = weatherTempC,
+                        weatherText = weatherText,
                         speedHistory = speedHist,
                         rpmHistory = rpmHist,
                         currentLat = currentLat,
                         currentLon = currentLon,
+                        currentBearing = currentBearing,
                         gpsStatus = gpsStatus,
                         activePage = activePage,
                         onNavigatePage = { activePage = it },
@@ -600,9 +617,54 @@ class MainActivity : ComponentActivity(), LocationListener {
         if (!com.sportage.obd.map.TrackerMapPolicy.valid(location.latitude, location.longitude)) return
         currentLat = location.latitude
         currentLon = location.longitude
+        if (location.hasBearing() && location.speed > 0.5f) currentBearing = location.bearing
         currentGpsSpeed = if (location.hasSpeed()) (location.speed * 3.6f).toInt() else null
         gpsStatus = (if (location.provider == LocationManager.GPS_PROVIDER) "GPS" else "Network location") +
             (if (location.hasAccuracy()) " · ±${location.accuracy.toInt()} m" else "")
+        maybeRefreshWeather()
+    }
+
+    /**
+     * Fetches current conditions from Open-Meteo (free, no API key) when the position
+     * has moved > 5 km or the last sample is older than 30 minutes. Weather codes per
+     * https://open-meteo.com/en/docs.
+     */
+    private fun maybeRefreshWeather() {
+        val now = System.currentTimeMillis()
+        val moved = Math.hypot(currentLat - lastWeatherLat, currentLon - lastWeatherLon) > 0.05
+        if (!moved && now - lastWeatherFetchAtMs < 30 * 60 * 1000L) return
+        lastWeatherFetchAtMs = now
+        lastWeatherLat = currentLat
+        lastWeatherLon = currentLon
+        weatherScope?.launch {
+            try {
+                val url = "https://api.open-meteo.com/v1/forecast?latitude=" +
+                    "%.4f&longitude=%.4f&current=temperature_2m,weather_code".format(currentLat, currentLon)
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS).build()
+                val request = okhttp3.Request.Builder().url(url)
+                    .header("User-Agent", "SportageOBD/" + APP_BUILD_TAG).build()
+                client.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) return@launch
+                    val body = org.json.JSONObject(resp.body?.string() ?: return@launch)
+                    val current = body.optJSONObject("current") ?: return@launch
+                    val temp = current.optDouble("temperature_2m", Double.NaN)
+                    val code = current.optInt("weather_code", -1)
+                    if (!temp.isNaN()) weatherTempC = "%.0f°C".format(temp)
+                    weatherText = when (code) {
+                        0 -> "Clear sky"; 1 -> "Mainly clear"; 2 -> "Partly cloudy"; 3 -> "Overcast"
+                        45, 48 -> "Fog"; 51, 53, 55 -> "Drizzle"; 56, 57 -> "Freezing drizzle"
+                        61, 63, 65 -> "Rain"; 66, 67 -> "Freezing rain"; 71, 73, 75 -> "Snow"
+                        77 -> "Snow grains"; 80, 81, 82 -> "Rain showers"; 85, 86 -> "Snow showers"
+                        95 -> "Thunderstorm"; 96, 99 -> "Thunderstorm w/ hail"
+                        else -> null
+                    }
+                }
+            } catch (_: Exception) {
+                // Offline or blocked: leave the last sample in place.
+            }
+        }
     }
 
     override fun onProviderEnabled(provider: String) { initLocationTracking() }
@@ -655,5 +717,6 @@ class MainActivity : ComponentActivity(), LocationListener {
         // ObdService owns the RFCOMM socket and the polling loop, so the link and telemetry
         // survive this activity being backgrounded or destroyed.
         runCatching { locationManager?.removeUpdates(this) }
+        weatherScope.cancel()
     }
 }

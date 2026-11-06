@@ -35,7 +35,6 @@ import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.PropertyFactory.*
 import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
@@ -52,6 +51,7 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
     private var mapView: MapView? = null
     private var map: MapLibreMap? = null
     private var fix: LatLng? = null
+    private var bearing = 0f
     private var lastRecenter = -1
     private var observer: LifecycleEventObserver? = null
     private var started = false
@@ -116,8 +116,15 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
                         if (MapLabels.shouldLocalize(value)) layer.setProperties(textField(english))
                     }
                     style.addSource(GeoJsonSource("sportage-gps"))
-                    style.addLayer(CircleLayer("sportage-gps-dot", "sportage-gps").withProperties(
-                        circleRadius(8f), circleColor("#0088BE"), circleStrokeColor("#FFFFFF"), circleStrokeWidth(3f)))
+                    // Direction-of-travel arrow instead of a plain dot: the symbol is
+                    // rotated to the GPS bearing so it shows where the vehicle is heading.
+                    style.addImage("sportage-gps-arrow", arrowIcon())
+                    style.addLayer(SymbolLayer("sportage-gps-dot", "sportage-gps").withProperties(
+                        iconImage("sportage-gps-arrow"),
+                        iconAllowOverlap(true),
+                        iconIgnorePlacement(true),
+                        iconSize(1.15f),
+                        iconRotate(Expression.get("bearing"))))
                     styleLoaded = true
                     fix?.let { updateMarker(it); center(it) }
                 }
@@ -126,11 +133,12 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
         catch (_: LinkageError) { onFailure() }
     }
 
-    fun updateFix(latitude: Double, longitude: Double, recenter: Int) {
+    fun updateFix(latitude: Double, longitude: Double, recenter: Int, headingBearing: Float = 0f) {
         if (released || !TrackerMapPolicy.valid(latitude, longitude)) return
         val next = LatLng(latitude, longitude)
-        if (next != fix || recenter != lastRecenter) {
+        if (next != fix || recenter != lastRecenter || headingBearing != bearing) {
             fix = next
+            bearing = headingBearing
             lastRecenter = recenter
             if (styleLoaded) { updateMarker(next); center(next) }
         }
@@ -141,7 +149,29 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
     }
     private fun updateMarker(point: LatLng) {
         map?.style?.getSourceAs<GeoJsonSource>("sportage-gps")?.setGeoJson(
-            Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude)))
+            Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude))
+                .also { it.addNumberProperty("bearing", bearing.toDouble()) })
+    }
+
+    /** Solid triangular arrow pointing up (north) with a light outline, rotated by the layer. */
+    private fun arrowIcon(): android.graphics.Bitmap {
+        val size = 72
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BE.toInt() }
+        val outline = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.WHITE; style = android.graphics.Paint.Style.STROKE; strokeWidth = 5f }
+        val tip = android.graphics.PointF(size * 0.5f, size * 0.10f)
+        val left = android.graphics.PointF(size * 0.20f, size * 0.86f)
+        val right = android.graphics.PointF(size * 0.80f, size * 0.86f)
+        val tail = android.graphics.PointF(size * 0.5f, size * 0.70f)
+        val path = android.graphics.Path().apply {
+            moveTo(tip.x, tip.y); lineTo(right.x, right.y); lineTo(tail.x, tail.y)
+            lineTo(left.x, left.y); close()
+        }
+        canvas.drawPath(path, fill)
+        canvas.drawPath(path, outline)
+        return bmp
     }
     private fun start() { if (!started && !released) { mapView?.onStart(); started = true } }
     private fun resume() { start(); if (!resumed && !released) { mapView?.onResume(); resumed = true } }
@@ -172,7 +202,7 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
 }
 
 @Composable
-fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int) {
+fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int, bearing: Float = 0f) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val prefs = remember { context.getSharedPreferences("map_preferences", Context.MODE_PRIVATE) }
@@ -223,7 +253,7 @@ fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int) {
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (rendered) 1f else 0f },
                 factory = { ctx -> LibreTrackerView(ctx, lifecycle, theme,
                     onReady = { rendered = true }, onFailure = { failed = true }) },
-                update = { it.updateFix(latitude, longitude, recenter) },
+                update = { it.updateFix(latitude, longitude, recenter, bearing) },
                 onRelease = { it.release() }
             )
         }

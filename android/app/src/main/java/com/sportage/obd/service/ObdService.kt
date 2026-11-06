@@ -64,6 +64,8 @@ data class ObdTelemetry(
     val fuelEconomyL100: Float? = null,
     val fuelUsedLiters: Float = 0f,
     val estimatedGear: Int = 0,
+    /** Actual transmission gear from PID 01A4 when the ECU supports it: -2 P, -1 R, 0 N, 1..10 forward. */
+    val transmissionGear: Int? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val sampleRateHz: Float = 0f,
     val sensors: Map<String, com.sportage.obd.obd.SensorSample> = emptyMap(),
@@ -488,7 +490,15 @@ class ObdService : Service() {
         if ((_telemetry.value.speedKmh ?: 0) > 0) return false
         return try {
             val response = transport.sendCommand("04")
-            if (response.contains("OK") || response.contains("44")) {
+            // Accept the real Mode 04 positive response ("44", optionally behind a CAN
+            // header like "7E8 44") or a plain OK. A bare contains("44") matched random
+            // bytes from interleaved poll replies (e.g. speed 0x44 = 68 km/h).
+            val confirmed = response.lineSequence().any { line ->
+                val tokens = line.trim().trimStart('>').split(' ', '\t').filter { it.isNotBlank() }
+                val payload = tokens.dropWhile { Regex("^([0-9A-F]{3}|[0-9A-F]{6,8})$").matches(it.uppercase()) }
+                payload.isNotEmpty() && (payload[0].uppercase() == "44" || payload[0].uppercase() == "OK")
+            }
+            if (confirmed) {
                 _dtcList.value = emptyList()
                 _pendingDtcList.value = emptyList()
                 true
@@ -629,6 +639,7 @@ class ObdService : Service() {
                     var stft = _telemetry.value.shortTermFuelTrimPct
                     var ltft = _telemetry.value.longTermFuelTrimPct
                     var timing = _telemetry.value.timingAdvanceDeg
+                    var actualGear = _telemetry.value.transmissionGear
 
                     val supported = _supportedPids.value
 
@@ -676,6 +687,12 @@ class ObdService : Service() {
                             timing = PidDecoders.decodeTimingAdvance(resp) ?: timing
                         }
                     }
+                    // Transmission gear (PID A4) whenever the ECU advertises it. This is
+                    // the only way to tell P / N / R / D apart at standstill.
+                    if (pidSupported("A4")) {
+                        val resp = sampleCommand("01A4")
+                        actualGear = PidDecoders.decodeTransmissionGear(resp) ?: actualGear
+                    }
                     auxPidCycle = (auxPidCycle + 1) % 10
 
                     // One extra request per 750 ms at most. Core readings retain priority.
@@ -722,6 +739,7 @@ class ObdService : Service() {
                         fuelEconomyL100 = economy,
                         fuelUsedLiters = fuelUsedLiters,
                         estimatedGear = gear,
+                        transmissionGear = actualGear,
                         timestamp = now,
                         sampleRateHz = currentHz,
                         sensors = _telemetry.value.sensors,
