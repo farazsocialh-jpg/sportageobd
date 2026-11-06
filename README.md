@@ -60,6 +60,16 @@ cockpit instead of a normal home screen.
 - **Automatic trip log** — every drive with the adapter connected records distance, duration, max and
   average speed, 0–100 km/h time, fuel used (when the ECU reports it) and an eco score; history and
   CSV export live on the Trip page.
+- **Drive Mode** — at speed the cockpit collapses to speed, gear, RPM, temperatures and the active
+  warning, with page navigation and settings out of reach; it returns to the full cockpit after a
+  sustained stop. Entry/exit thresholds have hysteresis, so traffic cannot flicker it.
+- **Cockpit customisation** — choose app-drawer grid width and icon size, hide pages you never use,
+  pick the page the launcher opens on, and pin up to four apps to the dock and home strip.
+- **Automation** — optional auto-pause of the OBD link after a long standstill, plus the existing
+  night dimming, all evaluated from the same telemetry samples the gauges use.
+- **Driver profiles** — save units, Drive Mode threshold and page layout under a name and switch
+  between drivers from Setup; settings and profiles export/import as a small text file through the
+  system file picker (no account, no cloud).
 - **On-board monitor tests (Mode 06)** — the Diagnostics page opens a results screen that plots every
   ECU self-test against its own pass window, so a component can be seen drifting towards failure
   before it stores a code. Values near a limit are called out separately from failures, and the
@@ -158,6 +168,12 @@ which is how CI keeps the Play versionCode monotonic. Signing, AAB and mapping d
 [android/SIGNING.md](android/SIGNING.md).
 
 Min SDK is 28 (Android 9), target and compile SDK 35, version 1.0.0.
+
+### Tests
+
+135 JVM unit tests cover the OBD decoders, the Mode 06/1979-2 parsers, the health score, trip
+recording and storage, the cockpit settings codec and backup round-trip, Drive Mode hysteresis,
+the parked-pause rule and night-dimming windows. There is no instrumented (on-device) suite yet.
 
 ### Privacy and diagnostics
 

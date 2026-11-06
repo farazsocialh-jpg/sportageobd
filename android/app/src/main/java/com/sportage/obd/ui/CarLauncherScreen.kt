@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -51,6 +52,11 @@ import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.obd.HealthGrade
 import com.sportage.obd.obd.HealthReport
+import com.sportage.obd.launcher.DriverProfile
+import com.sportage.obd.launcher.LauncherSettings
+import com.sportage.obd.launcher.PageId
+import com.sportage.obd.launcher.PinnedApp
+import com.sportage.obd.launcher.Units
 import com.sportage.obd.obd.Mode06Parser
 import com.sportage.obd.trips.TripSummary
 import com.sportage.obd.service.ActiveAlert
@@ -214,14 +220,38 @@ fun CarLauncherScreen(
     healthReport: HealthReport? = null,
     trips: List<TripSummary> = emptyList(),
     onExportTrips: () -> Unit = {},
-    onClearTrips: () -> Unit = {}
+    onClearTrips: () -> Unit = {},
+    // --- Phase 3/4: cockpit layout, Drive Mode, profiles ---
+    settings: LauncherSettings = LauncherSettings(),
+    onUpdateSettings: (LauncherSettings) -> Unit = {},
+    profiles: List<DriverProfile> = emptyList(),
+    activeProfile: String = "Default",
+    onSelectProfile: (DriverProfile) -> Unit = {},
+    onSaveProfile: (String) -> Unit = {},
+    onDeleteProfile: (String) -> Unit = {},
+    onBackupSettings: () -> Unit = {},
+    onRestoreSettings: () -> Unit = {},
+    onPinApp: (PinnedApp) -> Unit = {},
+    onLaunchPinned: (PinnedApp) -> Unit = {},
+    driveModeActive: Boolean = false,
+    onSetDriveMode: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp >= configuration.screenHeightDp
     val activeAlerts = viewModel?.activeAlerts?.collectAsState()?.value ?: emptyList()
 
-    var speedUnit by remember { mutableStateOf("km/h") }
+    // Units live in LauncherSettings so a driver profile can change them; the local string is only
+    // the display form of that single source of truth.
+    var speedUnit by remember(settings.units) {
+        mutableStateOf(if (settings.units == Units.MPH) "mph" else "km/h")
+    }
+
+    fun toggleSpeedUnit() {
+        val next = if (speedUnit == "km/h") "mph" else "km/h"
+        speedUnit = next
+        onUpdateSettings(settings.copy(units = if (next == "mph") Units.MPH else Units.KMH))
+    }
     val displaySpeed = if (speed != null) {
         if (speedUnit == "mph") (speed * 0.621371).toInt() else speed
     } else null
@@ -320,13 +350,14 @@ fun CarLauncherScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        DockButton(icon = Icons.Default.Home, label = "Home", isSelected = activePage == 0, accentColor = ElectricCyan, onClick = { onNavigatePage(0) })
-                        DockButton(icon = Icons.Default.Speed, label = "Gauges", isSelected = activePage == 1, accentColor = ElectricCyan, onClick = { onNavigatePage(1) })
-                        DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
-                        DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
-                        DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
-                        DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
-                        DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
+                        LauncherDockEntries(
+                            settings = settings,
+                            activePage = activePage,
+                            hasFaults = dtcCodes.isNotEmpty(),
+                            onNavigatePage = onNavigatePage,
+                            onOpenAppDrawer = onOpenAppDrawer,
+                            onEnterDriveMode = { onSetDriveMode(true) }
+                        )
                     }
 
                     IconButton(
@@ -405,14 +436,27 @@ fun CarLauncherScreen(
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         when (activePage) {
-                            0 -> PermanentHomeSplitView(
+                            0 -> Column(modifier = Modifier.fillMaxSize()) {
+                                HomeOverview(
+                                    healthReport = healthReport,
+                                    dtcCodes = dtcCodes.size,
+                                    tripDistanceKm = tripDistanceKm,
+                                    tripSeconds = tripDurationSeconds,
+                                    profileName = activeProfile,
+                                    settings = settings,
+                                    onNavigatePage = onNavigatePage,
+                                    onLaunchPinned = onLaunchPinned,
+                                    onSetDriveMode = onSetDriveMode
+                                )
+                                Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                                PermanentHomeSplitView(
                                 isLandscape = true,
                                 aspectRatio = aspectRatio,
                                 currentLat = currentLat,
                                 currentLon = currentLon,
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                onToggleSpeedUnit = { toggleSpeedUnit() },
                                 rpm = rpm,
                                 coolant = coolant,
                                 voltage = voltage,
@@ -423,7 +467,9 @@ fun CarLauncherScreen(
                                 measuredHz = measuredHz,
                                 isDemoMode = isDemoMode,
                                 onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
-                            )
+                                )
+                                }
+                            }
                             1 -> GaugesAndGraphsPage(
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
@@ -483,7 +529,7 @@ fun CarLauncherScreen(
                             )
                             5 -> SettingsPage(
                                 speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                onToggleSpeedUnit = { toggleSpeedUnit() },
                                 onSetDefaultLauncher = onSetDefaultLauncher,
                                 isDemoMode = isDemoMode,
                                 onToggleDemoMode = onToggleDemoMode,
@@ -505,7 +551,16 @@ fun CarLauncherScreen(
                                 diagnosticsEnabled = diagnosticsEnabled,
                                 onSetDiagnosticsEnabled = onSetDiagnosticsEnabled,
                                 onOpenPrivacyPolicy = onOpenPrivacyPolicy,
-                                onOpenHelp = onOpenHelp
+                                onOpenHelp = onOpenHelp,
+                                settings = settings,
+                                onUpdateSettings = onUpdateSettings,
+                                profiles = profiles,
+                                activeProfile = activeProfile,
+                                onSelectProfile = onSelectProfile,
+                                onSaveProfile = onSaveProfile,
+                                onDeleteProfile = onDeleteProfile,
+                                onBackupSettings = onBackupSettings,
+                                onRestoreSettings = onRestoreSettings
                             )
                         }
                     }
@@ -528,14 +583,27 @@ fun CarLauncherScreen(
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (activePage) {
-                        0 -> PermanentHomeSplitView(
+                        0 -> Column(modifier = Modifier.fillMaxSize()) {
+                            HomeOverview(
+                                healthReport = healthReport,
+                                dtcCodes = dtcCodes.size,
+                                tripDistanceKm = tripDistanceKm,
+                                tripSeconds = tripDurationSeconds,
+                                profileName = activeProfile,
+                                settings = settings,
+                                onNavigatePage = onNavigatePage,
+                                onLaunchPinned = onLaunchPinned,
+                                onSetDriveMode = onSetDriveMode
+                            )
+                            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                            PermanentHomeSplitView(
                             isLandscape = false,
                             aspectRatio = aspectRatio,
                             currentLat = currentLat,
                             currentLon = currentLon,
                             speed = displaySpeed,
                             speedUnit = speedUnit,
-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                            onToggleSpeedUnit = { toggleSpeedUnit() },
                             rpm = rpm,
                             coolant = coolant,
                             voltage = voltage,
@@ -546,7 +614,9 @@ fun CarLauncherScreen(
                             measuredHz = measuredHz,
                             isDemoMode = isDemoMode,
                             onOpenFullMap = { launchMapsApp(context, currentLat, currentLon) }
-                        )
+                            )
+                            }
+                        }
                         1 -> GaugesAndGraphsPage(
                             speed = displaySpeed,
                             speedUnit = speedUnit,
@@ -606,7 +676,7 @@ fun CarLauncherScreen(
                         )
                         5 -> SettingsPage(
                             speedUnit = speedUnit,
-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                            onToggleSpeedUnit = { toggleSpeedUnit() },
                             onSetDefaultLauncher = onSetDefaultLauncher,
                             isDemoMode = isDemoMode,
                             onToggleDemoMode = onToggleDemoMode,
@@ -628,7 +698,16 @@ fun CarLauncherScreen(
                             diagnosticsEnabled = diagnosticsEnabled,
                             onSetDiagnosticsEnabled = onSetDiagnosticsEnabled,
                             onOpenPrivacyPolicy = onOpenPrivacyPolicy,
-                            onOpenHelp = onOpenHelp
+                            onOpenHelp = onOpenHelp,
+                            settings = settings,
+                            onUpdateSettings = onUpdateSettings,
+                            profiles = profiles,
+                            activeProfile = activeProfile,
+                            onSelectProfile = onSelectProfile,
+                            onSaveProfile = onSaveProfile,
+                            onDeleteProfile = onDeleteProfile,
+                            onBackupSettings = onBackupSettings,
+                            onRestoreSettings = onRestoreSettings
                         )
                     }
                 }
@@ -645,13 +724,14 @@ fun CarLauncherScreen(
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    DockButton(icon = Icons.Default.Home, label = "Home", isSelected = activePage == 0, accentColor = ElectricCyan, onClick = { onNavigatePage(0) })
-                    DockButton(icon = Icons.Default.Speed, label = "Gauges", isSelected = activePage == 1, accentColor = ElectricCyan, onClick = { onNavigatePage(1) })
-                    DockButton(icon = Icons.Default.WarningAmber, label = "Diag", isSelected = activePage == 2, accentColor = if (dtcCodes.isNotEmpty()) CriticalRed else AmberWarning, onClick = { onNavigatePage(2) })
-                    DockButton(icon = Icons.Default.Navigation, label = "Trip", isSelected = activePage == 3, accentColor = TealAccent, onClick = { onNavigatePage(3) })
-                    DockButton(icon = Icons.Default.Radio, label = "Media", isSelected = activePage == 4, accentColor = Color(0xFF8B5CF6), onClick = { onNavigatePage(4) })
-                    DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
-                    DockButton(icon = Icons.Default.Settings, label = "Setup", isSelected = activePage == 5, accentColor = Color.LightGray, onClick = { onNavigatePage(5) })
+                    LauncherDockEntries(
+                        settings = settings,
+                        activePage = activePage,
+                        hasFaults = dtcCodes.isNotEmpty(),
+                        onNavigatePage = onNavigatePage,
+                        onOpenAppDrawer = onOpenAppDrawer,
+                        onEnterDriveMode = { onSetDriveMode(true) }
+                    )
                     IconButton(
                         onClick = onOpenBluetoothClick,
                         modifier = Modifier
@@ -691,7 +771,66 @@ fun CarLauncherScreen(
                 }
             }
         }
+        // Drive Mode covers the entire cockpit, including the dock: it is drawn last so it sits on
+        // top, and it swallows pointer events so nothing underneath can be tapped blindly.
+        if (driveModeActive) {
+            DriveModeScreen(
+                speed = displaySpeed,
+                speedUnit = speedUnit,
+                rpm = rpm,
+                gear = gear,
+                coolant = coolant,
+                fuel = fuelLevel,
+                voltage = voltage,
+                load = load,
+                alerts = activeAlerts,
+                tripDistanceKm = tripDistanceKm,
+                tripSeconds = tripDurationSeconds,
+                onExit = { onSetDriveMode(false) }
+            )
+        }
     }
+}
+
+/**
+ * Dock entries generated from the driver's visible pages, so hiding a page in Setup actually removes
+ * it from the cockpit instead of leaving a dead button behind.
+ */
+@Composable
+private fun LauncherDockEntries(
+    settings: LauncherSettings,
+    activePage: Int,
+    hasFaults: Boolean,
+    onNavigatePage: (Int) -> Unit,
+    onOpenAppDrawer: () -> Unit,
+    onEnterDriveMode: () -> Unit
+) {
+    settings.visiblePages.forEach { page ->
+        val icon: ImageVector = when (page) {
+            PageId.HOME -> Icons.Default.Home
+            PageId.GAUGES -> Icons.Default.Speed
+            PageId.DIAGNOSTICS -> Icons.Default.WarningAmber
+            PageId.TRIP -> Icons.Default.Navigation
+            PageId.MEDIA -> Icons.Default.Radio
+            PageId.SETTINGS -> Icons.Default.Settings
+        }
+        val accent: Color = when (page) {
+            PageId.HOME, PageId.GAUGES -> ElectricCyan
+            PageId.DIAGNOSTICS -> if (hasFaults) CriticalRed else AmberWarning
+            PageId.TRIP -> TealAccent
+            PageId.MEDIA -> Color(0xFF8B5CF6)
+            PageId.SETTINGS -> Color.LightGray
+        }
+        DockButton(
+            icon = icon,
+            label = page.shortLabel,
+            isSelected = activePage == page.index,
+            accentColor = accent,
+            onClick = { onNavigatePage(page.index) }
+        )
+    }
+    DockButton(icon = Icons.Default.Apps, label = "Apps", isSelected = false, accentColor = ElectricCyan, onClick = onOpenAppDrawer)
+    DockButton(icon = Icons.Default.DirectionsCar, label = "Drive", isSelected = false, accentColor = TealAccent, onClick = onEnterDriveMode)
 }
 
 // =========================================================================
@@ -2905,7 +3044,16 @@ fun SettingsPage(
     diagnosticsEnabled: Boolean = false,
     onSetDiagnosticsEnabled: (Boolean) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {},
-    onOpenHelp: () -> Unit = {}
+    onOpenHelp: () -> Unit = {},
+    settings: LauncherSettings = LauncherSettings(),
+    onUpdateSettings: (LauncherSettings) -> Unit = {},
+    profiles: List<DriverProfile> = emptyList(),
+    activeProfile: String = "Default",
+    onSelectProfile: (DriverProfile) -> Unit = {},
+    onSaveProfile: (String) -> Unit = {},
+    onDeleteProfile: (String) -> Unit = {},
+    onBackupSettings: () -> Unit = {},
+    onRestoreSettings: () -> Unit = {}
 ) {
     val context = LocalContext.current
     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
@@ -3226,7 +3374,21 @@ fun SettingsPage(
             }
         }
 
-        // 6. Privacy & diagnostics. Both the policy and the opt-in live here, and the switch is
+        // 6. Cockpit layout, automation, driver profiles and settings backup.
+        CockpitSettingsCard(
+            settings = settings,
+            onUpdate = onUpdateSettings,
+            profiles = profiles,
+            activeProfile = activeProfile,
+            onSelectProfile = onSelectProfile,
+            onSaveProfile = onSaveProfile,
+            onDeleteProfile = onDeleteProfile,
+            onBackup = onBackupSettings,
+            onRestore = onRestoreSettings,
+            onToggleUnits = onToggleSpeedUnit
+        )
+
+        // 7. Privacy & diagnostics. Both the policy and the opt-in live here, and the switch is
         // the same preference the onboarding wizard writes, so there is one source of truth.
         Surface(
             modifier = Modifier.fillMaxWidth(),

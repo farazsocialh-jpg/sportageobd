@@ -45,15 +45,22 @@ Last updated: 6 November 2026.
 
 ## Phase 3 — Launcher & cockpit
 
-Not started: Drive Mode, infotainment widgets, deep customisation (icon packs, stacks, grid sizes,
-gestures), automation rules. The current launcher already has a fixed six-page cockpit, app drawer,
-media/radio page and a map pane; these items are additive and need product decisions (for example
-whether "Drive Mode" is speed-triggered from OBD or from a foreground-service state machine).
+| Item | Status | Notes |
+|---|---|---|
+| Drive Mode | **Done** | `ui/DriveModeScreen.kt` + `launcher/Automation.kt`. Enters after 3 s above the configured speed, leaves after 12 s below the exit speed (hysteresis, so traffic does not flicker it). Speed-triggered entry is driven by OBD telemetry, not GPS, so it works before the first fix. A manual entry survives with automation switched off, and a long standstill still exits. |
+| Infotainment widgets | **Partial** | Apps pinned from the drawer appear on the dock and in the home overview strip; the media/radio page is unchanged. Arbitrary widget stacks are not built. |
+| Cockpit customisation | **Done** | Drawer grid width (3-6), icon size (40-80 dp), per-page visibility (Home cannot be hidden), default page, and up to four pinned apps. Persisted immediately. |
+| Automation rules | **Partial** | Auto Drive Mode and pause-when-parked are implemented and persisted. User-authored "when X then Y" rules are not. |
+| Night dimming | **Done (existing)** | Manual toggle and level; `NightDim` adds the schedule helper, but the system day/night signal is still what the UI follows. |
 
 ## Phase 4 — Two-in-one synergy
 
-Not started: unified live-data home page, driver profiles, cloud sync, crowdsourced repair database.
-Cloud sync in particular needs a backend choice and a Play Data safety update before any code.
+| Item | Status | Notes |
+|---|---|---|
+| Unified live-data home | **Done** | The home page now opens with an overview strip: health score, stored fault count, running trip, active driver and the pinned shortcuts, all above the map and gauge panes. |
+| Driver profiles | **Done** | `launcher/DriverProfile.kt`-style model in `launcher/Settings.kt`: units, Drive Mode threshold, visible pages, default page. Switching applies the profile immediately; saving captures the current cockpit. |
+| Cloud sync | **Deferred, replaced** | There is no backend and no account, so instead of a half-built sync the app ships **file-based export/import** of cockpit settings and profiles through the system file picker. A real sync needs a service decision plus a Data safety update; nothing has been sent anywhere. |
+| Crowdsourced repair database | **Deferred** | Needs the same backend, plus moderation and privacy review for sharing fault codes. The local DTC database already explains likely causes. |
 
 ## Phase 5 — Final polish and release
 

@@ -105,6 +105,11 @@ The system replaces monolithic activity-bound prototype code with a layered, ser
 | `obd/HealthScore.kt` | Deterministic 0–100 health estimate with capped, explained deductions. Pure Kotlin, no Android dependencies. |
 | `trips/TripRecorder.kt` | Speed-sample integration with a capped sample gap, 0–100 km/h timing, harsh-acceleration counting and eco score. Starts/stops with the adapter connection in `MainActivity`. |
 | `trips/TripStore.kt` | Offline-first CSV history in the app's private storage; the same code path produces the shareable export. |
+| `launcher/Settings.kt` | `PageId`, `LauncherSettings`, `DriverProfile`, the `KeyValueStore` seam, `SettingsRepository` and the versioned `SnapshotCodec` shared by preferences and backup files. No Android types, so the whole cockpit configuration is unit tested. |
+| `launcher/Automation.kt` | `DriveModeController` (hysteresis with hold times), `AutoPauseController` (parked detection that never overrides a manual pause) and the `NightDim` window helper. |
+| `ui/DriveModeScreen.kt` | The driving view: speed, gear, RPM bar, temperatures, critical alert. Swallows pointer events so the cockpit underneath cannot be operated blindly. |
+| `ui/HomeOverview.kt` | Unified live-data strip above the home map: health, faults, trip, active driver and pinned apps. |
+| `ui/CockpitSettings.kt` | Setup card for layout, automation, profiles and backup/import. |
 | `ui/OnboardingScreen.kt`, `ui/InfoDialogs.kt` | First-run wizard (adapter, permissions, privacy consent) and the in-app privacy policy / help dialogs. The policy text is read from `assets/privacy_policy.md`, copied from `PRIVACY.md` at build time. |
 
 Threading note: all of the above are synchronous and small; callers invoke the file-backed trip

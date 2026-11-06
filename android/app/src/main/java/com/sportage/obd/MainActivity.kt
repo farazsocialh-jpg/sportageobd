@@ -34,6 +34,14 @@ import com.sportage.obd.obd.HealthScorer
 import com.sportage.obd.trips.TripRecorder
 import com.sportage.obd.trips.TripStore
 import com.sportage.obd.trips.TripSummary
+import com.sportage.obd.launcher.AutoPauseController
+import com.sportage.obd.launcher.DriverProfile
+import com.sportage.obd.launcher.DriveModeController
+import com.sportage.obd.launcher.KeyValueStore
+import com.sportage.obd.launcher.LauncherSettings
+import com.sportage.obd.launcher.PageId
+import com.sportage.obd.launcher.PinnedApp
+import com.sportage.obd.launcher.SettingsRepository
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
@@ -133,6 +141,17 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var autoNightDim by mutableStateOf(true)
     private var nightDimLevel by mutableStateOf(0.55f)
 
+    // Phase 3/4: cockpit layout, automation and driver profiles. Persisted as one versioned text
+    // document so the backup file and SharedPreferences share a single code path.
+    private lateinit var settingsRepo: SettingsRepository
+    private var launcherSettings by mutableStateOf(LauncherSettings())
+    private var driverProfiles by mutableStateOf<List<DriverProfile>>(emptyList())
+    private var activeProfile by mutableStateOf(SettingsRepository.DEFAULT_PROFILE)
+    private val driveModeController = DriveModeController()
+    private val autoPauseController = AutoPauseController()
+    private var driveModeActive by mutableStateOf(false)
+    private var autoPausedByRule by mutableStateOf(false)
+
     // Governance / onboarding state. Diagnostics consent is stored in AppPreferences so it can be
     // read before any analytics SDK initialises (see SportageObdApp).
     private lateinit var appPrefs: AppPreferences
@@ -184,6 +203,20 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
+
+        settingsRepo = SettingsRepository(object : KeyValueStore {
+            override fun getString(key: String, default: String?): String? = uiPrefs.getString(key, default)
+            override fun putString(key: String, value: String) {
+                uiPrefs.edit().putString(key, value).apply()
+            }
+        })
+        launcherSettings = settingsRepo.load().also { loaded ->
+            driveModeController.configure(loaded.driveModeEnterKmh, loaded.driveModeExitKmh)
+            autoPauseController.configure(loaded.autoPauseMinutes)
+        }
+        driverProfiles = settingsRepo.profiles()
+        activeProfile = settingsRepo.activeProfile()
+        activePage = launcherSettings.defaultPage.index
 
         appPrefs = AppPreferences(this)
         onboardingCompleted = appPrefs.onboardingCompleted
@@ -244,6 +277,29 @@ class MainActivity : ComponentActivity(), LocationListener {
                             if (speed != null && speed > 5) economy * speed / 100f else null
                         }
                         tripRecorder.onSample(t.speedKmh, t.timestamp, fuelRateLph)
+                    }
+
+                    // Automation rules run off the same samples, so they never need a second timer.
+                    // The controller owns the state, so a manual tap and the speed rule cannot
+                    // fight: switching automation off disables auto-entry only, it must not tear
+                    // down a Drive Mode the driver just opened by hand.
+                    val nextDriveMode = driveModeController.update(
+                        speedKmh = t.speedKmh,
+                        nowMs = t.timestamp,
+                        allowAutoEntry = launcherSettings.driveModeEnabled
+                    )
+                    if (nextDriveMode != driveModeActive) driveModeActive = nextDriveMode
+
+                    if (launcherSettings.autoPauseEnabled) {
+                        val parked = autoPauseController.update(t.speedKmh, t.timestamp)
+                        if (parked && !autoPausedByRule) {
+                            autoPausedByRule = true
+                            if (!pollingPaused) togglePausePolling()
+                        } else if (!parked && autoPausedByRule) {
+                            // Back in motion: undo only the pause this rule applied, never a manual one.
+                            autoPausedByRule = false
+                            if (pollingPaused) togglePausePolling()
+                        }
                     }
                 }
             }
@@ -358,6 +414,22 @@ class MainActivity : ComponentActivity(), LocationListener {
                         healthReport = healthReport,
                         trips = trips,
                         onExportTrips = { shareTripsCsv() },
+                        settings = launcherSettings,
+                        onUpdateSettings = { updateLauncherSettings(it) },
+                        profiles = driverProfiles,
+                        activeProfile = activeProfile,
+                        onSelectProfile = { profile -> applyProfile(profile) },
+                        onSaveProfile = { name -> saveCurrentAsProfile(name) },
+                        onDeleteProfile = { name -> deleteProfile(name) },
+                        onBackupSettings = { exportSettings() },
+                        onRestoreSettings = { importSettings() },
+                        onPinApp = { pin -> pinApp(pin) },
+                        onLaunchPinned = { pin -> launchPinned(pin) },
+                        driveModeActive = driveModeActive,
+                        onSetDriveMode = { active ->
+                            if (active) driveModeController.enterManually() else driveModeController.exitManually()
+                            driveModeActive = active
+                        },
                         onClearTrips = { clearTrips() }
                     )
                     }
@@ -443,7 +515,12 @@ class MainActivity : ComponentActivity(), LocationListener {
                 // All Installed Applications Drawer Modal
                 AppDrawerDialog(
                     isOpen = showAppDrawer,
-                    onClose = { showAppDrawer = false }
+                    onClose = { showAppDrawer = false },
+                    columns = launcherSettings.drawerColumns,
+                    iconDp = launcherSettings.drawerIconDp,
+                    onPinApp = { app ->
+                        pinApp(PinnedApp(app.packageName, app.activityName, app.label))
+                    }
                 )
 
                 if (showPrivacyPolicy) {
@@ -697,6 +774,124 @@ class MainActivity : ComponentActivity(), LocationListener {
         val paused = viewModel.togglePausePolling()
         val message = if (paused) "OBD Polling Paused (Ignition Off Mode)" else "OBD Polling Resumed"
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    // ----------------------------------------------------------------- cockpit settings & Phase 4
+
+    private fun updateLauncherSettings(next: LauncherSettings) {
+        val sanitized = next.sanitized()
+        launcherSettings = sanitized
+        settingsRepo.save(sanitized)
+        driveModeController.configure(sanitized.driveModeEnterKmh, sanitized.driveModeExitKmh)
+        autoPauseController.configure(sanitized.autoPauseMinutes)
+    }
+
+    private fun applyProfile(profile: DriverProfile) {
+        val next = profile.applyTo(launcherSettings)
+        updateLauncherSettings(next)
+        activeProfile = profile.name
+        settingsRepo.setActiveProfile(profile.name, next)
+        // A profile may change which pages exist and which one the cockpit opens on.
+        val current = PageId.fromIndex(activePage) ?: PageId.HOME
+        if (!next.isVisible(current)) activePage = next.defaultPage.index
+    }
+
+    private fun saveCurrentAsProfile(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        driverProfiles = settingsRepo.upsertProfile(DriverProfile.fromSettings(trimmed, launcherSettings))
+        activeProfile = trimmed
+        settingsRepo.setActiveProfile(trimmed, launcherSettings)
+        Toast.makeText(this, "Profile \"$trimmed\" saved", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun deleteProfile(name: String) {
+        driverProfiles = settingsRepo.deleteProfile(name)
+        if (activeProfile.equals(name, ignoreCase = true)) {
+            activeProfile = SettingsRepository.DEFAULT_PROFILE
+            settingsRepo.setActiveProfile(activeProfile, launcherSettings)
+        }
+        Toast.makeText(this, "Profile \"$name\" deleted", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun pinApp(pin: PinnedApp) {
+        val alreadyPinned = launcherSettings.pinnedApps.any {
+            it.packageName == pin.packageName && it.activityName == pin.activityName
+        }
+        when {
+            alreadyPinned -> Toast.makeText(this, "${pin.label} is already pinned", Toast.LENGTH_SHORT).show()
+            launcherSettings.pinnedApps.size >= LauncherSettings.MAX_PINS ->
+                Toast.makeText(this, "Dock is full (${LauncherSettings.MAX_PINS} pins) - remove one first", Toast.LENGTH_LONG).show()
+            else -> {
+                updateLauncherSettings(launcherSettings.copy(pinnedApps = launcherSettings.pinnedApps + pin))
+                Toast.makeText(this, "Pinned ${pin.label} to the dock", Toast.LENGTH_SHORT).show()
+                showAppDrawer = false
+            }
+        }
+    }
+
+    private fun launchPinned(pin: PinnedApp) {
+        val intent = packageManager.getLaunchIntentForPackage(pin.packageName) ?: run {
+            Toast.makeText(this, "${pin.label} is no longer installed", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(intent)
+        } catch (_: Exception) {
+            Toast.makeText(this, "Could not open ${pin.label}", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Backup uses the system file picker (Storage Access Framework) rather than a share sheet:
+     * the driver picks a folder on a USB stick or the head unit's own storage, and no storage
+     * permission is requested.
+     */
+    private val createSettingsBackup = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val ok = runCatching {
+            contentResolver.openOutputStream(uri)?.use { stream ->
+                stream.write(settingsRepo.backup().toByteArray())
+            } ?: error("could not open destination")
+        }.isSuccess
+        Toast.makeText(
+            this,
+            if (ok) "Cockpit settings exported" else "Export failed - the file could not be written",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private val openSettingsBackup = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@registerForActivityResult
+        val text = runCatching {
+            contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+        }.getOrNull()
+        if (text == null) {
+            Toast.makeText(this, "Import failed - the file could not be read", Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
+        if (settingsRepo.restore(text)) {
+            launcherSettings = settingsRepo.load()
+            driverProfiles = settingsRepo.profiles()
+            activeProfile = settingsRepo.activeProfile()
+            activePage = launcherSettings.defaultPage.index
+            Toast.makeText(this, "Cockpit settings imported", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, "Not a Sportage cockpit backup file", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun exportSettings() {
+        createSettingsBackup.launch("sportage-cockpit-${System.currentTimeMillis() / 1000}.txt")
+    }
+
+    private fun importSettings() {
+        openSettingsBackup.launch(arrayOf("text/plain", "*/*"))
     }
 
     private fun startTripTicker() {
