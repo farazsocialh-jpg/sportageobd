@@ -31,6 +31,8 @@ import androidx.lifecycle.lifecycleScope
 import androidx.activity.viewModels
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.viewmodel.ObdViewModel
+import com.sportage.obd.fuel.TripHistoryStore
+import com.sportage.obd.fuel.TripRecord
 import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
@@ -77,7 +79,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.n"
+        const val APP_BUILD_TAG = "2026-11-06.o"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -586,6 +588,24 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     private fun resetTrip() {
+        // Persist the completed trip for the fuel-history page before clearing it.
+        if (tripDistanceKm > 0.5) {
+            val telemetry = viewModel.telemetry.value
+            val fuelUsed = (telemetry?.fuelUsedLiters ?: 0f) * (telemetry?.fuelCalibrationFactor ?: 1f)
+            val avgL100 = if (fuelUsed > 0.05) fuelUsed / tripDistanceKm * 100.0 else null
+            TripHistoryStore(this).addTrip(
+                TripRecord(
+                    dateMs = System.currentTimeMillis(),
+                    distanceKm = tripDistanceKm,
+                    durationSeconds = tripDurationSeconds,
+                    fuelLiters = fuelUsed.toDouble(),
+                    avgL100 = avgL100,
+                    maxSpeedKmh = tripMaxSpeed,
+                    avgSpeedKmh = tripAvgSpeed
+                )
+            )
+            viewModel.resetTripFuel()
+        }
         tripDistanceKm = 0.0
         tripStartTime = System.currentTimeMillis()
         tripDurationSeconds = 0L

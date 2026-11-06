@@ -128,6 +128,8 @@ class DashboardVisualTest {
         launch()
         compose.onAllNodesWithContentDescription("Open navigation app").assertCountEquals(1)
         snapshot("headunit")
+        // The rail now holds 11 destinations; scroll it so Setup is reachable.
+        compose.onAllNodes(hasScrollAction())[0].performTouchInput { swipeUp() }
         compose.onNodeWithText("Setup").performClick()
         compose.onNodeWithText("Speed & Distance Units").assertExists()
         snapshot("settings-headunit")
