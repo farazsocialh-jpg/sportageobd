@@ -68,7 +68,7 @@ import androidx.compose.ui.graphics.Color
 class MainActivity : ComponentActivity(), LocationListener {
 
     companion object {
-        const val APP_BUILD_TAG = "2026-11-06.k"
+        const val APP_BUILD_TAG = "2026-11-06.l"
     }
 
     private val viewModel: ObdViewModel by viewModels()
@@ -117,6 +117,10 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var autoNightDim by mutableStateOf(true)
     private var nightDimLevel by mutableStateOf(0.55f)
 
+    // Theme customization (persisted): full-app color preset + optional accent override.
+    private var themeId by mutableStateOf("cockpit-dark")
+    private var accentOverride by mutableStateOf<String?>(null)
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -152,6 +156,8 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
+        themeId = uiPrefs.getString("themeId", "cockpit-dark") ?: "cockpit-dark"
+        accentOverride = uiPrefs.getString("accentOverride", null)
 
         checkAndRequestPermissions()
         initLocationTracking()
@@ -208,7 +214,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             }
 
-            SportageObdTheme {
+            SportageObdTheme(themeId = themeId, accentOverride = accentOverride) {
                 val isNight = isSystemInDarkTheme()
                 Box(modifier = Modifier.fillMaxSize()) {
                     // Inset the dashboard so the status bar / navigation bar never cover controls.
@@ -265,6 +271,16 @@ class MainActivity : ComponentActivity(), LocationListener {
                         onSetNightDimLevel = { level ->
                             nightDimLevel = level.coerceIn(0.1f, 0.85f)
                             uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
+                        },
+                        themeId = themeId,
+                        accentOverride = accentOverride,
+                        onSetThemeId = { id ->
+                            themeId = id
+                            uiPrefs.edit().putString("themeId", id).apply()
+                        },
+                        onSetAccentOverride = { hex ->
+                            accentOverride = hex
+                            uiPrefs.edit().putString("accentOverride", hex).apply()
                         }
                     )
                     }

@@ -91,9 +91,9 @@ fun AppDrawerDialog(
             modifier = Modifier
                 .fillMaxWidth(if (isLandscape) 0.88f else 0.95f)
                 .fillMaxHeight(if (isLandscape) 0.88f else 0.92f),
-            color = Color(0xFF090E17),
+            color = DeepShade(),
             shape = RoundedCornerShape(16.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated)
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
             Column(
                 modifier = Modifier
@@ -111,13 +111,13 @@ fun AppDrawerDialog(
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Surface(
-                            color = ElectricCyan.copy(alpha = 0.15f),
+                            color = ElectricCyan().copy(alpha = 0.15f),
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Icon(
                                 Icons.Default.Apps,
                                 contentDescription = null,
-                                tint = ElectricCyan,
+                                tint = ElectricCyan(),
                                 modifier = Modifier
                                     .padding(6.dp)
                                     .size(20.dp)
@@ -126,14 +126,14 @@ fun AppDrawerDialog(
                         Column {
                             Text(
                                 text = "ALL INSTALLED APPLICATIONS",
-                                color = Color.White,
+                                color = PrimaryText(),
                                 fontSize = 14.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif
                             )
                             Text(
                                 text = "${installedApps.size} applications installed on head unit / device",
-                                color = SecondaryText,
+                                color = SecondaryText(),
                                 fontSize = 12.sp,
                                 fontFamily = FontFamily.SansSerif
                             )
@@ -144,12 +144,12 @@ fun AppDrawerDialog(
                         onClick = onClose,
                         modifier = Modifier
                             .size(32.dp)
-                            .background(DarkSurfaceElevated, RoundedCornerShape(8.dp))
+                            .background(DarkSurfaceElevated(), RoundedCornerShape(8.dp))
                     ) {
                         Icon(
                             Icons.Default.Close,
                             contentDescription = "Close",
-                            tint = Color.LightGray,
+                            tint = SecondaryText(),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -165,7 +165,7 @@ fun AppDrawerDialog(
                         Text(
                             "Search apps (e.g. Maps, Spotify, Radio)...",
                             fontSize = 12.sp,
-                            color = SecondaryText,
+                            color = SecondaryText(),
                             fontFamily = FontFamily.SansSerif
                         )
                     },
@@ -173,7 +173,7 @@ fun AppDrawerDialog(
                         Icon(
                             Icons.Default.Search,
                             contentDescription = null,
-                            tint = ElectricCyan,
+                            tint = ElectricCyan(),
                             modifier = Modifier.size(18.dp)
                         )
                     },
@@ -183,7 +183,7 @@ fun AppDrawerDialog(
                                 Icon(
                                     Icons.Default.Clear,
                                     contentDescription = "Clear",
-                                    tint = Color.LightGray,
+                                    tint = SecondaryText(),
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -191,12 +191,12 @@ fun AppDrawerDialog(
                     },
                     singleLine = true,
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF06090F),
-                        unfocusedContainerColor = Color(0xFF06090F),
-                        focusedIndicatorColor = ElectricCyan,
-                        unfocusedIndicatorColor = DarkSurfaceElevated,
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.LightGray
+                        focusedContainerColor = DeepShade(),
+                        unfocusedContainerColor = DeepShade(),
+                        focusedIndicatorColor = ElectricCyan(),
+                        unfocusedIndicatorColor = DarkSurfaceElevated(),
+                        focusedTextColor = PrimaryText(),
+                        unfocusedTextColor = SecondaryText()
                     ),
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier.fillMaxWidth()
@@ -212,7 +212,7 @@ fun AppDrawerDialog(
                         contentAlignment = Alignment.Center
                     ) {
                         CircularProgressIndicator(
-                            color = ElectricCyan,
+                            color = ElectricCyan(),
                             modifier = Modifier.size(36.dp)
                         )
                     }
@@ -225,7 +225,7 @@ fun AppDrawerDialog(
                     ) {
                         Text(
                             text = "No applications match '$searchQuery'",
-                            color = SecondaryText,
+                            color = SecondaryText(),
                             fontFamily = FontFamily.SansSerif,
                             fontSize = 12.sp
                         )
@@ -274,9 +274,9 @@ private fun AppGridItem(
     ) {
         Surface(
             modifier = Modifier.size(54.dp),
-            color = Color(0xFF141C2B),
+            color = DarkSurfaceElevated(),
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated)
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
             Box(
                 modifier = Modifier.fillMaxSize(),
@@ -292,7 +292,7 @@ private fun AppGridItem(
                     Icon(
                         Icons.Default.Android,
                         contentDescription = null,
-                        tint = ElectricCyan,
+                        tint = ElectricCyan(),
                         modifier = Modifier.size(32.dp)
                     )
                 }
@@ -303,7 +303,7 @@ private fun AppGridItem(
 
         Text(
             text = app.label,
-            color = Color.White,
+            color = PrimaryText(),
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
             fontFamily = FontFamily.SansSerif,

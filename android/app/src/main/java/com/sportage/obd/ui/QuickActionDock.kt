@@ -20,7 +20,7 @@ import com.sportage.obd.ui.theme.*
 fun QuickActionDock(onMusic: () -> Unit, onMediaKey: (Int) -> Unit, onPhone: () -> Unit,
     onApps: () -> Unit, onBluetooth: () -> Unit, logging: Boolean, canLog: Boolean, onLogging: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
-    Surface(color = DarkSurface) {
+    Surface(color = DarkSurface()) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val wide = maxWidth >= 600.dp
             Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -52,7 +52,7 @@ fun QuickActionDock(onMusic: () -> Unit, onMediaKey: (Int) -> Unit, onPhone: () 
 
 @Composable
 private fun DockAction(icon: ImageVector, description: String, action: () -> Unit) {
-    IconButton(action, Modifier.size(48.dp)) { Icon(icon, description, tint = SecondaryText, modifier = Modifier.size(23.dp)) }
+    IconButton(action, Modifier.size(48.dp)) { Icon(icon, description, tint = SecondaryText(), modifier = Modifier.size(23.dp)) }
 }
 
 internal fun openPhoneDialer(context: Context) {

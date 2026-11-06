@@ -29,6 +29,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -46,6 +47,9 @@ import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertSeverity
 import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.ui.theme.*
+import com.sportage.obd.ui.boards.BoardData
+import com.sportage.obd.ui.boards.BoardScreen
+import com.sportage.obd.ui.boards.PrefsBoardStore
 import com.sportage.obd.viewmodel.ObdViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -101,7 +105,11 @@ fun CarLauncherScreen(
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
     onSetNightDimLevel: (Float) -> Unit = {},
-    gpsStatus: String? = null
+    gpsStatus: String? = null,
+    themeId: String = "cockpit-dark",
+    accentOverride: String? = null,
+    onSetThemeId: (String) -> Unit = {},
+    onSetAccentOverride: (String?) -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -112,6 +120,38 @@ fun CarLauncherScreen(
     val displaySpeed = if (speed != null) {
         if (speedUnit == "mph") (speed * 0.621371).toInt() else speed
     } else null
+
+    // Customizable swipeable boards: live values bundled once for every widget.
+    val boardStore = remember { PrefsBoardStore(context) }
+    val boardTelemetry = viewModel?.telemetry?.collectAsState()?.value
+    val boardData = BoardData(
+        speed = displaySpeed,
+        speedUnit = speedUnit,
+        rpm = rpm,
+        coolant = coolant,
+        intakeTemp = intakeTemp,
+        fuelLevel = fuelLevel,
+        throttle = throttle,
+        load = load,
+        voltage = voltage,
+        gear = gear,
+        mafGs = boardTelemetry?.mafGs,
+        timingAdvanceDeg = boardTelemetry?.timingAdvanceDeg,
+        currentLat = currentLat,
+        currentLon = currentLon,
+        gpsStatus = gpsStatus,
+        tripDistanceKm = tripDistanceKm,
+        tripDurationSeconds = tripDurationSeconds,
+        connectionLabel = when (connectionState) {
+            is ConnectionState.Connected -> "Connected · ${connectionState.deviceName}"
+            is ConnectionState.Connecting -> "Connecting"
+            is ConnectionState.Error -> "Error · reconnect"
+            ConnectionState.Disconnected -> "Disconnected"
+        },
+        connectionOk = connectionState is ConnectionState.Connected,
+        speedHistory = speedHistory,
+        rpmHistory = rpmHistory
+    )
 
     // Radio State
     var radioFreq by remember { mutableStateOf(101.4f) }
@@ -169,7 +209,7 @@ fun CarLauncherScreen(
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
+            .background(DarkBackground())
     ) {
         val screenWidth = maxWidth
         val screenHeight = maxHeight
@@ -236,6 +276,7 @@ fun CarLauncherScreen(
                                 viewModel = viewModel
                             )
                             6 -> SensorExplorer(viewModel)
+                            7 -> BoardScreen(data = boardData, store = boardStore)
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
@@ -294,7 +335,11 @@ fun CarLauncherScreen(
                                 autoNightDim = autoNightDim,
                                 nightDimLevel = nightDimLevel,
                                 onSetAutoNightDim = onSetAutoNightDim,
-                                onSetNightDimLevel = onSetNightDimLevel
+                                onSetNightDimLevel = onSetNightDimLevel,
+                                themeId = themeId,
+                                accentOverride = accentOverride,
+                                onSetThemeId = onSetThemeId,
+                                onSetAccentOverride = onSetAccentOverride
                             )
                         }
                     }
@@ -364,6 +409,7 @@ fun CarLauncherScreen(
                             viewModel = viewModel
                         )
                         6 -> SensorExplorer(viewModel)
+                        7 -> BoardScreen(data = boardData, store = boardStore)
                             2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
@@ -422,7 +468,11 @@ fun CarLauncherScreen(
                             autoNightDim = autoNightDim,
                             nightDimLevel = nightDimLevel,
                             onSetAutoNightDim = onSetAutoNightDim,
-                            onSetNightDimLevel = onSetNightDimLevel
+                            onSetNightDimLevel = onSetNightDimLevel,
+                            themeId = themeId,
+                            accentOverride = accentOverride,
+                            onSetThemeId = onSetThemeId,
+                            onSetAccentOverride = onSetAccentOverride
                         )
                     }
                 }
@@ -451,7 +501,7 @@ fun CarLauncherScreen(
 fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
     if (activeAlerts.isEmpty()) return
     val critical = activeAlerts.any { it.severity == AlertSeverity.CRITICAL }
-    val color = if (critical) CriticalRed else AmberWarning
+    val color = if (critical) CriticalRed() else AmberWarning()
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = color.copy(alpha = 0.18f),
@@ -597,22 +647,22 @@ fun LiveMapSurface(
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
-    Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp), modifier = Modifier.testTag("home_map_card").fillMaxSize()) {
+    Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp), modifier = Modifier.testTag("home_map_card").fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
                 Modifier.testTag("home_map_header").fillMaxWidth().padding(start = 12.dp, end = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(Modifier.weight(1f)) {
-                    Text("Map", color = PrimaryText, style = MaterialTheme.typography.titleMedium)
-                    gpsStatus?.let { Text(it, color = SecondaryText, style = MaterialTheme.typography.labelSmall,
+                    Text("Map", color = PrimaryText(), style = MaterialTheme.typography.titleMedium)
+                    gpsStatus?.let { Text(it, color = SecondaryText(), style = MaterialTheme.typography.labelSmall,
                         maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) }
                 }
                 FilledIconButton(
                     onClick = onOpenNavigation, modifier = Modifier.size(48.dp),
                     shape = RoundedCornerShape(12.dp),
                     colors = IconButtonDefaults.filledIconButtonColors(
-                        containerColor = DarkSurfaceElevated, contentColor = ElectricCyan
+                        containerColor = DarkSurfaceElevated(), contentColor = ElectricCyan()
                     )
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
@@ -627,7 +677,7 @@ fun LiveMapSurface(
                             80 -> 100; 100 -> 120; 120 -> 140; 140 -> 0; else -> 80
                         }
                     }, modifier = Modifier.heightIn(min = 48.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = if (overspeed) CriticalRed else SecondaryText)
+                    colors = ButtonDefaults.textButtonColors(contentColor = if (overspeed) CriticalRed() else SecondaryText())
                 ) {
                     Icon(if (overspeed) Icons.Default.Warning else Icons.Default.NotificationsNone, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(6.dp))
@@ -638,7 +688,7 @@ fun LiveMapSurface(
                     "${"%.4f".format(currentLat)}, ${"%.4f".format(currentLon)}",
                     modifier = Modifier.weight(1f), textAlign = TextAlign.End, maxLines = 1,
                     overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    color = SecondaryText, style = MaterialTheme.typography.labelMedium
+                    color = SecondaryText(), style = MaterialTheme.typography.labelMedium
                 )
             }
         }
@@ -666,8 +716,8 @@ fun GaugesAndGraphsPage(
 ) {
     val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
     val metrics = listOf(
-        PanelReading("Engine speed", rpm?.toString() ?: "--", "rpm", if ((rpm ?: 0) > 6500) CriticalRed else PrimaryText),
-        PanelReading("Coolant", coolant?.toString() ?: "--", "°C", if ((coolant ?: 0) > 105) CriticalRed else PrimaryText),
+        PanelReading("Engine speed", rpm?.toString() ?: "--", "rpm", if ((rpm ?: 0) > 6500) CriticalRed() else PrimaryText()),
+        PanelReading("Coolant", coolant?.toString() ?: "--", "°C", if ((coolant ?: 0) > 105) CriticalRed() else PrimaryText()),
         PanelReading("Intake air", intakeTemp?.toString() ?: "--", "°C"),
         PanelReading("Engine load", load?.let { "%.1f".format(it) } ?: "--", "%"),
         PanelReading("Throttle", throttle?.let { "%.1f".format(it) } ?: "--", "%"),
@@ -677,9 +727,9 @@ fun GaugesAndGraphsPage(
         PanelReading("Air flow", liveTelemetry?.mafGs?.let { "%.1f".format(it) } ?: "--", "g/s"),
         PanelReading("Timing advance", liveTelemetry?.timingAdvanceDeg?.let { "%.1f".format(it) } ?: "--", "°BTDC"),
         PanelReading("Short fuel trim", liveTelemetry?.shortTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", "%",
-            if (kotlin.math.abs(liveTelemetry?.shortTermFuelTrimPct ?: 0f) > 10f) CriticalRed else PrimaryText),
+            if (kotlin.math.abs(liveTelemetry?.shortTermFuelTrimPct ?: 0f) > 10f) CriticalRed() else PrimaryText()),
         PanelReading("Long fuel trim", liveTelemetry?.longTermFuelTrimPct?.let { "%+.1f".format(it) } ?: "--", "%",
-            if (kotlin.math.abs(liveTelemetry?.longTermFuelTrimPct ?: 0f) > 10f) CriticalRed else PrimaryText),
+            if (kotlin.math.abs(liveTelemetry?.longTermFuelTrimPct ?: 0f) > 10f) CriticalRed() else PrimaryText()),
         PanelReading("Instant economy", liveTelemetry?.fuelEconomyL100?.let { "%.1f".format(it) } ?: "--", "L/100 km"),
         PanelReading("Fuel used", liveTelemetry?.fuelUsedLiters?.let { "%.2f".format(it) } ?: "--", "liters")
     )
@@ -692,18 +742,22 @@ fun GaugesAndGraphsPage(
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                Text("Gauges", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+                Text("Gauges", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
             }
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                Surface(color = DarkSurface, shape = RoundedCornerShape(16.dp)) {
+                Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text("Engine history · 60 seconds", color = PrimaryText, style = MaterialTheme.typography.titleMedium)
+                        Text("Engine history · 60 seconds", color = PrimaryText(), style = MaterialTheme.typography.titleMedium)
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Speed · ${speed ?: "--"} $speedUnit", color = ElectricCyan, style = MaterialTheme.typography.labelMedium)
-                            Text("RPM · ${rpm ?: "--"}", color = WarningAmber, style = MaterialTheme.typography.labelMedium)
+                            Text("Speed · ${speed ?: "--"} $speedUnit", color = ElectricCyan(), style = MaterialTheme.typography.labelMedium)
+                            Text("RPM · ${rpm ?: "--"}", color = WarningAmber(), style = MaterialTheme.typography.labelMedium)
                         }
                         Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
-                            Canvas(Modifier.fillMaxSize().background(DarkBackground, RoundedCornerShape(8.dp)).padding(8.dp)) {
+                            // Draw-scope lambdas cannot call composables, so resolve theme colors first.
+                            val plotShade = DeepShade()
+                            val plotAccent = ElectricCyan()
+                            val plotWarning = WarningAmber()
+                            Canvas(Modifier.fillMaxSize().background(DarkBackground(), RoundedCornerShape(8.dp)).padding(8.dp)) {
 
                     val w = size.width
                     val h = size.height
@@ -712,7 +766,7 @@ fun GaugesAndGraphsPage(
                     for (i in 1..4) {
                         val y = h * (i / 5f)
                         drawLine(
-                            color = Color(0xFF1A2634),
+                            color = plotShade,
                             start = Offset(0f, y),
                             end = Offset(w, y),
                             strokeWidth = 1f
@@ -727,7 +781,7 @@ fun GaugesAndGraphsPage(
                             val y = h - (h * (pair.second.coerceIn(0, 200) / 200f))
                             if (idx == 0) path.moveTo(x, y) else path.lineTo(x, y)
                         }
-                        drawPath(path, color = ElectricCyan, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
+                        drawPath(path, color = plotAccent, style = Stroke(width = 2.5f, cap = StrokeCap.Round))
                     }
 
                     // Draw RPM Line (max 7000 RPM)
@@ -738,12 +792,12 @@ fun GaugesAndGraphsPage(
                             val y = h - (h * (pair.second.coerceIn(0, 7000) / 7000f))
                             if (idx == 0) rpmPath.moveTo(x, y) else rpmPath.lineTo(x, y)
                         }
-                        drawPath(rpmPath, color = Color(0xFFF59E0B), style = Stroke(width = 2f, cap = StrokeCap.Round))
+                        drawPath(rpmPath, color = plotWarning, style = Stroke(width = 2f, cap = StrokeCap.Round))
                     }
 
                             }
                             if (speedHistory.size < 2 && rpmHistory.size < 2) {
-                                Text("Waiting for readings", color = SecondaryText, style = MaterialTheme.typography.bodyMedium)
+                                Text("Waiting for readings", color = SecondaryText(), style = MaterialTheme.typography.bodyMedium)
                             }
                         }
                     }
@@ -786,9 +840,9 @@ fun DiagnosticsPage(
         // Top Action Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated)
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
             Column(
                 modifier = Modifier
@@ -799,21 +853,21 @@ fun DiagnosticsPage(
                 Column {
                     Text(
                         text = "Diagnostics",
-                        color = Color.White,
+                        color = PrimaryText(),
                         fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
                         text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS",
-                        color = SecondaryText,
+                        color = SecondaryText(),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.SansSerif
                     )
                     if (vin != null) {
                         Text(
                             text = "VIN: $vin",
-                            color = ElectricCyan,
+                            color = ElectricCyan(),
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif
                         )
@@ -825,17 +879,17 @@ fun DiagnosticsPage(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = onScan,
                         enabled = !isScanning,
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
                         if (isScanning) {
-                            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = Color(0xFF05070B), strokeWidth = 2.dp)
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), color = OnAccent(), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Scanning...", color = Color(0xFF05070B), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                            Text("Scanning...", color = OnAccent(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                         } else {
-                            Icon(Icons.Default.Refresh, contentDescription = null, tint = Color(0xFF05070B), modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = OnAccent(), modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
-                            Text("Scan ECU (03)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                            Text("Scan ECU (03)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                         }
                     }
 
@@ -843,10 +897,10 @@ fun DiagnosticsPage(
                         modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                         onClick = { showClearConfirm = true },
                         enabled = !isScanning,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Clear Codes (04)", color = CriticalRed, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Clear Codes (04)", color = CriticalRed(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
             }
@@ -856,8 +910,8 @@ fun DiagnosticsPage(
         ScrollableTabRow(
             selectedTabIndex = selectedTab,
             edgePadding = 0.dp,
-            containerColor = DarkBackground,
-            contentColor = ElectricCyan
+            containerColor = DarkBackground(),
+            contentColor = ElectricCyan()
         ) {
             tabs.forEachIndexed { idx, title ->
                 Tab(
@@ -869,7 +923,7 @@ fun DiagnosticsPage(
                             maxLines = 1,
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif,
-                            color = if (selectedTab == idx) ElectricCyan else SecondaryText
+                            color = if (selectedTab == idx) ElectricCyan() else SecondaryText()
                         )
                     }
                 )
@@ -889,10 +943,10 @@ fun DiagnosticsPage(
                             }
                         },
                         enabled = !auxScanning && viewModel != null,
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Scan Pending (07)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Scan Pending (07)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 DtcListContent(pendingCodes, emptyHint = "No Pending Codes · ECU monitors have not confirmed a fault yet")
@@ -908,10 +962,10 @@ fun DiagnosticsPage(
                             }
                         },
                         enabled = !auxScanning && viewModel != null,
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Scan Permanent (0A)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Scan Permanent (0A)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 DtcListContent(permanentCodes, emptyHint = "No Permanent Codes · These survive a Mode 04 clear until the ECU re-verifies the repair")
@@ -927,10 +981,10 @@ fun DiagnosticsPage(
                             }
                         },
                         enabled = !auxScanning && viewModel != null,
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Read Freeze Frame (02)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Read Freeze Frame (02)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 if (freezeFrame == null || freezeFrame.items.isEmpty()) {
@@ -939,17 +993,17 @@ fun DiagnosticsPage(
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
                             Surface(
-                                color = Color(0xFF0A0F17),
+                                color = DeepShade(),
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, AmberWarning)
+                                border = BorderStroke(1.dp, AmberWarning())
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                     Spacer(Modifier.height(6.dp))
                                     freezeFrame.items.forEach {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(it.label, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
-                                            Text(it.value, color = Color.White, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                                            Text(it.label, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                                            Text(it.value, color = PrimaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                         }
                                     }
                                 }
@@ -969,10 +1023,10 @@ fun DiagnosticsPage(
                             }
                         },
                         enabled = !auxScanning && viewModel != null,
-                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Read Readiness (0101)", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Read Readiness (0101)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
                 if (readiness == null) {
@@ -981,30 +1035,30 @@ fun DiagnosticsPage(
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
                             Surface(
-                                color = Color(0xFF0A0F17),
+                                color = DeepShade(),
                                 shape = RoundedCornerShape(10.dp),
-                                border = BorderStroke(1.dp, if (readiness.milOn) CriticalRed else TealAccent)
+                                border = BorderStroke(1.dp, if (readiness.milOn) CriticalRed() else TealAccent())
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                         Text(
                                             if (readiness.milOn) "CHECK ENGINE LIGHT: ON" else "CHECK ENGINE LIGHT: OFF",
-                                            color = if (readiness.milOn) CriticalRed else TealAccent,
+                                            color = if (readiness.milOn) CriticalRed() else TealAccent(),
                                             fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
                                         )
                                         Text(
                                             "Stored codes: ${readiness.storedDtcCount}",
-                                            color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif
+                                            color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif
                                         )
                                     }
                                     Text(if (readiness.compressionIgnitionMonitors.isNotEmpty()) "DIESEL READINESS MONITORS" else "GASOLINE READINESS MONITORS",
-                                        color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                                        color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                     (readiness.sparkIgnitionMonitors + readiness.compressionIgnitionMonitors).forEach { m ->
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                            Text(m.name, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                                            Text(m.name, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                             Text(
                                                 if (m.complete) "COMPLETE" else "NOT READY",
-                                                color = if (m.complete) TealAccent else AmberWarning,
+                                                color = if (m.complete) TealAccent() else AmberWarning(),
                                                 fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
                                             )
                                         }
@@ -1015,16 +1069,16 @@ fun DiagnosticsPage(
                         if (supportedPids.isNotEmpty()) {
                             item {
                                 Surface(
-                                    color = Color(0xFF0A0F17),
+                                    color = DeepShade(),
                                     shape = RoundedCornerShape(10.dp),
-                                    border = BorderStroke(1.dp, DarkSurfaceElevated)
+                                    border = BorderStroke(1.dp, DarkSurfaceElevated())
                                 ) {
                                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                        Text("ECU SUPPORTED PIDs (${supportedPids.size} discovered)", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                                        Text("ECU SUPPORTED PIDs (${supportedPids.size} discovered)", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                                         Spacer(Modifier.height(4.dp))
                                         Text(
                                             supportedPids.sorted().joinToString(" "),
-                                            color = SecondaryText,
+                                            color = SecondaryText(),
                                             fontSize = 11.sp,
                                             fontFamily = FontFamily.SansSerif
                                         )
@@ -1041,13 +1095,13 @@ fun DiagnosticsPage(
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
-            title = { Text("Clear Fault Codes (Mode 04)?", fontFamily = FontFamily.SansSerif, color = Color.White) },
+            title = { Text("Clear Fault Codes (Mode 04)?", fontFamily = FontFamily.SansSerif, color = PrimaryText()) },
             text = {
                 Text(
                     "Warning: Clearing ECU codes resets emissions inspection readiness monitors and turns off the check engine light. If the physical fault is not repaired, the code will reoccur.",
                     fontFamily = FontFamily.SansSerif,
                     fontSize = 11.sp,
-                    color = SecondaryText
+                    color = SecondaryText()
                 )
             },
             confirmButton = {
@@ -1056,20 +1110,20 @@ fun DiagnosticsPage(
                         showClearConfirm = false
                         onClear()
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = CriticalRed)
+                    colors = ButtonDefaults.buttonColors(containerColor = CriticalRed())
                 ) {
-                    Text("Confirm Clear", fontFamily = FontFamily.SansSerif, color = DarkBackground)
+                    Text("Confirm Clear", fontFamily = FontFamily.SansSerif, color = DarkBackground())
                 }
             },
             dismissButton = {
                 Button(
                     onClick = { showClearConfirm = false },
-                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated)
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated())
                 ) {
-                    Text("Cancel", fontFamily = FontFamily.SansSerif, color = Color.LightGray)
+                    Text("Cancel", fontFamily = FontFamily.SansSerif, color = SecondaryText())
                 }
             },
-            containerColor = Color(0xFF0F1722)
+            containerColor = DeepShade()
         )
     }
 }
@@ -1085,9 +1139,9 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
         ) {
             items(dtcCodes) { dtc ->
                 Surface(
-                    color = Color(0xFF0A0F17),
+                    color = DeepShade(),
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning)
+                    border = BorderStroke(1.dp, if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed() else AmberWarning())
                 ) {
                     Column(
                         modifier = Modifier
@@ -1102,14 +1156,14 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     text = dtc.code,
-                                    color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
+                                    color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed() else AmberWarning(),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     fontFamily = FontFamily.SansSerif
                                 )
                                 Text(
                                     text = dtc.system,
-                                    color = SecondaryText,
+                                    color = SecondaryText(),
                                     fontSize = 11.sp,
                                     fontFamily = FontFamily.SansSerif
                                 )
@@ -1117,13 +1171,13 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
 
                             Text(
                                 text = dtc.severity.name,
-                                color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning,
+                                color = if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed() else AmberWarning(),
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 fontFamily = FontFamily.SansSerif,
                                 modifier = Modifier
                                     .background(
-                                        (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed else AmberWarning).copy(alpha = 0.15f),
+                                        (if (dtc.severity == DtcSeverity.CRITICAL) CriticalRed() else AmberWarning()).copy(alpha = 0.15f),
                                         RoundedCornerShape(4.dp)
                                     )
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
@@ -1131,9 +1185,9 @@ private fun DtcListContent(dtcCodes: List<DtcItem>, emptyHint: String) {
                         }
 
                         Spacer(modifier = Modifier.height(6.dp))
-                        Text(text = dtc.description, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text(text = dtc.description, color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                         Spacer(modifier = Modifier.height(4.dp))
-                        Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text(text = "Probable Cause: ${dtc.probableCause}", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                 }
             }
@@ -1147,17 +1201,17 @@ private fun EmptyStateBox(title: String, subtitle: String) {
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = 160.dp)
-            .background(Color(0xFF080C14), RoundedCornerShape(10.dp))
-            .border(1.dp, DarkSurfaceElevated, RoundedCornerShape(10.dp))
+            .background(DeepShade(), RoundedCornerShape(10.dp))
+            .border(1.dp, DarkSurfaceElevated(), RoundedCornerShape(10.dp))
             .padding(20.dp),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent, modifier = Modifier.size(44.dp))
+            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(44.dp))
             Spacer(modifier = Modifier.height(10.dp))
-            Text(title, color = Color.White, fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.SansSerif)
+            Text(title, color = PrimaryText(), fontWeight = FontWeight.Bold, fontSize = 14.sp, fontFamily = FontFamily.SansSerif)
             Spacer(modifier = Modifier.height(4.dp))
-            Text(subtitle, color = SecondaryText, fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+            Text(subtitle, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
         }
     }
 }
@@ -1196,7 +1250,7 @@ fun TripComputerPage(
 
     val metrics = listOf(
         PanelReading("Distance", "%.1f".format(if (speedUnit == "mph") distanceKm * 0.621371 else distanceKm),
-            if (speedUnit == "mph") "miles" else "km", ElectricCyan),
+            if (speedUnit == "mph") "miles" else "km", ElectricCyan()),
         PanelReading("Elapsed time", timeFormatted, "hh:mm:ss"),
         PanelReading("Average speed", "$avgSpeed", speedUnit),
         PanelReading("Maximum speed", "$maxSpeed", speedUnit),
@@ -1209,7 +1263,7 @@ fun TripComputerPage(
         val columns = if (maxWidth >= 700.dp) 4 else if (maxWidth < 380.dp && androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.2f) 1 else 2
         Column(Modifier.fillMaxSize().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Trip", Modifier.weight(1f), color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+                Text("Trip", Modifier.weight(1f), color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
                 FilledTonalButton(onClick = onReset, modifier = Modifier.heightIn(min = 48.dp)) {
                     Icon(Icons.Default.Refresh, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
@@ -1225,27 +1279,27 @@ fun TripComputerPage(
                 items(metrics.size) { index -> MetricTile(metrics[index]) }
             }
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Default.MyLocation, null, Modifier.size(18.dp), tint = SecondaryText)
+                Icon(Icons.Default.MyLocation, null, Modifier.size(18.dp), tint = SecondaryText())
                 Spacer(Modifier.width(8.dp))
-                Text("Coordinates", Modifier.weight(1f), color = SecondaryText, style = MaterialTheme.typography.labelMedium)
+                Text("Coordinates", Modifier.weight(1f), color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
                 Text("${"%.5f".format(currentLat)}, ${"%.5f".format(currentLon)}",
-                    color = SecondaryText, style = MaterialTheme.typography.labelMedium)
+                    color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
             }
         }
     }
 }
 
-private data class PanelReading(val title: String, val value: String, val unit: String, val color: Color = PrimaryText)
+private data class PanelReading(val title: String, val value: String, val unit: String, val color: Color? = null)
 
 @Composable
 private fun MetricTile(reading: PanelReading) {
-    Surface(color = DarkSurface, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(120.dp)) {
+    Surface(color = DarkSurface(), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth().height(120.dp)) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.SpaceBetween) {
-            Text(reading.title, color = SecondaryText, style = MaterialTheme.typography.labelMedium,
+            Text(reading.title, color = SecondaryText(), style = MaterialTheme.typography.labelMedium,
                 maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            Text(reading.value, color = reading.color, fontSize = if (reading.value.length > 6) 20.sp else 28.sp,
+            Text(reading.value, color = reading.color ?: PrimaryText(), fontSize = if (reading.value.length > 6) 20.sp else 28.sp,
                 fontWeight = FontWeight.Medium, maxLines = 1)
-            Text(reading.unit, color = SecondaryText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+            Text(reading.unit, color = SecondaryText(), style = MaterialTheme.typography.labelMedium, maxLines = 1)
         }
     }
 }
@@ -1273,13 +1327,13 @@ fun MediaRadioPage(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("Media", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+        Text("Media", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
         // Top Frequency Display & Tuner Dial
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(12.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated)
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
             Column(
                 modifier = Modifier
@@ -1288,13 +1342,13 @@ fun MediaRadioPage(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Surface(
-                    color = DarkSurfaceElevated,
+                    color = DarkSurfaceElevated(),
                     shape = RoundedCornerShape(4.dp),
                     modifier = Modifier.padding(bottom = 8.dp)
                 ) {
                     Text(
                         text = "NOTE: Physical FM chip is managed by Head Unit MCU. Tap 'Open Radio App' below for tuner.",
-                        color = Color.LightGray,
+                        color = SecondaryText(),
                         fontSize = 11.sp,
                         fontFamily = FontFamily.SansSerif,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
@@ -1303,7 +1357,7 @@ fun MediaRadioPage(
 
                 Text(
                     text = "FM STEREO TUNER",
-                    color = SecondaryText,
+                    color = SecondaryText(),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.SansSerif
@@ -1311,7 +1365,7 @@ fun MediaRadioPage(
 
                 Text(
                     text = "${"%.1f".format(radioFreq)} MHz",
-                    color = ElectricCyan,
+                    color = ElectricCyan(),
                     fontSize = 44.sp,
                     fontWeight = FontWeight.SemiBold,
                     fontFamily = FontFamily.SansSerif
@@ -1319,7 +1373,7 @@ fun MediaRadioPage(
 
                 Text(
                     text = radioStationName,
-                    color = Color.White,
+                    color = PrimaryText(),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.SansSerif
@@ -1340,21 +1394,21 @@ fun MediaRadioPage(
                         },
                         modifier = Modifier
                             .size(48.dp)
-                            .background(DarkSurfaceElevated, CircleShape)
+                            .background(DarkSurfaceElevated(), CircleShape)
                     ) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = Color.White)
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Prev", tint = PrimaryText())
                     }
 
                     IconButton(
                         onClick = onTogglePlayPause,
                         modifier = Modifier
                             .size(54.dp)
-                            .background(ElectricCyan, CircleShape)
+                            .background(ElectricCyan(), CircleShape)
                     ) {
                         Icon(
                             if (isMediaPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = "Play/Pause",
-                            tint = Color(0xFF05070B),
+                            tint = OnAccent(),
                             modifier = Modifier.size(28.dp)
                         )
                     }
@@ -1367,15 +1421,15 @@ fun MediaRadioPage(
                         },
                         modifier = Modifier
                             .size(48.dp)
-                            .background(DarkSurfaceElevated, CircleShape)
+                            .background(DarkSurfaceElevated(), CircleShape)
                     ) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = Color.White)
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = PrimaryText())
                     }
                 }
             }
         }
 
-        Text("Radio presets", color = SecondaryText, style = MaterialTheme.typography.titleMedium)
+        Text("Radio presets", color = SecondaryText(), style = MaterialTheme.typography.titleMedium)
         val columns = if (LocalConfiguration.current.screenWidthDp >= 700) 4 else 2
         SPORTAGE_RADIO_PRESETS.take(4).chunked(columns).forEach { row ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1384,15 +1438,15 @@ fun MediaRadioPage(
                     Surface(
                         onClick = { onStationChange(station.name, station.freq) },
                         modifier = Modifier.weight(1f).height(112.dp),
-                        color = if (selected) DarkSurfaceElevated else DarkSurface,
+                        color = if (selected) DarkSurfaceElevated() else DarkSurface(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Column(Modifier.fillMaxSize().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
-                            Text("%.1f".format(station.freq), color = if (selected) ElectricCyan else PrimaryText,
+                            Text("%.1f".format(station.freq), color = if (selected) ElectricCyan() else PrimaryText(),
                                 fontSize = 24.sp, fontWeight = FontWeight.Medium)
-                            Text(station.name, color = PrimaryText, style = MaterialTheme.typography.labelLarge, maxLines = 1,
+                            Text(station.name, color = PrimaryText(), style = MaterialTheme.typography.labelLarge, maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                            Text(station.genre, color = SecondaryText, style = MaterialTheme.typography.labelMedium, maxLines = 1)
+                            Text(station.genre, color = SecondaryText(), style = MaterialTheme.typography.labelMedium, maxLines = 1)
                         }
                     }
                 }
@@ -1404,23 +1458,23 @@ fun MediaRadioPage(
             Button(
                 onClick = onLaunchNativeRadio,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Radio, contentDescription = null, tint = ElectricCyan(), modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Head Unit Radio App", color = Color.White, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                Text("Open Head Unit Radio App", color = PrimaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
             }
 
             Button(
                 onClick = onLaunchLocalMusic,
                 modifier = Modifier.weight(1f),
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                 shape = RoundedCornerShape(8.dp)
             ) {
-                Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(6.dp))
-                Text("Open Local Music Player", color = Color.White, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                Text("Open Local Music Player", color = PrimaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
             }
         }
     }
@@ -1444,7 +1498,11 @@ fun SettingsPage(
     autoNightDim: Boolean = true,
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
-    onSetNightDimLevel: (Float) -> Unit = {}
+    onSetNightDimLevel: (Float) -> Unit = {},
+    themeId: String = "cockpit-dark",
+    accentOverride: String? = null,
+    onSetThemeId: (String) -> Unit = {},
+    onSetAccentOverride: (String?) -> Unit = {}
 ) {
     val context = LocalContext.current
     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
@@ -1458,14 +1516,17 @@ fun SettingsPage(
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Text("Settings", color = PrimaryText, style = MaterialTheme.typography.titleLarge)
+        Text("Settings", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
+
+        // 0. Theme & Colors Card: restyles the whole app instantly, persisted across restarts.
+        ThemeCustomizationCard(themeId, accentOverride, onSetThemeId, onSetAccentOverride)
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
         ) {
             Row(
                 modifier = Modifier
@@ -1475,11 +1536,11 @@ fun SettingsPage(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
                         "Makes Sportage OBD the permanent car dashboard. Booting the head unit or pressing Home returns here.",
-                        color = SecondaryText,
+                        color = SecondaryText(),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.SansSerif
                     )
@@ -1488,10 +1549,10 @@ fun SettingsPage(
                 Button(
                     modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                     onClick = onSetDefaultLauncher,
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan),
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                     shape = RoundedCornerShape(6.dp)
                 ) {
-                    Text("Set Default Home", color = Color(0xFF05070B), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                    Text("Set Default Home", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                 }
             }
         }
@@ -1499,9 +1560,9 @@ fun SettingsPage(
         // 2. Units & Telemetry Settings Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated)
+            border = BorderStroke(1.dp, DarkSurfaceElevated())
         ) {
             Column(
                 modifier = Modifier
@@ -1512,81 +1573,81 @@ fun SettingsPage(
                 // Speed Unit
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Speed & Distance Units", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Current: $speedUnit", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Speed & Distance Units", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Current: $speedUnit", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
                         modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onToggleSpeedUnit,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
 
                 // Installed Apps Drawer
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Installed App Drawer", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Browse and launch all head unit installed apps", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Installed App Drawer", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Browse and launch all head unit installed apps", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
                         modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onOpenAppDrawer,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan, modifier = Modifier.size(13.dp))
+                        Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan(), modifier = Modifier.size(13.dp))
                         Spacer(modifier = Modifier.width(4.dp))
-                        Text("Open Apps", color = ElectricCyan, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Open Apps", color = ElectricCyan(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
 
                 // Pause OBD Polling Toggle (Ignition Off / Save Battery)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Pause OBD Polling (Engine Off)", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Pause OBD Polling (Engine Off)", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
                         checked = isPollingPaused,
                         onCheckedChange = { onTogglePausePolling() },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning, checkedTrackColor = AmberWarning.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning(), checkedTrackColor = AmberWarning().copy(alpha = 0.4f))
                     )
                 }
 
                 // Bench Test / Demo Telemetry
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Bench Test / Demo Simulation", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Bench Test / Demo Simulation", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
                         checked = isDemoMode,
                         onCheckedChange = onToggleDemoMode,
-                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan, checkedTrackColor = ElectricCyan.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan(), checkedTrackColor = ElectricCyan().copy(alpha = 0.4f))
                     )
                 }
 
                 // Android Bluetooth Settings Shortcut
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Android Bluetooth System Settings", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Android Bluetooth System Settings", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Button(
                         modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
                         onClick = onOpenBluetoothSettings,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                         shape = RoundedCornerShape(6.dp)
                     ) {
-                        Text("Open Settings", color = Color.LightGray, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                        Text("Open Settings", color = SecondaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
             }
@@ -1595,9 +1656,9 @@ fun SettingsPage(
         // 3. Warning Thresholds Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, AmberWarning.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, AmberWarning().copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier
@@ -1605,8 +1666,8 @@ fun SettingsPage(
                     .padding(14.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
 
                 ThresholdStepper(
                     label = "Coolant Overheat Limit",
@@ -1635,8 +1696,8 @@ fun SettingsPage(
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Audible Warning Beeps", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Play a tone when a threshold is crossed", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Audible Warning Beeps", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Play a tone when a threshold is crossed", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     Switch(
                         checked = thresholds.audibleAlerts,
@@ -1644,7 +1705,7 @@ fun SettingsPage(
                             thresholds = thresholds.copy(audibleAlerts = it)
                             viewModel?.updateAlertThresholds(thresholds)
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning, checkedTrackColor = AmberWarning.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning(), checkedTrackColor = AmberWarning().copy(alpha = 0.4f))
                     )
                 }
             }
@@ -1653,9 +1714,9 @@ fun SettingsPage(
         // 4. CSV Data Logging Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, TealAccent.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, TealAccent().copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier
@@ -1665,8 +1726,8 @@ fun SettingsPage(
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("CSV TELEMETRY LOGGING", color = TealAccent, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("CSV TELEMETRY LOGGING", color = TealAccent(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
 
                     Switch(
@@ -1674,14 +1735,14 @@ fun SettingsPage(
                         onCheckedChange = { enable ->
                             if (enable) viewModel?.startCsvLogging() else viewModel?.stopCsvLogging()
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent(), checkedTrackColor = TealAccent().copy(alpha = 0.4f))
                     )
                 }
 
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Auto-Start With Connection", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Begin logging every time the adapter connects", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("Auto-Start With Connection", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Begin logging every time the adapter connects", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     var csvAuto by remember { mutableStateOf(viewModel?.csvAutostart() ?: false) }
                     Switch(
@@ -1690,7 +1751,7 @@ fun SettingsPage(
                             csvAuto = it
                             viewModel?.setCsvAutostart(it)
                         },
-                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent, checkedTrackColor = TealAccent.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent(), checkedTrackColor = TealAccent().copy(alpha = 0.4f))
                     )
                 }
 
@@ -1720,12 +1781,12 @@ fun SettingsPage(
                             Toast.makeText(context, "No active log file. Start logging first.", Toast.LENGTH_SHORT).show()
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                     shape = RoundedCornerShape(6.dp)
                 ) {
-                    Icon(Icons.Default.Share, contentDescription = null, tint = TealAccent, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Default.Share, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(13.dp))
                     Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share Current Log", color = TealAccent, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                    Text("Share Current Log", color = TealAccent(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                 }
             }
         }
@@ -1733,9 +1794,9 @@ fun SettingsPage(
         // 5. Night Dimming Card
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground,
+            color = DarkBackground(),
             shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, ElectricCyan.copy(alpha = 0.5f))
+            border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
         ) {
             Column(
                 modifier = Modifier
@@ -1745,29 +1806,117 @@ fun SettingsPage(
             ) {
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("AUTO NIGHT DIMMING", color = ElectricCyan, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("AUTO NIGHT DIMMING", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                     Switch(
                         checked = autoNightDim,
                         onCheckedChange = onSetAutoNightDim,
-                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan, checkedTrackColor = ElectricCyan.copy(alpha = 0.4f))
+                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan(), checkedTrackColor = ElectricCyan().copy(alpha = 0.4f))
                     )
                 }
 
                 if (autoNightDim) {
                     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("BRIGHTNESS", color = SecondaryText, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("BRIGHTNESS", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                         Slider(
                             value = 1f - nightDimLevel,
                             onValueChange = { onSetNightDimLevel(1f - it) },
                             modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = ElectricCyan, activeTrackColor = ElectricCyan.copy(alpha = 0.5f))
+                            colors = SliderDefaults.colors(thumbColor = ElectricCyan(), activeTrackColor = ElectricCyan().copy(alpha = 0.5f))
                         )
-                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = Color.White, fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = PrimaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ThemeCustomizationCard(
+    themeId: String,
+    accentOverride: String?,
+    onSetThemeId: (String) -> Unit,
+    onSetAccentOverride: (String?) -> Unit
+) {
+    val selected = remember(themeId) { com.sportage.obd.ui.theme.CockpitThemes.byId(themeId) }
+    Surface(
+        modifier = Modifier.fillMaxWidth().testTag("theme_card"),
+        color = DarkBackground(),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column {
+                Text("THEME & COLORS", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                Text("Restyle the whole app instantly · ${selected.title}", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+            }
+
+            // Full-app theme presets.
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                com.sportage.obd.ui.theme.CockpitThemes.presets.forEach { preset ->
+                    val isSel = preset.id == themeId
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Box(
+                            modifier = Modifier
+                                .testTag("theme_preset_${preset.id}")
+                                .size(52.dp)
+                                .border(
+                                    BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) ElectricCyan() else DarkSurfaceElevated()),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .background(preset.colors.background, RoundedCornerShape(10.dp))
+                                .clickable { onSetThemeId(preset.id) },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                Modifier.size(22.dp)
+                                    .background(preset.colors.accent, CircleShape)
+                                    .border(BorderStroke(2.dp, preset.colors.surface), CircleShape)
+                            )
+                        }
+                        Text(preset.title, fontSize = 10.sp, maxLines = 1, color = if (isSel) ElectricCyan() else SecondaryText())
+                    }
+                }
+            }
+
+            // Accent color layered on top of the chosen preset.
+            Text("ACCENT COLOR", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // "Preset default" clears any override.
+                Box(
+                    modifier = Modifier
+                        .testTag("accent_default")
+                        .size(36.dp)
+                        .border(
+                            BorderStroke(if (accentOverride == null) 2.dp else 1.dp, if (accentOverride == null) ElectricCyan() else DarkSurfaceElevated()),
+                            CircleShape
+                        )
+                        .background(DarkSurfaceElevated(), CircleShape)
+                        .clickable { onSetAccentOverride(null) },
+                    contentAlignment = Alignment.Center
+                ) { Text("A", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
+                com.sportage.obd.ui.theme.CockpitThemes.accentChoices.forEach { accent ->
+                    val hex = "FF%06X".format(accent.toArgb() and 0xFFFFFF)
+                    val isSel = accentOverride != null && com.sportage.obd.ui.theme.CockpitThemes.parseAccent(accentOverride) == accent
+                    Box(
+                        modifier = Modifier
+                            .testTag("accent_$hex")
+                            .size(36.dp)
+                            .border(
+                                BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) ElectricCyan() else DarkSurfaceElevated()),
+                                CircleShape
+                            )
+                            .background(accent, CircleShape)
+                            .clickable { onSetAccentOverride(hex) }
+                    )
+                }
+            }
+            Text("Tap a color to override the accent everywhere; A restores the preset default.", color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
         }
     }
 }
@@ -1780,24 +1929,24 @@ private fun ThresholdStepper(
     onPlus: () -> Unit
 ) {
     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp), color = PrimaryText, fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
+        Text(label, modifier = Modifier.weight(1f).padding(end = 12.dp), color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Medium, fontFamily = FontFamily.SansSerif)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             Button(
                 onClick = onMinus,
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text("-", color = AmberWarning, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("-", color = AmberWarning(), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
-            Text(value, color = AmberWarning, fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+            Text(value, color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Button(
                 onClick = onPlus,
-                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated),
+                colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                 shape = RoundedCornerShape(4.dp),
                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
             ) {
-                Text("+", color = AmberWarning, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text("+", color = AmberWarning(), fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
             }
         }
     }

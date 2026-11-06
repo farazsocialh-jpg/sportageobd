@@ -233,4 +233,31 @@ class DashboardVisualTest {
         assertEquals(Intent.ACTION_VIEW, navigation.action)
         assertEquals("geo", navigation.data?.scheme)
     }
+
+    @Test fun swipeableBoardsAndThemeCustomizationAreReachable() {
+        launch()
+        // Boards page is directly in the bottom navigation.
+        compose.onNodeWithText("Boards").performClick()
+        compose.onNodeWithTag("boards_header").assertExists()
+        compose.onNodeWithTag("board_widget_speed").assertExists()
+        compose.onNodeWithTag("board_widget_map").assertExists()
+        snapshot("boards-portrait")
+        // Add a widget through the picker.
+        compose.onNodeWithTag("board_add_button").performClick()
+        compose.onNodeWithTag("widget_picker_list").performScrollToNode(hasTestTag("picker_fuel"))
+        compose.onNodeWithTag("picker_fuel").performClick()
+        compose.onNodeWithText("Done").performClick()
+        compose.onNodeWithTag("board_grid_0").performScrollToNode(hasTestTag("board_widget_fuel"))
+        compose.onNodeWithTag("board_widget_fuel").assertExists()
+        snapshot("boards-with-added-widget")
+        // Theme customization lives in Setup and restyles the whole app.
+        compose.onNodeWithText("More").performClick()
+        compose.onNodeWithText("Setup").performClick()
+        compose.onNodeWithText("THEME & COLORS").assertExists()
+        compose.onNodeWithTag("theme_preset_arctic").performClick()
+        compose.onNodeWithText("Arctic Light").assertExists()
+        snapshot("settings-theme-arctic")
+        compose.onNodeWithTag("theme_preset_cockpit-dark").performClick()
+        compose.onNodeWithText("Cockpit Dark").assertExists()
+    }
 }

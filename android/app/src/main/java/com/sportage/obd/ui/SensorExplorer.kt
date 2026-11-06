@@ -73,10 +73,10 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Text("OBD workspace", style = MaterialTheme.typography.titleLarge, color = PrimaryText)
+            Text("OBD workspace", style = MaterialTheme.typography.titleLarge, color = PrimaryText())
             IconButton(onClick = { refresh() }, enabled = connected && !busy) {
                 if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
-                else Icon(Icons.Default.Refresh, "Refresh OBD capabilities", tint = if (connected) ElectricCyan else SecondaryText)
+                else Icon(Icons.Default.Refresh, "Refresh OBD capabilities", tint = if (connected) ElectricCyan() else SecondaryText())
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -84,8 +84,8 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
             FilterChip(vehicle, { vehicle = true }, { Text("Vehicle / tests") })
         }
         if (!connected) Text(if (demo) "Demo mode. Connect a real adapter for extended ECU readings."
-            else "Connect an OBD adapter to discover available readings.", color = SecondaryText, style = MaterialTheme.typography.bodyMedium)
-        message?.let { Text(it, color = SecondaryText, style = MaterialTheme.typography.bodySmall) }
+            else "Connect an OBD adapter to discover available readings.", color = SecondaryText(), style = MaterialTheme.typography.bodyMedium)
+        message?.let { Text(it, color = SecondaryText(), style = MaterialTheme.typography.bodySmall) }
         if (vehicle) {
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 item { InfoReading("VIN", vin ?: "Not reported") }
@@ -93,7 +93,7 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
                 item { InfoReading("Limits", "Generic ELM327 support does not guarantee ABS, airbags, TPMS, service resets or Kia coding. No actuator tests or undocumented write commands are issued automatically.") }
                 item { InfoReading("On-board monitor results", "Mode 06 is shown as raw ECU data. Test IDs, scaling and limits require the vehicle's diagnostic documentation; pass/fail is not guessed.") }
                 items(telemetry.vehicleInfo.toList()) { (label, value) -> InfoReading(label, value) }
-                if (telemetry.vehicleInfo.isEmpty()) item { Text("Use refresh to read adapter information, calibration data, ECU name and Mode 06 monitor responses.", color = SecondaryText) }
+                if (telemetry.vehicleInfo.isEmpty()) item { Text("Use refresh to read adapter information, calibration data, ECU name and Mode 06 monitor responses.", color = SecondaryText()) }
             }
         } else {
             OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true,
@@ -109,7 +109,7 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
                     (query.isBlank() || "${it.title} ${it.category} ${it.pid}".contains(query, true))
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text("${entries.size} ${if (entries.size == 1) "sensor" else "sensors"} · first valid ECU", color = SecondaryText, style = MaterialTheme.typography.labelMedium)
+                Text("${entries.size} ${if (entries.size == 1) "sensor" else "sensors"} · first valid ECU", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
                 TextButton(enabled = telemetry.sensors.isNotEmpty(), onClick = {
                     scope.launch {
                         try {
@@ -138,7 +138,7 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
                 if (entries.isEmpty()) item {
                     Text(if (filter == "Favorites") "No matching favorites. Use the star beside a sensor to pin it."
                         else "No matching supported sensors. Connect, refresh, or choose All to browse the read-only catalogue.",
-                        color = SecondaryText, modifier = Modifier.padding(vertical = 24.dp))
+                        color = SecondaryText(), modifier = Modifier.padding(vertical = 24.dp))
                 }
                 items(entries, key = { it.pid }) { definition ->
                     val sample = telemetry.sensors[definition.pid]
@@ -147,34 +147,34 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
                     }.padding(vertical = 12.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
-                                Text(definition.title, color = PrimaryText, style = MaterialTheme.typography.titleSmall)
-                                Text("${definition.category} · 01${definition.pid}", color = SecondaryText, style = MaterialTheme.typography.labelSmall)
+                                Text(definition.title, color = PrimaryText(), style = MaterialTheme.typography.titleSmall)
+                                Text("${definition.category} · 01${definition.pid}", color = SecondaryText(), style = MaterialTheme.typography.labelSmall)
                             }
                             IconButton(onClick = {
                                 favorites = if (definition.pid in favorites) favorites - definition.pid else favorites + definition.pid
                                 prefs.edit().putStringSet("favorites", favorites).apply()
                             }) { Icon(if (definition.pid in favorites) Icons.Default.Star else Icons.Default.StarBorder,
-                                "Favorite ${definition.title}", tint = if (definition.pid in favorites) WarningAmber else SecondaryText) }
+                                "Favorite ${definition.title}", tint = if (definition.pid in favorites) WarningAmber() else SecondaryText()) }
                         }
                         Text(sample?.values?.joinToString("  /  ") { it.formatted() } ?: when {
                             supported.isEmpty() -> "Support not discovered"
                             definition.pid !in supported -> "Not supported by this ECU"
                             else -> "Supported · waiting for response"
-                        }, color = if (sample != null && connected && !sample.stale(now)) ElectricCyan else SecondaryText,
+                        }, color = if (sample != null && connected && !sample.stale(now)) ElectricCyan() else SecondaryText(),
                             style = MaterialTheme.typography.bodyMedium)
                         if (sample != null) Text(
                             if (!connected) "Last received · disconnected" else
                                 "${((now - sample.timestamp).coerceAtLeast(0) / 1000)} s ago${if (sample.stale(now)) " · stale" else ""}",
-                            color = SecondaryText, style = MaterialTheme.typography.labelSmall)
+                            color = SecondaryText(), style = MaterialTheme.typography.labelSmall)
                         if (expanded == definition.pid) {
                             val values = history[definition.pid].orEmpty().map { it.second }
                             Text(if (values.isEmpty()) "No samples yet. Unsupported PIDs are not polled."
                                 else "First value since opening: min ${values.minOrNull()} · max ${values.maxOrNull()} · ${values.size} samples",
-                                color = SecondaryText, style = MaterialTheme.typography.bodySmall,
+                                color = SecondaryText(), style = MaterialTheme.typography.bodySmall,
                                 modifier = Modifier.padding(top = 8.dp))
                         }
                     }
-                    HorizontalDivider(color = DarkSurfaceElevated)
+                    HorizontalDivider(color = DarkSurfaceElevated())
                 }
             }
         }
@@ -184,7 +184,7 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
 @Composable
 private fun InfoReading(label: String, value: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(label, color = SecondaryText, style = MaterialTheme.typography.labelMedium)
-        Text(value, color = PrimaryText, style = MaterialTheme.typography.bodyMedium)
+        Text(label, color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
+        Text(value, color = PrimaryText(), style = MaterialTheme.typography.bodyMedium)
     }
 }
