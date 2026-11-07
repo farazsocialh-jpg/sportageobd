@@ -335,7 +335,7 @@ class ObdRepository(private val context: Context) {
             _dtcList.value = emptyList()
             _pendingDtcList.value = emptyList()
             true
-        } else obdService?.clearDtcCodes() ?: false
+        } else false
     }
 
     suspend fun scanPendingDtcs(): List<DtcItem> {
