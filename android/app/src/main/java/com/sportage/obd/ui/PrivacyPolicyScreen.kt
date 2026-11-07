@@ -296,33 +296,3 @@ private fun AndroidWebView(
     )
 }
 
-private object PrivacyHtmlLoader {
-    private const val ASSETS_HTML = "privacy.html"
-    private const val RAW_HTML = "privacy_policy.html"
-
-    fun loadLocalHtml(context: android.content.Context): String? {
-        // Try assets first, then res/raw.
-        return try {
-            loadFromAssets(context, ASSETS_HTML)
-        } catch (_: Exception) {
-            try {
-                loadFromRaw(context, RAW_HTML)
-            } catch (_: Exception) {
-                null
-            }
-        }
-    }
-
-    private fun loadFromAssets(context: android.content.Context, name: String): String {
-        val stream = ContextCompat.openInputStream(context, "assets/$name")
-            ?: throw IllegalStateException("Missing assets/$name")
-        return stream.bufferedReader().readText().also { stream.close() }
-    }
-
-    private fun loadFromRaw(context: android.content.Context, resName: String): String {
-        val resId = context.resources.getIdentifier(resName, "raw", context.packageName)
-            .takeIf { it != 0 }
-            ?: throw IllegalStateException("Missing raw/$resName")
-        return context.resources.openRawResource(resId).bufferedReader().readText()
-    }
-}

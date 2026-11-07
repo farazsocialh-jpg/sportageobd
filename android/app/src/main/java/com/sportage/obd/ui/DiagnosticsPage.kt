@@ -529,9 +529,8 @@ private fun Mode06MonitorsContent(
             color = SecondaryText(),
             fontSize = 12.sp,
             fontFamily = FontFamily.SansSerif
-        )
-
-        if (result != null && (result.sparkIgnitionComponents.isNotEmpty() || result.compressionIgnitionComponents.isNotEmpty())) {
+        )            val hasContent = result != null && (result.sparkIgnitionComponents.isNotEmpty() || result.compressionIgnitionComponents.isNotEmpty())
+            if (hasContent) {
             // Spark ignition monitors
             if (result.sparkIgnitionComponents.isNotEmpty()) {
                 Text(
