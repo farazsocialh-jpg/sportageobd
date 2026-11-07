@@ -9,6 +9,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -16,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.ui.theme.*
 
-@Composable
 @Composable
 fun OnboardingScreen(
     onComplete: () -> Unit,
@@ -55,7 +56,7 @@ fun OnboardingScreen(
         // Page content
         when (currentPage) {
             0 -> OnboardingPage(
-                icon = Icons.Default.Integrate,
+                icon = Icons.Default.Speed,
                 title = "Welcome to Sportage OBD",
                 body = "Your two-in-one automotive companion: real-time OBD-II diagnostics and a car launcher for head units and phones."
             )

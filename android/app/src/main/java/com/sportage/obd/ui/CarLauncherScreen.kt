@@ -59,6 +59,33 @@ import com.sportage.obd.viewmodel.ObdViewModel
 import kotlinx.coroutines.launch
 import java.util.Locale
 
+/** Shows a dialog with all installed music apps for the user to choose from. */
+private fun showMusicAppPicker(context: Context) {
+    val apps = MediaApps.musicApps(context)
+    if (apps.isEmpty()) {
+        Toast.makeText(context, "No music apps found on this device.", Toast.LENGTH_LONG).show()
+        return
+    }
+    val chosenApp = chosenMusicApp(context)
+    val defaultIdx = if (chosenApp != null) apps.indexOfFirst { it.packageName == chosenApp } else 0
+    var selectedIdx = defaultIdx
+    android.app.AlertDialog.Builder(context)
+        .setTitle("Select Music App")
+        .setSingleChoiceItems(
+            apps.map { it.label }.toTypedArray(),
+            defaultIdx,
+            { _, which -> selectedIdx = which }
+        )
+        .setPositiveButton("Open") { _, _ ->
+            val selected = apps[selectedIdx]
+            runCatching { context.startActivity(selected.launchIntent) }
+            // Save the user's choice for future launches
+            saveChosenMusicApp(context, selected.packageName)
+        }
+        .setNegativeButton("Cancel") { _, _ -> }
+        .show()
+}
+
 data class RadioStation(val freq: Float, val name: String, val genre: String)
 
 val SPORTAGE_RADIO_PRESETS = listOf(
@@ -191,33 +218,6 @@ fun CarLauncherScreen(
         }
         // Show app picker dialog for user to choose music app
         showMusicAppPicker(context)
-    }
-
-    /** Shows a dialog with all installed music apps for the user to choose from. */
-    private fun showMusicAppPicker(context: Context) {
-        val apps = MediaApps.musicApps(context)
-        if (apps.isEmpty()) {
-            Toast.makeText(context, "No music apps found on this device.", Toast.LENGTH_LONG).show()
-            return
-        }
-        val chosenApp = chosenMusicApp(context)
-        val defaultIdx = if (chosenApp != null) apps.indexOfFirst { it.packageName == chosenApp } else 0
-        var selectedIdx = defaultIdx
-        AlertDialog.Builder(context)
-            .setTitle("Select Music App")
-            .setSingleChoiceItems(
-                apps.map { it.label }.toTypedArray(),
-                defaultIdx,
-                { dialog, which -> selectedIdx = which }
-            )
-            .setPositiveButton("Open") { _ ->
-                val selected = apps[selectedIdx]
-                runCatching { context.startActivity(selected.launchIntent) }
-                // Save the user's choice for future launches
-                saveChosenMusicApp(context, selected.packageName)
-            }
-            .setNegativeButton("Cancel") { _ -> }
-            .show()
     }
 
     fun launchHeadUnitRadioApp() {
@@ -542,7 +542,7 @@ fun CarLauncherScreen(
                             accentOverride = accentOverride,
                             onSetThemeId = onSetThemeId,
                             onSetAccentOverride = onSetAccentOverride,
-                            onOpenPrivacyPolicy = { /* handled in SettingsPage */ }
+                            onOpenPrivacyPolicy = onOpenPrivacyPolicy
                         )
                     }
                 }
@@ -1623,7 +1623,7 @@ fun SettingsPage(
         Text("Settings", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
 
         // 0. Theme & Colors Card: restyles the whole app instantly, persisted across restarts.
-        ThemeCustomizationCard(themeId, accentOverride, onSetThemeId, onSetAccentOverride)
+        ThemeCustomizationCard(themeId, accentOverride, onSetThemeId, onSetAccentOverride, onOpenPrivacyPolicy)
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
         Surface(
@@ -1942,7 +1942,8 @@ private fun ThemeCustomizationCard(
     themeId: String,
     accentOverride: String?,
     onSetThemeId: (String) -> Unit,
-    onSetAccentOverride: (String?) -> Unit
+    onSetAccentOverride: (String?) -> Unit,
+    onOpenPrivacyPolicy: () -> Unit
 ) {
     val selected = remember(themeId) { com.sportage.obd.ui.theme.CockpitThemes.byId(themeId) }
     Surface(
@@ -1973,12 +1974,11 @@ private fun ThemeCustomizationCard(
                         modifier = Modifier.size(24.dp)
                     )
                 },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ListItemDefaults.colors(containerColor = DarkSurface()),
-                shape = RoundedCornerShape(0.dp)
-            ) {
-                onOpenPrivacyPolicy()
-            }
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onOpenPrivacyPolicy() },
+                colors = ListItemDefaults.colors(containerColor = DarkSurface())
+            )
 
             // Full-app theme presets.
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

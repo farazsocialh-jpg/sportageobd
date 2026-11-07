@@ -2,10 +2,9 @@ package com.sportage.obd
 
 import android.app.Application
 import android.util.Log
+import androidx.core.os.bundleOf
 import com.google.firebase.analytics.FirebaseAnalytics
 import com.google.firebase.crashlytics.FirebaseCrashlytics
-import com.google.firebase.crashlytics.ktx.firebaseCrashlytics
-import com.google.firebase.ktx.Firebase
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -34,7 +33,7 @@ class SportageObdApp : Application() {
 
         // Initialize Firebase Analytics (always-on, anonymous usage tracking).
         // If google-services.json is missing, Firebase is inactive but the app still runs.
-        firebaseAnalytics = Firebase.analytics
+        firebaseAnalytics = FirebaseAnalytics.getInstance(this)
 
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
