@@ -897,7 +897,7 @@ fun GaugesAndGraphsPage(
     }
 }
 
-fun DiagnosticsPageCompact(
+fun DiagnosticsPage(
     dtcCodes: List<DtcItem>,
     isScanning: Boolean,
     onScan: () -> Unit,
