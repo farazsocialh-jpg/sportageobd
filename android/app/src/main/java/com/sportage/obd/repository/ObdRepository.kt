@@ -335,7 +335,7 @@ class ObdRepository(private val context: Context) {
             _dtcList.value = emptyList()
             _pendingDtcList.value = emptyList()
             true
-        } else false
+        } else obdService?.clearDtcCodes() ?: false
     }
 
     suspend fun scanPendingDtcs(): List<DtcItem> {
@@ -428,25 +428,35 @@ class ObdRepository(private val context: Context) {
 
     // --- Warning thresholds ---
 
-    fun alertThresholds(): AlertThresholds = AlertThresholds()
+    fun alertThresholds(): AlertThresholds = obdService?.alertThresholds() ?: AlertThresholds()
 
-    fun setFuelCalibration(factor: Float) { /* no-op until the service declares this mapping */ }
+    fun setFuelCalibration(factor: Float) {
+        scope.launch { obdService?.setFuelCalibration(factor) }
+    }
 
-    fun resetTripFuel() { /* no-op until the service declares this mapping */ }
+    fun resetTripFuel() {
+        scope.launch { obdService?.resetTripFuel() }
+    }
 
-    fun updateAlertThresholds(thresholds: AlertThresholds) { /* no-op until the service declares this mapping */ }
+    fun updateAlertThresholds(thresholds: AlertThresholds) {
+        obdService?.updateAlertThresholds(thresholds)
+    }
 
     // --- CSV logging ---
 
-    fun startCsvLogging(): Boolean = false
+    fun startCsvLogging(): Boolean = obdService?.startCsvLogging() ?: false
 
-    fun stopCsvLogging() { /* no-op until the service declares this mapping */ }
+    fun stopCsvLogging() {
+        obdService?.stopCsvLogging()
+    }
 
-    fun csvAutostart(): Boolean = false
+    fun csvAutostart(): Boolean = obdService?.csvAutostart() ?: false
 
-    fun setCsvAutostart(enabled: Boolean) { /* no-op until the service declares this mapping */ }
+    fun setCsvAutostart(enabled: Boolean) {
+        obdService?.setCsvAutostart(enabled)
+    }
 
-    fun csvLogFile(): java.io.File? = null
+    fun csvLogFile(): java.io.File? = obdService?.csvLogFile
 
     suspend fun sendRawCommand(cmd: String): String {
         return if (_isDemoMode.value) {
@@ -460,10 +470,6 @@ class ObdRepository(private val context: Context) {
                 else -> "OK"
             }
         } else obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
-    }
-
-    companion object {
-        private fun sin(x: Double): Double = kotlin.math.sin(x)
     }
 
     private fun startDemoSimulation() {

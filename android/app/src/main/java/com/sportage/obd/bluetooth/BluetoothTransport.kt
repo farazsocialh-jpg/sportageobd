@@ -182,7 +182,7 @@ class BluetoothTransport : ElmTransport {
             }
         }
         if (!buffer.contains(">")) throw java.io.IOException("OBD adapter response timed out")
-        Elm327Command.cleanResponse(buffer.toString())
+        Elm327Command.stripPrompt(buffer.toString())
     } }
 
     /**
