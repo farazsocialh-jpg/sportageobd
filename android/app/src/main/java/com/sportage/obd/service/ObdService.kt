@@ -513,7 +513,7 @@ class ObdService : Service() {
     }
 
     /** Mode 09 PID 02: vehicle identification number. */
-    suspend fun readVin(): String?
+    suspend fun readVin(): String? {
         return try {
             val response = transport.sendCommand("0902")
             val vin = PidDecoders.decodeVin(response)
