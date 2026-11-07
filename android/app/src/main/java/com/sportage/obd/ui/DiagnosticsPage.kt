@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
+import com.sportage.obd.obd.Mode06MonitorResult
 import com.sportage.obd.service.AlertSeverity
 import com.sportage.obd.ui.theme.*
 import com.sportage.obd.viewmodel.ObdViewModel
@@ -38,12 +39,13 @@ fun DiagnosticsPage(
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Stored (03)", "Pending (07)", "Permanent (0A)", "Freeze Frame", "Readiness")
+    val tabs = listOf("Stored (03)", "Pending (07)", "Permanent (0A)", "Freeze Frame", "Readiness", "Mode 06 Monitors")
 
     val pendingCodes = viewModel?.pendingDtcList?.collectAsState()?.value ?: emptyList()
     val permanentCodes = viewModel?.permanentDtcList?.collectAsState()?.value ?: emptyList()
     val freezeFrame = viewModel?.freezeFrame?.collectAsState()?.value
     val readiness = viewModel?.readiness?.collectAsState()?.value
+    val mode06MonitorResult = viewModel?.mode06MonitorResult?.collectAsState()?.value
     val vin = viewModel?.vin?.collectAsState()?.value
     val supportedPids = viewModel?.supportedPids?.collectAsState()?.value ?: emptySet()
     val scope = rememberCoroutineScope()
@@ -89,7 +91,7 @@ fun DiagnosticsPage(
                         )
                     }
                     Text(
-                        text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS",
+                        text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS · MODE 06",
                         color = SecondaryText(),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.SansSerif
@@ -139,6 +141,31 @@ fun DiagnosticsPage(
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Clear Codes (04)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                         }
+                    }
+                }
+
+                // Mode 06 refresh button
+                Button(
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    onClick = {
+                        auxScanning = true
+                        scope.launch {
+                            viewModel?.refreshMode06Monitors()
+                            auxScanning = false
+                        }
+                    },
+                    enabled = !auxScanning && viewModel != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    if (auxScanning) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), color = OnAccent(), strokeWidth = 2.dp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Refreshing...", color = OnAccent(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                    } else {
+                        Icon(Icons.Default.Refresh, contentDescription = null, tint = OnAccent(), modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Refresh Mode 06", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
             }
@@ -216,6 +243,7 @@ fun DiagnosticsPage(
             }
             3 -> FreezeFrameContent(freezeFrame, supportedPids, connectionState, viewModel, scope, auxScanning) { auxScanning = it }
             4 -> ReadinessContent(readiness, supportedPids, connectionState, viewModel, scope, auxScanning) { auxScanning = it }
+            5 -> Mode06MonitorsContent(mode06MonitorResult, supportedPids, connectionState, viewModel, scope, auxScanning) { auxScanning = it }
         }
     }
 }
@@ -470,6 +498,194 @@ private fun ReadinessContent(
                     fontFamily = FontFamily.SansSerif
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun Mode06MonitorsContent(
+    mode06MonitorResult: androidx.compose.runtime.State<Mode06MonitorResult?>?,
+    supportedPids: Set<String>,
+    connectionState: ConnectionState,
+    viewModel: ObdViewModel?,
+    scope: kotlinx.coroutines.CoroutineScope,
+    auxScanning: Boolean,
+    onAuxScanning: (Boolean) -> Unit
+) {
+    val result = mode06MonitorResult?.value
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text(
+            "Mode 06 · On-Board Monitor Results",
+            color = PrimaryText(),
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Bold,
+            fontFamily = FontFamily.SansSerif
+        )
+        Text(
+            "SAE J1979 in-use performance tracking (completion/conditions encountered). Not a diagnosis.",
+            color = SecondaryText(),
+            fontSize = 12.sp,
+            fontFamily = FontFamily.SansSerif
+        )
+
+        if (result != null && (result.sparkIgnitionComponents.isNotEmpty() || result.compressionIgnitionComponents.isNotEmpty())) {
+            // Spark ignition monitors
+            if (result.sparkIgnitionComponents.isNotEmpty()) {
+                Text(
+                    "Spark Ignition Monitors",
+                    color = ElectricCyan(),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.SansSerif
+                )
+                result.sparkIgnitionComponents.forEach { component ->
+                    Surface(color = DarkSurface(), shape = RoundedCornerShape(8.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                component.componentId,
+                                color = ElectricCyan(),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                component.name,
+                                color = SecondaryText(),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Completed: ${component.completionCount}",
+                                    color = PrimaryText(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    "Conditions: ${component.conditionsEncountered}",
+                                    color = SecondaryText(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            if (component.completionFraction != null) {
+                                Text(
+                                    "Ratio: ${(component.completionFraction * 100).toInt()}%",
+                                    color = if (component.completionFraction > 0.5f) TealAccent() else WarningAmber(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Compression ignition monitors
+            if (result.compressionIgnitionComponents.isNotEmpty()) {
+                Text(
+                    "Compression Ignition Monitors",
+                    color = ElectricCyan(),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    fontFamily = FontFamily.SansSerif
+                )
+                result.compressionIgnitionComponents.forEach { component ->
+                    Surface(color = DarkSurface(), shape = RoundedCornerShape(8.dp)) {
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                component.componentId,
+                                color = ElectricCyan(),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Text(
+                                component.name,
+                                color = SecondaryText(),
+                                fontSize = 12.sp,
+                                fontFamily = FontFamily.SansSerif
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    "Completed: ${component.completionCount}",
+                                    color = PrimaryText(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                                Text(
+                                    "Conditions: ${component.conditionsEncountered}",
+                                    color = SecondaryText(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                            if (component.completionFraction != null) {
+                                Text(
+                                    "Ratio: ${(component.completionFraction * 100).toInt()}%",
+                                    color = if (component.completionFraction > 0.5f) TealAccent() else WarningAmber(),
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Raw response
+            if (result.rawResponse.isNotBlank() && result.rawResponse != "No response") {
+                Surface(color = DarkSurface(), shape = RoundedCornerShape(8.dp)) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            "Raw Response",
+                            color = SecondaryText(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            fontFamily = FontFamily.SansSerif
+                        )
+                        Text(
+                            result.rawResponse,
+                            color = PrimaryText(),
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            modifier = Modifier.height(IntrinsicSize.Min)
+                        )
+                    }
+                }
+            }
+        } else {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        onAuxScanning(true)
+                        scope.launch {
+                            viewModel?.refreshMode06Monitors()
+                            onAuxScanning(false)
+                        }
+                    },
+                    enabled = !auxScanning && viewModel != null,
+                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
+                    shape = RoundedCornerShape(6.dp)
+                ) {
+                    Text("Refresh Mode 06", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
+                }
+            }
+            Text(
+                "No Mode 06 data available. Tap refresh to request on-board monitor results from the ECU.",
+                color = SecondaryText(),
+                fontSize = 12.sp,
+                fontFamily = FontFamily.SansSerif
+            )
         }
     }
 }

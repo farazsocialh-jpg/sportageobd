@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.Mode06MonitorResult
 import com.sportage.obd.obd.ReadinessState
 import com.sportage.obd.repository.ObdRepository
 import com.sportage.obd.service.ActiveAlert
@@ -19,11 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/**
- * ObdViewModel: Bridges the ObdRepository to Jetpack Compose UI.
- * Handles UI state derivation, graph telemetry history, trip stats,
- * and background operations cleanly decoupled from the UI.
- */
+/** ObdViewModel: Bridges the ObdRepository to Jetpack Compose UI. */
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ObdRepository(application.applicationContext)
@@ -55,6 +52,9 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val readiness: StateFlow<ReadinessState?> = repository.readiness
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
+    val mode06MonitorResult: StateFlow<Mode06MonitorResult?> = repository.mode06MonitorResult
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
     val vin: StateFlow<String?> = repository.vin
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
@@ -78,7 +78,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val rpmHistory: StateFlow<List<Pair<Long, Int>>> = _rpmHistory.asStateFlow()
 
     init {
-        // A real 60-second window. Sensor-only state updates must not duplicate core samples.
         viewModelScope.launch {
             repository.telemetry.collect { telem ->
                 val now = telem.timestamp
@@ -138,6 +137,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     suspend fun readReadinessNow(): ReadinessState? = repository.readReadiness()
 
+    suspend fun refreshMode06Monitors() = repository.refreshMode06Monitors()
+
     suspend fun readVinNow(): String? = repository.readVin()
 
     suspend fun refreshSensorCapabilities() = repository.refreshSensorCapabilities()
@@ -172,8 +173,6 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
-        // Unbinding leaves the foreground service (and the Bluetooth link) running on purpose:
-        // only the UI teardown happens here.
         repository.close()
     }
 }

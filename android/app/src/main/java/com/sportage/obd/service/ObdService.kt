@@ -25,6 +25,8 @@ import com.sportage.obd.bluetooth.ElmTransport
 import com.sportage.obd.bluetooth.TransportStateRelay
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.Mode06Decoders
+import com.sportage.obd.obd.Mode06MonitorResult
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
 import kotlinx.coroutines.CoroutineScope
@@ -155,6 +157,9 @@ class ObdService : Service() {
 
     private val _readiness = MutableStateFlow<ReadinessState?>(null)
     val readiness: StateFlow<ReadinessState?> = _readiness.asStateFlow()
+
+    private val _mode06MonitorResult = MutableStateFlow<Mode06MonitorResult?>(null)
+    val mode06MonitorResult: StateFlow<Mode06MonitorResult?> = _mode06MonitorResult.asStateFlow()
 
     private val _vin = MutableStateFlow<String?>(null)
     val vin: StateFlow<String?> = _vin.asStateFlow()
@@ -301,6 +306,7 @@ class ObdService : Service() {
         _pendingDtcList.value = emptyList()
         _permanentDtcList.value = emptyList()
         _freezeFrame.value = null
+        _mode06MonitorResult.value = null
         _isPollingPaused.value = false
         alertEngine?.clear()
         connectJob = serviceScope.launch {
@@ -491,8 +497,23 @@ class ObdService : Service() {
         }
     }
 
+    /** Mode 06 on-board monitor results. */
+    suspend fun refreshMode06Monitors() {
+        if (connectionState.value !is ConnectionState.Connected) return
+        val generation = connectionGeneration
+        val link = transport
+        try {
+            val response = link.sendCommand("06")
+            if (generation == connectionGeneration) {
+                _mode06MonitorResult.value = Mode06Decoders.decodeMode06(response)
+            }
+        } catch (_: Exception) {
+            if (generation == connectionGeneration) _mode06MonitorResult.value = null
+        }
+    }
+
     /** Mode 09 PID 02: vehicle identification number. */
-    suspend fun readVin(): String? {
+    suspend fun readVin(): String?
         return try {
             val response = transport.sendCommand("0902")
             val vin = PidDecoders.decodeVin(response)
