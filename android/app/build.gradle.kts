@@ -99,7 +99,7 @@ android {
         tasks.register("uploadCrashlyticsMapping") {
             dependsOn(tasks.named("bundleRelease"))
             doLast {
-                logger.lifecycle("To upload mappings: ./gradlew crashlyticsUploadDistributionRelease")
+                logger.lifecycle("To upload mappings: ./gradlew uploadCrashlyticsMappingFileRelease")
             }
         }
         debug {
@@ -125,28 +125,22 @@ android {
         }
     }
 
-    // Generate a ProGuard mapping file for each release build so it can be uploaded
-    // to Firebase Crashlytics / Play Console for deobfuscated crash reports.
-    android {
-        applicationVariants.all { variant ->
-            if (variant.buildType.name == "release") {
-                variant.outputs.all {
-                    // The mapping file is generated automatically by R8 into:
-                    //   app/build/outputs/mapping/release/mapping.txt
-                    // Firebase Crashlytics Gradle plugin uploads it automatically when
-                    // the crashlyticsUploadDistribution task runs.
-                }
-            }
-        }
-    }
-
-    // Make the Firebase Crashlytics plugin not fail the build when it cannot
-    // reach Firebase (e.g. no network, missing/bad google-services.json in CI).
-    // Tests must still run and report real failures.
-    tasks.withType<com.google.firebase.crashlytics.gradle.CrashlyticsUploadDistributionTask>().configureEach {
-        enabled = providers.environmentVariable("UPLOAD_CRASHLYTICS_MAPPINGS").present
-    }
+    // R8 writes the release mapping to app/build/outputs/mapping/release/mapping.txt.
+    // Do not call applicationVariants.all here: Kotlin resolves that as
+    // Iterable.all (Boolean predicate) and the script fails to compile.
 }
+
+// Skip Crashlytics upload tasks unless CI explicitly opts in. The plugin otherwise
+// fails the build when it cannot reach Firebase (no network, placeholder
+// google-services.json). Plugin 2.9.9 has no CrashlyticsUploadDistributionTask type;
+// match the tasks it actually registers.
+tasks.matching {
+    it.name.startsWith("uploadCrashlyticsMappingFile") ||
+        it.name.startsWith("uploadCrashlyticsSymbolFile")
+}.configureEach {
+    enabled = providers.environmentVariable("UPLOAD_CRASHLYTICS_MAPPINGS").isPresent
+}
+
 
 dependencies {
     implementation(libs.androidx.core.ktx)
