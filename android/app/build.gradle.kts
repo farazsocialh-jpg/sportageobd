@@ -6,8 +6,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     // Firebase plugins: apply only when google-services.json is present.
     // The google-services plugin must come before crashlytics.
-    id("com.google.gms.google-services")
-    id("com.google.firebase.crashlytics")
+    alias(libs.plugins.google.services)
+    alias(libs.plugins.firebase.crashlytics)
 }
 
 android {
@@ -138,6 +138,13 @@ android {
                 }
             }
         }
+    }
+
+    // Make the Firebase Crashlytics plugin not fail the build when it cannot
+    // reach Firebase (e.g. no network, missing/bad google-services.json in CI).
+    // Tests must still run and report real failures.
+    tasks.withType<com.google.firebase.crashlytics.gradle.CrashlyticsUploadDistributionTask>().configureEach {
+        enabled = providers.environmentVariable("UPLOAD_CRASHLYTICS_MAPPINGS").present
     }
 }
 
