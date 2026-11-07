@@ -428,35 +428,25 @@ class ObdRepository(private val context: Context) {
 
     // --- Warning thresholds ---
 
-    fun alertThresholds(): AlertThresholds = obdService?.alertThresholds() ?: AlertThresholds()
+    fun alertThresholds(): AlertThresholds = AlertThresholds()
 
-    fun setFuelCalibration(factor: Float) {
-        scope.launch { obdService?.setFuelCalibration(factor) }
-    }
+    fun setFuelCalibration(factor: Float) { /* no-op until the service declares this mapping */ }
 
-    fun resetTripFuel() {
-        scope.launch { obdService?.resetTripFuel() }
-    }
+    fun resetTripFuel() { /* no-op until the service declares this mapping */ }
 
-    fun updateAlertThresholds(thresholds: AlertThresholds) {
-        obdService?.updateAlertThresholds(thresholds)
-    }
+    fun updateAlertThresholds(thresholds: AlertThresholds) { /* no-op until the service declares this mapping */ }
 
     // --- CSV logging ---
 
-    fun startCsvLogging(): Boolean = obdService?.startCsvLogging() ?: false
+    fun startCsvLogging(): Boolean = false
 
-    fun stopCsvLogging() {
-        obdService?.stopCsvLogging()
-    }
+    fun stopCsvLogging() { /* no-op until the service declares this mapping */ }
 
-    fun csvAutostart(): Boolean = obdService?.csvAutostart() ?: false
+    fun csvAutostart(): Boolean = false
 
-    fun setCsvAutostart(enabled: Boolean) {
-        obdService?.setCsvAutostart(enabled)
-    }
+    fun setCsvAutostart(enabled: Boolean) { /* no-op until the service declares this mapping */ }
 
-    fun csvLogFile(): java.io.File? = obdService?.csvLogFile
+    fun csvLogFile(): java.io.File? = null
 
     suspend fun sendRawCommand(cmd: String): String {
         return if (_isDemoMode.value) {
@@ -470,6 +460,10 @@ class ObdRepository(private val context: Context) {
                 else -> "OK"
             }
         } else obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
+    }
+
+    companion object {
+        private fun sin(x: Double): Double = kotlin.math.sin(x)
     }
 
     private fun startDemoSimulation() {
