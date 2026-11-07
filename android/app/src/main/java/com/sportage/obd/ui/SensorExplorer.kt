@@ -91,7 +91,7 @@ fun SensorExplorer(viewModel: ObdViewModel?) {
                 item { InfoReading("VIN", vin ?: "Not reported") }
                 item { InfoReading("Standard sensor coverage", "${SensorCatalog.entries.count { it.pid in supported }} supported catalogue PIDs / ${SensorCatalog.entries.size} available definitions") }
                 item { InfoReading("Limits", "Generic ELM327 support does not guarantee ABS, airbags, TPMS, service resets or Kia coding. No actuator tests or undocumented write commands are issued automatically.") }
-                item { InfoReading("On-board monitor results", "Mode 06 is shown as raw ECU data. Test IDs, scaling and limits require the vehicle's diagnostic documentation; pass/fail is not guessed.") }
+                item { InfoReading("On-board monitor results", "Mode 06: SAE J1979 in-use performance tracking where the ECU provides it (completion / conditions encountered). Raw Mode 06 is preserved where no standard shape matches. Not a diagnosis.") }
                 items(telemetry.vehicleInfo.toList()) { (label, value) -> InfoReading(label, value) }
                 if (telemetry.vehicleInfo.isEmpty()) item { Text("Use refresh to read adapter information, calibration data, ECU name and Mode 06 monitor responses.", color = SecondaryText()) }
             }
