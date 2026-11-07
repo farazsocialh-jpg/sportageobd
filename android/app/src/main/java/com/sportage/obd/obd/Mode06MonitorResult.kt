@@ -36,7 +36,7 @@ data class MonitorComponent(
     /** Completion fraction in 0..1 when conditions > 0, otherwise null. */
     val completionFraction: Float? = if (conditionsEncountered > 0) completionCount.toFloat() / conditionsEncountered.toFloat() else null,
     /** Raw one-line display of the two count bytes, if useful to the user. */
-    val rawCounts: String get() = "$completionCount / $conditionsEncountered"
+    val rawCounts: String = "$completionCount / $conditionsEncountered"
 )
 
 /**
