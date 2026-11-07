@@ -171,7 +171,7 @@ class BleTransport(private val context: Context) : ElmTransport {
                             if (!g.writeCharacteristic(ch)) throw IOException("BLE write was rejected")
                             written.await()
                         }
-                        Elm327Command.cleanResponse(reply.await())
+                        Elm327Command.stripPrompt(reply.await())
                     }
                 } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
                     // A deadline is a link failure, not the user cancelling polling.

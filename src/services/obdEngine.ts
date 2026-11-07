@@ -468,8 +468,7 @@ class RealObdEngine {
       this.incomingBuffer = '';
 
       const clean = fullResponse
-        .replace(/\r/g, ' ')
-        .replace(/\n/g, ' ')
+        .replace(/\r\n?/g, '\n')
         .replace(/>/g, '')
         .trim();
 
@@ -799,33 +798,34 @@ class RealObdEngine {
     const res = await this.sendCommand('03', 4000);
     this.activeDtcs = [];
 
-    // Parse Mode 03 response (e.g. 43 01 04 20 -> P0420)
-    const hex = res.replace(/[^0-9A-Fa-f]/g, '');
-    const idx = hex.indexOf('43');
-    if (idx !== -1) {
-      const dtcHex = hex.substring(idx + 2);
-      for (let i = 0; i < dtcHex.length; i += 4) {
-        if (i + 4 <= dtcHex.length) {
-          const raw = dtcHex.substring(i, i + 4);
-          if (raw === '0000') continue;
+    const seen = new Set<string>();
+    for (const line of res.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (/^(?:SEARCHING|NO DATA|ERROR|UNABLE|ELM)\b/i.test(trimmed)) continue;
 
-          const b1 = parseInt(raw.substring(0, 2), 16);
-          const b2 = parseInt(raw.substring(2, 4), 16);
-          const prefixes = ['P', 'C', 'B', 'U'];
-          const type = (b1 >> 6) & 0x03;
-          const d1 = (b1 >> 4) & 0x03;
-          const d2 = b1 & 0x0F;
-          const d3 = (b2 >> 4) & 0x0F;
-          const d4 = b2 & 0x0F;
+      const tokens = trimmed.split(/\s+/).filter(t => t.length === 2);
+      if (tokens.length < 2) continue;
 
-          const code = `${prefixes[type]}${d1}${d2.toString(16).toUpperCase()}${d3.toString(16).toUpperCase()}${d4.toString(16).toUpperCase()}`;
-          this.activeDtcs.push({
-            code,
-            status: 'STORED',
-            description: `Diagnostic trouble code read from ECM`,
-            timestamp: Date.now()
-          });
-        }
+      // Mode 03 response lines start with 0x43; Mode 07/0A with 0x47/0x4A.
+      const firstPayloadByte = parseInt(tokens[0], 16);
+      if (![0x43, 0x47, 0x4A].includes(firstPayloadByte)) continue;
+
+      const payloadTokens = firstPayloadByte === 0x43 ? tokens.slice(1) : tokens;
+      const payloadHex = payloadTokens.join('');
+      const payloadBytes = payloadHex.match(/.{2}/g);
+      if (!payloadBytes) continue;
+
+      const parsed = parseDtcBytes(payloadBytes.map(b => parseInt(b, 16)));
+      for (const code of parsed) {
+        if (seen.has(code)) continue;
+        seen.add(code);
+        this.activeDtcs.push({
+          code,
+          status: 'STORED',
+          description: `Diagnostic trouble code read from ECM`,
+          timestamp: Date.now()
+        });
       }
     }
 
@@ -839,7 +839,15 @@ class RealObdEngine {
     if (this.connectionState !== 'CONNECTED') return false;
     const res = await this.sendCommand('04', 3000);
     this.activeDtcs = [];
-    return res.includes('44') || res.includes('OK');
+    for (const line of res.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const firstToken = trimmed.split(/\s+/)[0];
+      if (!firstToken) continue;
+      const firstByte = parseInt(firstToken, 16);
+      if (firstByte === 0x44 || firstToken.toUpperCase() === 'OK') return true;
+    }
+    return false;
   }
 }
 

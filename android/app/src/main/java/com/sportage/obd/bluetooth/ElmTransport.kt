@@ -35,4 +35,14 @@ object Elm327Command {
         .replace('\n', ' ')
         .replace(">", "")
         .trim()
+
+    /**
+     * Strips only the ELM prompt and normalizes line endings to '\n'; keeps
+     * line boundaries intact so frame-based parsers (e.g. DTC frame decoders) can
+     * still split the response by line rather than seeing one long space blob.
+     */
+    fun stripPrompt(raw: String): String = raw
+        .replace(Regex("\r\n?"), "\n")
+        .replace(">", "")
+        .trim()
 }

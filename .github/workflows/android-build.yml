@@ -37,16 +37,27 @@ jobs:
           java-version: '17'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools platforms;android-35 build-tools;35.0.0
-          accept-android-sdk-licenses: true
-          log-accepted-android-sdk-licenses: true
+        run: |
+          set -e
+          ANDROID_HOME="${ANDROID_HOME:-${HOME}/android-sdk}"
+          CMDLINE="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$CMDLINE" ]; then
+            mkdir -p "${ANDROID_HOME}/cmdline-tools"
+            cd "${ANDROID_HOME}/cmdline-tools"
+            curl -fsSL \
+              "https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip" \
+              -o cmdline-tools.zip
+            unzip -q -o cmdline-tools.zip
+            mv cmdline-tools latest
+            rm -f cmdline-tools.zip
+            chmod +x "${CMDLINE}"
+          fi
+          yes | "$CMDLINE" --licenses >/dev/null 2>&1 || true
+          "$CMDLINE" "platform-tools" "platforms;android-35" "build-tools;35.0.0" >/dev/null
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          cache-events: 1000
           cache-read-only: false
 
       - name: Make Gradle wrapper executable
@@ -73,6 +84,9 @@ jobs:
       # ------------------------------------------------------------------ build
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
+
+      - name: Lint
+        run: ./gradlew lintDebug --stacktrace
 
       - name: Build debug APK
         run: ./gradlew assembleDebug --stacktrace
