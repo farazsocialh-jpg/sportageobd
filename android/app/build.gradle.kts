@@ -94,7 +94,7 @@ android {
 
         // After a release build, upload ProGuard/R8 mapping files to Crashlytics
         // so crash reports are deobfuscated.
-        // Command: ./gradlew crashlyticsUploadDistributionRelease
+        // Command: ./gradlew uploadCrashlyticsMappingFileRelease
         // This requires Google Services JSON and network access to Firebase.
         tasks.register("uploadCrashlyticsMapping") {
             dependsOn(tasks.named("bundleRelease"))
