@@ -1,0 +1,15 @@
+Phase 3 Model 3 (Mode 06 decode) — implemented locally and pushed to freebuff/24b023a413f1323731b27b76 as 170ba32..493f3e4.
+
+Summary:
+- Added SAE J1979 Service 06 in-use performance tracking decoding in
+  android/app/src/main/java/com/sportage/obd/obd/Mode06MonitorResult.kt.
+- Wired Mode 06 state through ObdService, ObdRepository, ObdViewModel, and into
+  DiagnosticsPage (new Mode 06 Monitors tab), AdvancedDiagnosticsPage, and SensorExplorer.
+- Kept the decoder narrow: documented SAE J1979 spark-ignition and compression-ignition
+  monitor component pairs only. Raw Mode 06 is preserved where no standard shape matches.
+- No vehicle-specific limits, no inferred pass/fail, no manufacturer-specific PID stack, and
+  no J1979-2 / OBDonUDS work added.
+
+Still blocked in this workspace:
+- No JDK 17 / Android SDK, so real compile + unit-test still needs another environment.
+- Publish and merge-with-main are left to the user, per the agreed plan.
