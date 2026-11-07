@@ -15,3 +15,10 @@ build/
 keystore.properties
 *.jks
 *.keystore
+
+# Workspace-only helper scripts created during this session
+gradlew_set_java_home.sh
+
+# Generated PNG density packs and store assets from the icon generation script
+*.png
+!android/app/src/main/res/mipmap-anydpi-v26/*.xml
