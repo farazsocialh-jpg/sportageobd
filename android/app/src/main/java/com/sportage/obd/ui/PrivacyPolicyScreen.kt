@@ -25,18 +25,7 @@ import java.nio.charset.StandardCharsets
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PrivacyPolicyScreen(
-    onNavigateBack: () -> Unit,
-    private val onOpenExternalUrl: (String) -> Unit = { url ->
-        try {
-            val context = LocalContext.current
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(intent)
-        } catch (_: Exception) {
-            onNavigateBack()
-        }
-    }
+    onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val webViewClient = remember(context) {

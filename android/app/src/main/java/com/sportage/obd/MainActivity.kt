@@ -152,10 +152,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         // Track permission request outcome (anonymous, no personal data).
-        val btGranted = permissions.entries.any { it.key.contains("BLUETOOTH") && it.value }
+        val anyBluetoothGranted = permissions.entries.any { it.key.contains("BLUETOOTH") && it.value }
         analyticsLogEvent(
             "permissions_obtained",
-            "bluetooth_granted" to (btGranted ?: false)
+            "bluetooth_granted" to anyBluetoothGranted
         )
         val btEntries = permissions.entries.filter { it.key.contains("BLUETOOTH") }
         val btGranted = btEntries.all { it.value }
@@ -180,6 +180,7 @@ class MainActivity : ComponentActivity(), LocationListener {
         val launchCount = prefs.getInt("launch_count", 0) + 1
         prefs.edit().putInt("launch_count", launchCount).apply()
         val hasCompletedOnboarding = prefs.getBoolean("onboarding_complete", false)
+        showOnboarding = !hasCompletedOnboarding
         val isFirstLaunch = !hasCompletedOnboarding
 
         showPreviousCrashReport()
@@ -430,7 +431,7 @@ class MainActivity : ComponentActivity(), LocationListener {
     }
 
     private var showPrivacyPolicy by mutableStateOf(false)
-    private var showOnboarding by mutableStateOf(!hasCompletedOnboarding)
+    private var showOnboarding by mutableStateOf(false)
 
     private fun openPrivacyPolicy() {
         showPrivacyPolicy = true
@@ -438,7 +439,7 @@ class MainActivity : ComponentActivity(), LocationListener {
 
     private fun completeOnboarding() {
         showOnboarding = false
-        prefs.edit().putBoolean("onboarding_complete", true).apply()
+        uiPrefs.edit().putBoolean("onboarding_complete", true).apply()
         analyticsLogEvent("onboarding_complete", "method" to "welcome_button")
     }
 
