@@ -14,6 +14,5 @@
         android:fillColor="#0E1722"
         android:pathData="M8,7H6C5.4,7 5,7.4 5,8V19C5,19.6 5.4,20 6,20H18C18.6,20 19,19.6 19,19V8C19,7.4 18.6,7 18,7H16"/>
     <path
-        android:fullStrokeIntrinsicWidth="127pt"
         android:pathData="M8,15H6V17H8V15ZM11,15H9V17H11V15ZM14,15H12V17H14V15Z"/>
 </vector>
