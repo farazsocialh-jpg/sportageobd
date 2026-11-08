@@ -27,7 +27,7 @@ object PrivacyHtmlLoader {
     }
 
     private fun loadFromAssets(context: android.content.Context, name: String): String {
-        val stream = ContextCompat.openInputStream(context, "assets/$name")
+        val stream = context.assets.open(name)
             ?: throw IllegalStateException("Missing assets/$name")
         return try {
             stream.bufferedReader().use { it.readText() }

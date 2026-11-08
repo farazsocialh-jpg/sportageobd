@@ -48,6 +48,11 @@ data class ObdTelemetry(
     val engineLoadPct: Float? = null,
     val batteryVoltage: Float? = null,
     val estimatedGear: Int = 0,
+    val mafGs: Float? = null,
+    val shortTermFuelTrimPct: Float? = null,
+    val longTermFuelTrimPct: Float? = null,
+    val timingAdvanceDeg: Float? = null,
+    val fuelEconomyL100: Float? = null,
     val timestamp: Long = System.currentTimeMillis(),
     val sampleRateHz: Float = 0f
 )
