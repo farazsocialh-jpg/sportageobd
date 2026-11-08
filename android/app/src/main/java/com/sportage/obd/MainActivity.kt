@@ -148,6 +148,11 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var themeId by mutableStateOf("cockpit-dark")
     private var accentOverride by mutableStateOf<String?>(null)
 
+    // In-app font scaling (persisted). The new typography minimums (32/24sp) already meet
+    // the spec at 1.0x, so this is a comfort feature, not a legibility crutch.
+    private var fontScale by mutableStateOf(1.0f)
+    private val fontScaleProvider = staticCompositionLocalOf { fontScale }
+
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -206,6 +211,7 @@ class MainActivity : ComponentActivity(), LocationListener {
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
         themeId = uiPrefs.getString("themeId", "cockpit-dark") ?: "cockpit-dark"
         accentOverride = uiPrefs.getString("accentOverride", null)
+        fontScale = uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.5f)
 
         checkAndRequestPermissions()
         initLocationTracking()
@@ -263,84 +269,83 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             }
 
-            SportageObdTheme(themeId = themeId, accentOverride = accentOverride) {
-                val isNight = isSystemInDarkTheme()
-                Box(modifier = Modifier.fillMaxSize()) {
-                    // Inset the dashboard so the status bar / navigation bar never cover controls.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .windowInsetsPadding(WindowInsets.safeDrawing)
-                    ) {                CarLauncherScreen(
-                    connectionState = connState,
-                    measuredHz = measuredHz, speed = liveSpeed, rpm = liveRpm, coolant = liveCoolant, intakeTemp = liveIntakeTemp,
-                    fuelLevel = liveFuelLevel, throttle = liveThrottle, load = liveLoad, voltage = liveVoltage, gear = liveGear,
-                    transmissionGear = liveTransmissionGear,
-                    weatherTempC = weatherTempC, weatherText = weatherText,
-                    speedHistory = speedHist, rpmHistory = rpmHist,
-                    currentLat = currentLat, currentLon = currentLon, currentBearing = currentBearing,
-                    gpsStatus = gpsStatus,
-                    activePage = activePage,
-                    onNavigatePage = { page ->
-                        activePage = page
-                        analyticsLogLauncherPage(page)
-                    },
-                    onOpenBluetoothClick = {
-                        refreshPairedDevices()
-                        showBluetoothDialog = true
-                    },
-                        dtcCodes = dtcs,
-                        isScanningDtc = isScanning,
-                        onScanDtc = { scanDtcCodes() },
-                        onClearDtc = { clearDtcCodes() },
-                        tripDistanceKm = tripDistanceKm,
-                        tripDurationSeconds = tripDurationSeconds,
-                        tripMaxSpeed = tripMaxSpeed,
-                        tripAvgSpeed = tripAvgSpeed,
-                        onResetTrip = { resetTrip() },
-                        onSetDefaultLauncher = { promptSetDefaultLauncher() },
-                        isDemoMode = demoMode,
-                        onToggleDemoMode = { toggleDemoMode(it) },
-                        isPollingPaused = pollingPaused,
-                        onTogglePausePolling = { togglePausePolling() },
-                        onOpenAppDrawer = { showAppDrawer = true },
-                        viewModel = viewModel,
-                        autoNightDim = autoNightDim,
-                        nightDimLevel = nightDimLevel,
-                        onSetAutoNightDim = { enabled ->
-                            autoNightDim = enabled
-                            uiPrefs.edit().putBoolean("autoNightDim", enabled).apply()
-                        },
-                        onSetNightDimLevel = { level ->
-                            nightDimLevel = level.coerceIn(0.1f, 0.85f)
-                            uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
-                        },
-                        themeId = themeId,
-                        accentOverride = accentOverride,
-                        onSetThemeId = { id ->
-                            themeId = id
-                            uiPrefs.edit().putString("themeId", id).apply()
-                        },
-                        onSetAccentOverride = { hex ->
-                            accentOverride = hex
-                            uiPrefs.edit().putString("accentOverride", hex).apply()
-                        },
-                        onOpenPrivacyPolicy = ::openPrivacyPolicy
-                    )
-                    }
-
-                    // Night dimming overlay: darkens the whole dashboard after dark.
-                    // Non-interactive, so all controls stay touchable underneath.
-                    if (autoNightDim && isNight) {
+            CompositionLocalProvider(fontScaleProvider provides fontScale) {
+                SportageObdTheme(themeId = themeId, accentOverride = accentOverride) {
+                    val isNight = isSystemInDarkTheme()
+                    Box(modifier = Modifier.fillMaxSize()) {
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(Color.Black.copy(alpha = nightDimLevel))
-                        )
+                                .windowInsetsPadding(WindowInsets.safeDrawing)
+                        ) {
+                            CarLauncherScreen(
+                                connectionState = connState,
+                                measuredHz = measuredHz, speed = liveSpeed, rpm = liveRpm, coolant = liveCoolant, intakeTemp = liveIntakeTemp,
+                                fuelLevel = liveFuelLevel, throttle = liveThrottle, load = liveLoad, voltage = liveVoltage, gear = liveGear,
+                                transmissionGear = liveTransmissionGear,
+                                weatherTempC = weatherTempC, weatherText = weatherText,
+                                speedHistory = speedHist, rpmHistory = rpmHist,
+                                currentLat = currentLat, currentLon = currentLon, currentBearing = currentBearing,
+                                gpsStatus = gpsStatus,
+                                activePage = activePage,
+                                onNavigatePage = { page ->
+                                    activePage = page
+                                    analyticsLogLauncherPage(page)
+                                },
+                                onOpenBluetoothClick = {
+                                    refreshPairedDevices()
+                                    showBluetoothDialog = true
+                                },
+                                dtcCodes = dtcs,
+                                isScanningDtc = isScanning,
+                                onScanDtc = { scanDtcCodes() },
+                                onClearDtc = { clearDtcCodes() },
+                                tripDistanceKm = tripDistanceKm,
+                                tripDurationSeconds = tripDurationSeconds,
+                                tripMaxSpeed = tripMaxSpeed,
+                                tripAvgSpeed = tripAvgSpeed,
+                                onResetTrip = { resetTrip() },
+                                onSetDefaultLauncher = { promptSetDefaultLauncher() },
+                                isDemoMode = demoMode,
+                                onToggleDemoMode = { toggleDemoMode(it) },
+                                isPollingPaused = pollingPaused,
+                                onTogglePausePolling = { togglePausePolling() },
+                                onOpenAppDrawer = { showAppDrawer = true },
+                                viewModel = viewModel,
+                                autoNightDim = autoNightDim,
+                                nightDimLevel = nightDimLevel,
+                                onSetAutoNightDim = { enabled ->
+                                    autoNightDim = enabled
+                                    uiPrefs.edit().putBoolean("autoNightDim", enabled).apply()
+                                },
+                                onSetNightDimLevel = { level ->
+                                    nightDimLevel = level.coerceIn(0.1f, 0.85f)
+                                    uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
+                                },
+                                themeId = themeId,
+                                accentOverride = accentOverride,
+                                onSetThemeId = { id ->
+                                    themeId = id
+                                    uiPrefs.edit().putString("themeId", id).apply()
+                                },
+                                onSetAccentOverride = { hex ->
+                                    accentOverride = hex
+                                    uiPrefs.edit().putString("accentOverride", hex).apply()
+                                },
+                                onOpenPrivacyPolicy = ::openPrivacyPolicy
+                            )
+                        }
+
+                        if (autoNightDim && isNight) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = nightDimLevel))
+                            )
+                        }
                     }
                 }
 
-                // Bluetooth Connection & Terminal Modal
                 BluetoothDialog(
                     isOpen = showBluetoothDialog,
                     onClose = { showBluetoothDialog = false },
@@ -355,8 +360,6 @@ class MainActivity : ComponentActivity(), LocationListener {
                     onToggleDemoMode = { toggleDemoMode(it) }
                 )
 
-                // Previous-run crash report: shown immediately so the crash reason can never
-                // be missed. Screenshot this dialog and send it back to get the real fix.
                 previousCrashReport?.let { report ->
                     androidx.compose.ui.window.Dialog(
                         onDismissRequest = { previousCrashReport = null }
@@ -406,20 +409,17 @@ class MainActivity : ComponentActivity(), LocationListener {
                     }
                 }
 
-                // All Installed Applications Drawer Modal
                 AppDrawerDialog(
                     isOpen = showAppDrawer,
                     onClose = { showAppDrawer = false }
                 )
 
-                // Privacy Policy screen
                 if (showPrivacyPolicy) {
                     PrivacyPolicyScreen(
                         onNavigateBack = { showPrivacyPolicy = false }
                     )
                 }
 
-                // First-run onboarding wizard
                 if (showOnboarding) {
                     OnboardingScreen(
                         onComplete = { completeOnboarding() },
@@ -883,6 +883,11 @@ class MainActivity : ComponentActivity(), LocationListener {
     /** Convenience: track launcher page navigation. */
     private fun analyticsLogLauncherPage(page: Int) {
         analyticsLogEvent("launcher_page", "page" to page)
+    }
+
+    fun applyFontScale(scale: Float) {
+        fontScale = scale.coerceIn(0.85f, 1.5f)
+        uiPrefs.edit().putFloat("fontScale", fontScale).apply()
     }
 
     private fun checkAndRequestPermissions() {

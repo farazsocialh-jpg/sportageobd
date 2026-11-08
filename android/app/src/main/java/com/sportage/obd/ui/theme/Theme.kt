@@ -32,7 +32,9 @@ data class CockpitThemeColors(
     val textPrimary: Color,
     val textSecondary: Color,
     /** Text/icon color that sits on top of [accent] filled buttons. */
-    val onAccent: Color
+    val onAccent: Color,
+    /** Night-mode text opacity target (0.96 = 96%). */
+    val nightTextAlpha: Float = 0.96f
 )
 
 data class CockpitThemePreset(
@@ -49,10 +51,11 @@ object CockpitThemes {
             "cockpit-dark", "Cockpit Dark",
             CockpitThemeColors(
                 isDark = true,
-                background = Color(0xFF101417), surface = Color(0xFF1B2228), surfaceElevated = Color(0xFF2A353E),
-                deepShade = Color(0xFF0A0F17), accent = Color(0xFF8BD8E7), secondary = Color(0xFF92D7BC),
-                warning = Color(0xFFEFC681), critical = Color(0xFFFF8D97),
-                textPrimary = Color(0xFFF0F4F6), textSecondary = Color(0xFFAFBEC8), onAccent = Color(0xFF05070B)
+                background = Color(0xFF000000), surface = Color(0xFF101418), surfaceElevated = Color(0xFF181E24),
+                deepShade = Color(0xFF0A0F17), accent = Color(0xFF00D9FF), secondary = Color(0xFF34D399),
+                warning = Color(0xFFFBBF24), critical = Color(0xFFF87171),
+                textPrimary = Color(0xFFF1F5F9), textSecondary = Color(0xFF94A3B8), onAccent = Color(0xFF05070B),
+                nightTextAlpha = 0.96f
             )
         ),
         CockpitThemePreset(
@@ -160,12 +163,40 @@ object CockpitThemes {
 val LocalCockpitColors = staticCompositionLocalOf { CockpitThemes.apply(CockpitThemes.defaultId, null) }
 
 private val CockpitTypography = Typography(
-    titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 22.sp, lineHeight = 28.sp),
-    titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 24.sp),
-    bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 20.sp),
-    labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp)
+    displayLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 48.sp, lineHeight = 56.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    displayMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Bold, fontSize = 40.sp, lineHeight = 48.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    headlineLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontSize = 32.sp, lineHeight = 40.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 32.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    titleMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 26.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontSize = 24.sp, lineHeight = 32.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    bodyMedium = TextStyle(
+        fontFamily = FontFamily.Monospace, fontSize = 18.sp, lineHeight = 26.sp,
+        fontFeatureSettings = "tnum"
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 24.sp, lineHeight = 32.sp
+    ),
+    labelMedium = TextStyle(
+        fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 26.sp
+    )
 )
 
 /**

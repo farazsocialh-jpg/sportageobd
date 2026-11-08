@@ -535,10 +535,23 @@ class ObdService : Service() {
     }
 
     /**
+     * Returns false when the vehicle is not demonstrably stationary.
+     * A missing speed reading counts as unsafe (the UI cannot prove parked).
+     */
+    private fun isStationary(): Boolean {
+        val speed = _telemetry.value.speedKmh ?: return false
+        return speed <= 0
+    }
+
+    /**
      * Mode 09 handshake: VIN, calibration ID, calibration verification numbers and ECU name.
      *
      * Queried once per connection (the spec says once per handshake), persisted per adapter
      * address, and never polled with the live data loop. Missing PIDs stay null.
+     *
+     * The handshake runs during adapter initialization, before a reliable speed exists, so it is
+     * allowed to complete even while the vehicle is moving. Everything else that reads or clears
+     * diagnostic state is gated by [isStationary].
      */
     suspend fun readVehicleIdentity(): VehicleIdentity? {
         // Called from the connection handshake as well as from the UI, so it must not refuse
@@ -573,12 +586,16 @@ class ObdService : Service() {
      *
      * Enumerates the supported MIDs first (06 00, 06 20, ...) and then requests each MID so the
      * report is complete rather than the single decoded block the plain `06` command returns.
+     *
+     * Refused while the vehicle is moving: these queries are diagnostics, not glanceable driving
+     * data, so they must only be fetched when parked.
      */
     suspend fun refreshMode06Tests(): Mode06TestReport? {
         check(connectJob?.isActive != true) { "Adapter is still initializing" }
         // Paused polling means the ignition-off mode: do not put new traffic on the link.
         if (_isPollingPaused.value) return null
         if (connectionState.value !is ConnectionState.Connected) return null
+        if (!isStationary()) return null
         val generation = connectionGeneration
         val link = transport
         val responses = linkedMapOf<Int, String>()
@@ -622,6 +639,7 @@ class ObdService : Service() {
         check(connectJob?.isActive != true) { "Adapter is still initializing" }
         if (_isPollingPaused.value) return null
         if (connectionState.value !is ConnectionState.Connected) return null
+        if (!isStationary()) return null
         val generation = connectionGeneration
         val link = transport
         val responses = linkedMapOf<Int, String>()
