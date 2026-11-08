@@ -897,6 +897,7 @@ fun GaugesAndGraphsPage(
     }
 }
 
+@Composable
 fun DiagnosticsPage(
     dtcCodes: List<DtcItem>,
     isScanning: Boolean,

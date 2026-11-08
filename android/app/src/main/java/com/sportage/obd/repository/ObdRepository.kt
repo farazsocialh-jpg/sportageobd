@@ -19,6 +19,7 @@ import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.service.ObdService
 import com.sportage.obd.service.ObdTelemetry
+import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
