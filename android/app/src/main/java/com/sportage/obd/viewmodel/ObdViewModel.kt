@@ -5,10 +5,14 @@ import android.bluetooth.BluetoothDevice
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.sportage.obd.bluetooth.ConnectionState
+import com.sportage.obd.obd.ActuatorTestState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
 import com.sportage.obd.obd.Mode06MonitorResult
+import com.sportage.obd.obd.Mode06TestReport
+import com.sportage.obd.obd.O2TestReport
 import com.sportage.obd.obd.ReadinessState
+import com.sportage.obd.obd.VehicleIdentity
 import com.sportage.obd.repository.ObdRepository
 import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertThresholds
@@ -58,6 +62,18 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     val mode06MonitorResult: StateFlow<Mode06MonitorResult?> = repository.mode06MonitorResult
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val vehicleIdentity: StateFlow<VehicleIdentity?> = repository.vehicleIdentity
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val mode06Tests: StateFlow<Mode06TestReport?> = repository.mode06Tests
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val o2Tests: StateFlow<O2TestReport?> = repository.o2Tests
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val actuatorState: StateFlow<ActuatorTestState> = repository.actuatorState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ActuatorTestState())
 
     val vin: StateFlow<String?> = repository.vin
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
@@ -143,6 +159,17 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     suspend fun readReadinessNow(): ReadinessState? = repository.readReadiness()
 
     suspend fun refreshMode06Monitors() = repository.refreshMode06Monitors()
+
+    suspend fun readVehicleIdentityNow(): VehicleIdentity? = repository.readVehicleIdentity()
+
+    suspend fun refreshMode06TestsNow(): Mode06TestReport? = repository.refreshMode06Tests()
+
+    suspend fun refreshO2TestsNow(): O2TestReport? = repository.refreshO2Tests()
+
+    suspend fun runActuatorTest(tid: Int, start: Boolean = true): ActuatorTestState =
+        repository.executeActuatorTest(tid, start)
+
+    fun buildDiagnosticReport(): String = repository.buildDiagnosticReport()
 
     suspend fun readVinNow(): String? = repository.readVin()
 

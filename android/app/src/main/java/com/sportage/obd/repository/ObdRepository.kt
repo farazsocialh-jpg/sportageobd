@@ -10,11 +10,21 @@ import androidx.core.content.ContextCompat
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
+import com.sportage.obd.obd.ActuatorTestState
+import com.sportage.obd.obd.DiagnosticReport
+import com.sportage.obd.obd.DiagnosticSnapshot
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.Mode05O2Parser
 import com.sportage.obd.obd.Mode06Decoders
 import com.sportage.obd.obd.Mode06MonitorResult
+import com.sportage.obd.obd.Mode06TestParser
+import com.sportage.obd.obd.Mode06TestReport
+import com.sportage.obd.obd.Mode08Actuators
+import com.sportage.obd.obd.Mode09Parser
+import com.sportage.obd.obd.O2TestReport
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
+import com.sportage.obd.obd.VehicleIdentity
 import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.service.ObdService
@@ -76,6 +86,18 @@ class ObdRepository(private val context: Context) {
 
     private val _mode06MonitorResult = MutableStateFlow<Mode06MonitorResult?>(null)
     val mode06MonitorResult: StateFlow<Mode06MonitorResult?> = _mode06MonitorResult.asStateFlow()
+
+    private val _vehicleIdentity = MutableStateFlow<VehicleIdentity?>(null)
+    val vehicleIdentity: StateFlow<VehicleIdentity?> = _vehicleIdentity.asStateFlow()
+
+    private val _mode06Tests = MutableStateFlow<Mode06TestReport?>(null)
+    val mode06Tests: StateFlow<Mode06TestReport?> = _mode06Tests.asStateFlow()
+
+    private val _o2Tests = MutableStateFlow<O2TestReport?>(null)
+    val o2Tests: StateFlow<O2TestReport?> = _o2Tests.asStateFlow()
+
+    private val _actuatorState = MutableStateFlow(ActuatorTestState())
+    val actuatorState: StateFlow<ActuatorTestState> = _actuatorState.asStateFlow()
 
     private val _vin = MutableStateFlow<String?>(null)
     val vin: StateFlow<String?> = _vin.asStateFlow()
@@ -172,6 +194,34 @@ class ObdRepository(private val context: Context) {
                     s.mode06MonitorResult.collect {
                         if (!_isDemoMode.value) {
                             _mode06MonitorResult.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.vehicleIdentity.collect {
+                        if (!_isDemoMode.value) {
+                            _vehicleIdentity.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.mode06Tests.collect {
+                        if (!_isDemoMode.value) {
+                            _mode06Tests.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.o2Tests.collect {
+                        if (!_isDemoMode.value) {
+                            _o2Tests.value = it
+                        }
+                    }
+                }
+                launch {
+                    s.actuatorState.collect {
+                        if (!_isDemoMode.value) {
+                            _actuatorState.value = it
                         }
                     }
                 }
@@ -474,6 +524,98 @@ class ObdRepository(private val context: Context) {
         }
     }
 
+    /** Mode 09 handshake: VIN, calibration ID, CVN and ECU name. */
+    suspend fun readVehicleIdentity(): VehicleIdentity? {
+        if (_isDemoMode.value) {
+            delay(500)
+            val identity = demoIdentity()
+            _vehicleIdentity.value = identity
+            _vin.value = identity.vin
+            return identity
+        }
+        return obdService?.readVehicleIdentity()
+    }
+
+    /** Mode 06 MID/TID/UAS monitor test results. */
+    suspend fun refreshMode06Tests(): Mode06TestReport? {
+        if (_isDemoMode.value) {
+            delay(700)
+            val report = demoTests()
+            _mode06Tests.value = report
+            return report
+        }
+        return obdService?.refreshMode06Tests()
+    }
+
+    /** Mode 05 oxygen sensor tests. */
+    suspend fun refreshO2Tests(): O2TestReport? {
+        if (_isDemoMode.value) {
+            delay(500)
+            val report = demoO2()
+            _o2Tests.value = report
+            return report
+        }
+        return obdService?.refreshO2Tests()
+    }
+
+    /**
+     * Runs or stops a Mode 08 actuator test.
+     *
+     * In demo mode the virtual bench ECU is by definition stationary, so the motion gate is
+     * satisfied there; on a real vehicle the same gate blocks any non-zero or unknown speed.
+     */
+    suspend fun executeActuatorTest(tid: Int, start: Boolean = true): ActuatorTestState {
+        if (_isDemoMode.value) {
+            delay(400)
+            val definition = Mode08Actuators.find(tid)
+            val state = ActuatorTestState(
+                activeTid = tid,
+                activeName = definition?.name,
+                isRunning = start,
+                lastCommand = if (start) Mode08Actuators.startCommand(tid) else Mode08Actuators.stopCommand(tid),
+                lastResponse = if (start) "48 " + Mode06TestParser.hex2(tid) + " 00" else "48 " + Mode06TestParser.hex2(tid) + " 00",
+                message = if (start) {
+                    "Virtual bench ECU: ${definition?.name ?: "test"} toggled — ${definition?.observeHint ?: ""}"
+                } else {
+                    "Virtual bench ECU: test stopped"
+                }
+            )
+            _actuatorState.value = state
+            return state
+        }
+        return obdService?.executeActuatorTest(tid, start)
+            ?: ActuatorTestState(message = "OBD service is not bound")
+    }
+
+    /** Snapshot of everything currently known, used to build the shareable report. */
+    fun diagnosticSnapshot(): DiagnosticSnapshot = if (_isDemoMode.value) {
+        DiagnosticSnapshot(
+            vehicle = _vehicleIdentity.value ?: demoIdentity(),
+            storedDtcs = _dtcList.value,
+            pendingDtcs = _pendingDtcList.value,
+            permanentDtcs = _permanentDtcList.value,
+            freezeFrame = _freezeFrame.value,
+            mode06 = _mode06Tests.value,
+            o2Tests = _o2Tests.value,
+            readiness = _readiness.value
+        )
+    } else {
+        obdService?.diagnosticSnapshot()
+            ?: DiagnosticSnapshot(
+                vehicle = _vehicleIdentity.value,
+                storedDtcs = _dtcList.value,
+                pendingDtcs = _pendingDtcList.value,
+                permanentDtcs = _permanentDtcList.value,
+                freezeFrame = _freezeFrame.value,
+                mode06 = _mode06Tests.value,
+                o2Tests = _o2Tests.value,
+                readiness = _readiness.value
+            )
+    }
+
+    /** Plain-text diagnostic report (never contains an inferred fault or repair). */
+    fun buildDiagnosticReport(): String = DiagnosticReport.build(diagnosticSnapshot())
+
     /** Mode 09 PID 02 VIN. */
     suspend fun refreshSensorCapabilities() {
         if (!_isDemoMode.value) obdService?.refreshSensorCapabilities()
@@ -544,6 +686,33 @@ class ObdRepository(private val context: Context) {
             obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
         }
     }
+
+    private fun demoIdentity(): VehicleIdentity = Mode09Parser.decode(
+        mapOf(
+            Mode09Parser.PID_VIN to "49 02 01 4B 4E 44 50 4D 43 41 43 35 4E 37 31 32 33 34 35 36",
+            Mode09Parser.PID_CALIBRATION_ID to "49 04 01 4B 49 41 2D 51 4C 2D 32 30 32 36",
+            Mode09Parser.PID_CVN to "49 06 01 12 34 56 78 9A BC DE F0 11 22 33 44 55 66 77 88 99",
+            Mode09Parser.PID_ECU_NAME to "49 0A 01 53 50 4F 52 54 41 47 45 20 32 2E 30 20 4D 50 49"
+        )
+    )
+
+    private fun demoTests(): Mode06TestReport = Mode06TestParser.decode(
+        mapOf(
+            0x00 to "46 00 80 00 00 01",
+            0x20 to "46 20 80 00 80 20",
+            0x01 to "46 01 0B 01 00 00 00 00 00 10",
+            0x21 to "46 21 86 70 00 FA 00 32 01 F4 87 70 02 EE 00 32 01 F4",
+            0x31 to "46 31 01 63 01 2C 00 58 04 B0",
+            0x3B to "46 3B 0B 31 00 02 00 00 00 C8"
+        )
+    )
+
+    private fun demoO2(): O2TestReport = Mode05O2Parser.decode(
+        mapOf(
+            0x00 to "45 00 80 00 00 00",
+            0x01 to "45 01 64 80 4B 7E"
+        )
+    )
 
     private fun startDemoSimulation() {
         demoJob = scope.launch {

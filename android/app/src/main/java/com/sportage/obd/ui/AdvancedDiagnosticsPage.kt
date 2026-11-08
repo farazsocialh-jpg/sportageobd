@@ -194,9 +194,14 @@ fun AdvancedDiagnosticsPage(
                 },
                 color = SecondaryText(), style = MaterialTheme.typography.bodySmall
             )
+            val mode06 = viewModel?.mode06Tests?.collectAsState()?.value
             Text(
-                "Mode 06 (on-board monitoring test results) is not exposed by this adapter's ECU responses; " +
-                    "readiness and live temperatures above come from Mode 01.",
+                "Mode 06 monitor tests are read from the Diagnostics → Monitors (06) tab: " +
+                    when {
+                        mode06 == null -> "not scanned yet in this session."
+                        mode06.tests.isEmpty() -> "the ECU returned no test records."
+                        else -> "${mode06.tests.size} records, ${mode06.failures.size} outside the ECU's limits."
+                    },
                 color = SecondaryText(), style = MaterialTheme.typography.labelSmall
             )
         }

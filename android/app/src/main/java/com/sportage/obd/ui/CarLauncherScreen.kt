@@ -46,6 +46,7 @@ import com.sportage.obd.media.MediaApps
 import com.sportage.obd.media.NowPlayingController
 import com.sportage.obd.media.chosenMusicApp
 import com.sportage.obd.media.saveChosenMusicApp
+import com.sportage.obd.obd.ActuatorTestState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
 import com.sportage.obd.service.ActiveAlert
@@ -908,7 +909,6 @@ fun DiagnosticsPage(
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf(0) }
-    val tabs = listOf("Stored (03)", "Pending (07)", "Permanent (0A)", "Freeze Frame", "Readiness")
 
     val pendingCodes = viewModel?.pendingDtcList?.collectAsState()?.value ?: emptyList()
     val permanentCodes = viewModel?.permanentDtcList?.collectAsState()?.value ?: emptyList()
@@ -916,9 +916,23 @@ fun DiagnosticsPage(
     val readiness = viewModel?.readiness?.collectAsState()?.value
     val vin = viewModel?.vin?.collectAsState()?.value
     val supportedPids = viewModel?.supportedPids?.collectAsState()?.value ?: emptySet()
+    val vehicleIdentity = viewModel?.vehicleIdentity?.collectAsState()?.value
+    val mode06TestReport = viewModel?.mode06Tests?.collectAsState()?.value
+    val o2TestReport = viewModel?.o2Tests?.collectAsState()?.value
+    val actuatorState = viewModel?.actuatorState?.collectAsState()?.value ?: ActuatorTestState()
+    val liveSpeed = viewModel?.telemetry?.collectAsState()?.value?.speedKmh
+    val isPaused = viewModel?.isPollingPaused?.collectAsState()?.value == true
     val scope = rememberCoroutineScope()
 
     var auxScanning by remember { mutableStateOf(false) }
+    var freezeFrameDtc by remember { mutableStateOf<String?>(null) }
+    val tabs = listOf(
+        "Stored (03)", "Pending (07)", "Permanent (0A)", "Freeze Frame", "Readiness",
+        "Vehicle ID (09)", "Monitors (06)", "O2 Tests (05)", "Actuators (08)", "Report"
+    ).mapIndexed { index, title ->
+        // A pending-code badge keeps the count visible without opening the tab.
+        if (index == 1 && pendingCodes.isNotEmpty()) "$title · ${pendingCodes.size}" else title
+    }
 
     Column(
         modifier = Modifier
@@ -948,19 +962,27 @@ fun DiagnosticsPage(
                         fontFamily = FontFamily.SansSerif
                     )
                     Text(
-                        text = "MODES 03 / 07 / 0A · FREEZE FRAME · READINESS MONITORS",
+                        text = "MODES 02 / 03 / 05 / 06 / 07 / 08 / 09 / 0A · READINESS · ACTUATORS",
                         color = SecondaryText(),
                         fontSize = 12.sp,
                         fontFamily = FontFamily.SansSerif
                     )
-                    if (vin != null) {
+                    val displayedVin = vehicleIdentity?.vin ?: vin
+                    if (displayedVin != null) {
                         Text(
-                            text = "VIN: $vin",
+                            text = "VIN: $displayedVin",
                             color = ElectricCyan(),
                             fontSize = 12.sp,
                             fontFamily = FontFamily.SansSerif
                         )
                     }
+                }
+
+                if (isPaused) {
+                    Text(
+                        "Polling is paused, so Mode 05/06/08/09 requests are held back. Resume polling to read them.",
+                        color = AmberWarning(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif
+                    )
                 }
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1076,8 +1098,40 @@ fun DiagnosticsPage(
                         Text("Read Freeze Frame (02)", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
                     }
                 }
+                if (dtcCodes.isNotEmpty()) {
+                    Text(
+                        "Select the stored code you are diagnosing:",
+                        color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        dtcCodes.forEach { dtc ->
+                            val selected = freezeFrameDtc == dtc.code
+                            Button(
+                                onClick = { freezeFrameDtc = if (selected) null else dtc.code },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (selected) ElectricCyan() else DarkSurfaceElevated()
+                                ),
+                                shape = RoundedCornerShape(6.dp),
+                                modifier = Modifier.heightIn(min = 48.dp)
+                            ) {
+                                Text(
+                                    dtc.code,
+                                    color = if (selected) OnAccent() else SecondaryText(),
+                                    fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
+                                )
+                            }
+                        }
+                    }
+                }
                 if (freezeFrame == null || freezeFrame.items.isEmpty()) {
-                    EmptyStateBox("No Freeze Frame Stored", "The ECU snapshots engine data when a fault is confirmed. None is currently stored.")
+                    EmptyStateBox(
+                        if (freezeFrameDtc != null) "No Freeze Frame Stored for $freezeFrameDtc"
+                        else "No Freeze Frame Stored",
+                        "The ECU snapshots engine data when a fault is confirmed. None is currently stored."
+                    )
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         item {
@@ -1087,13 +1141,24 @@ fun DiagnosticsPage(
                                 border = BorderStroke(1.dp, AmberWarning())
                             ) {
                                 Column(Modifier.fillMaxWidth().padding(12.dp)) {
-                                    Text("FREEZE FRAME SNAPSHOT", color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                                    Text(
+                                        "FREEZE FRAME SNAPSHOT" + (freezeFrame.dtc?.code?.let { " · $it" } ?: ""),
+                                        color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif
+                                    )
                                     Spacer(Modifier.height(6.dp))
                                     freezeFrame.items.forEach {
                                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                             Text(it.label, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                             Text(it.value, color = PrimaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                                         }
+                                    }
+                                    if (freezeFrameDtc != null && freezeFrame.dtc?.code != null && freezeFrame.dtc?.code != freezeFrameDtc) {
+                                        Spacer(Modifier.height(6.dp))
+                                        Text(
+                                            "The ECU stores a single freeze frame (Mode 02 frame 00) for the last confirmed fault, " +
+                                                "so this snapshot belongs to ${freezeFrame.dtc?.code}, not $freezeFrameDtc.",
+                                            color = AmberWarning(), fontSize = 10.sp, fontFamily = FontFamily.SansSerif
+                                        )
                                     }
                                 }
                             }
@@ -1178,6 +1243,14 @@ fun DiagnosticsPage(
                     }
                 }
             }
+            5 -> VehicleIdentityContent(vehicleIdentity, viewModel)
+            6 -> Mode06TestsContent(mode06TestReport, viewModel)
+            7 -> O2TestsContent(o2TestReport, viewModel)
+            8 -> ActuatorTestsContent(actuatorState, liveSpeed, viewModel)
+            9 -> DiagnosticReportCard(
+                viewModel = viewModel,
+                hasData = dtcCodes.isNotEmpty() || pendingCodes.isNotEmpty() || permanentCodes.isNotEmpty()
+            )
         }
     }
 

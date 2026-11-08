@@ -25,10 +25,19 @@ import com.sportage.obd.bluetooth.ElmTransport
 import com.sportage.obd.bluetooth.TransportStateRelay
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.FreezeFrame
+import com.sportage.obd.obd.ActuatorTestState
+import com.sportage.obd.obd.DiagnosticSnapshot
+import com.sportage.obd.obd.Mode05O2Parser
 import com.sportage.obd.obd.Mode06Decoders
 import com.sportage.obd.obd.Mode06MonitorResult
+import com.sportage.obd.obd.Mode06TestParser
+import com.sportage.obd.obd.Mode06TestReport
+import com.sportage.obd.obd.Mode08Actuators
+import com.sportage.obd.obd.Mode09Parser
+import com.sportage.obd.obd.O2TestReport
 import com.sportage.obd.obd.PidDecoders
 import com.sportage.obd.obd.ReadinessState
+import com.sportage.obd.obd.VehicleIdentity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -107,6 +116,8 @@ class ObdService : Service() {
         private const val KEY_LAST_DEVICE = "last_adapter_address"
         private const val KEY_LAST_DEVICE_IS_BLE = "last_adapter_is_ble"
         private const val KEY_CSV_AUTOSTART = "csv_autostart"
+        /** Field separator for the persisted Mode 09 identity blob. */
+        internal const val FIELD_SEPARATOR = "\u001F"
 
         /** True while the foreground service is alive, so a restarted UI can re-attach to it. */
         @Volatile
@@ -160,6 +171,18 @@ class ObdService : Service() {
 
     private val _mode06MonitorResult = MutableStateFlow<Mode06MonitorResult?>(null)
     val mode06MonitorResult: StateFlow<Mode06MonitorResult?> = _mode06MonitorResult.asStateFlow()
+
+    private val _vehicleIdentity = MutableStateFlow<VehicleIdentity?>(null)
+    val vehicleIdentity: StateFlow<VehicleIdentity?> = _vehicleIdentity.asStateFlow()
+
+    private val _mode06Tests = MutableStateFlow<Mode06TestReport?>(null)
+    val mode06Tests: StateFlow<Mode06TestReport?> = _mode06Tests.asStateFlow()
+
+    private val _o2Tests = MutableStateFlow<O2TestReport?>(null)
+    val o2Tests: StateFlow<O2TestReport?> = _o2Tests.asStateFlow()
+
+    private val _actuatorState = MutableStateFlow(ActuatorTestState())
+    val actuatorState: StateFlow<ActuatorTestState> = _actuatorState.asStateFlow()
 
     private val _vin = MutableStateFlow<String?>(null)
     val vin: StateFlow<String?> = _vin.asStateFlow()
@@ -307,6 +330,10 @@ class ObdService : Service() {
         _permanentDtcList.value = emptyList()
         _freezeFrame.value = null
         _mode06MonitorResult.value = null
+        _mode06Tests.value = null
+        _o2Tests.value = null
+        _actuatorState.value = ActuatorTestState()
+        _vehicleIdentity.value = loadPersistedIdentity()
         _isPollingPaused.value = false
         alertEngine?.clear()
         connectJob = serviceScope.launch {
@@ -507,6 +534,233 @@ class ObdService : Service() {
         }
     }
 
+    /**
+     * Mode 09 handshake: VIN, calibration ID, calibration verification numbers and ECU name.
+     *
+     * Queried once per connection (the spec says once per handshake), persisted per adapter
+     * address, and never polled with the live data loop. Missing PIDs stay null.
+     */
+    suspend fun readVehicleIdentity(): VehicleIdentity? {
+        // Called from the connection handshake as well as from the UI, so it must not refuse
+        // while connectJob is still finishing the adapter initialization.
+        if (connectionState.value !is ConnectionState.Connected) return null
+        val generation = connectionGeneration
+        val link = transport
+        val responses = linkedMapOf<String, String>()
+        for (pid in Mode09Parser.handshakePids) {
+            if (generation != connectionGeneration) return null
+            responses[pid] = try {
+                withTimeoutOrNull(4000) { link.sendObdCommand("09", pid, 4000) } ?: ""
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ""
+            }
+        }
+        val decoded = Mode09Parser.decode(responses)
+        val identity = if (!decoded.hasAnyValue && _vin.value != null) {
+            decoded.copy(vin = _vin.value)
+        } else decoded
+        if (generation != connectionGeneration) return null
+        _vehicleIdentity.value = identity
+        identity.vin?.let { _vin.value = it }
+        persistIdentity(identity)
+        return identity
+    }
+
+    /**
+     * Mode 06 on-board monitoring test results with MID/TID/UAS/value/limit records.
+     *
+     * Enumerates the supported MIDs first (06 00, 06 20, ...) and then requests each MID so the
+     * report is complete rather than the single decoded block the plain `06` command returns.
+     */
+    suspend fun refreshMode06Tests(): Mode06TestReport? {
+        check(connectJob?.isActive != true) { "Adapter is still initializing" }
+        // Paused polling means the ignition-off mode: do not put new traffic on the link.
+        if (_isPollingPaused.value) return null
+        if (connectionState.value !is ConnectionState.Connected) return null
+        val generation = connectionGeneration
+        val link = transport
+        val responses = linkedMapOf<Int, String>()
+        val supported = mutableListOf<Int>()
+
+        for (base in 0x00..0xE0 step 0x20) {
+            if (generation != connectionGeneration) return null
+            val raw = try {
+                withTimeoutOrNull(3000) { link.sendObdCommand("06", Mode06TestParser.hex2(base), 3000) } ?: break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                break
+            }
+            responses[base] = raw
+            val mids = Mode06TestParser.decodeSupportedMids(raw)
+            if (mids.isEmpty()) break
+            supported += mids
+            if (base + 0x20 !in mids) break
+        }
+
+        for (mid in supported.distinct().sorted()) {
+            if (mid % 0x20 == 0 && mid in responses) continue
+            if (generation != connectionGeneration) return null
+            responses[mid] = try {
+                withTimeoutOrNull(3000) { link.sendObdCommand("06", Mode06TestParser.hex2(mid), 3000) } ?: ""
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ""
+            }
+        }
+
+        val report = Mode06TestParser.decode(responses)
+        if (generation == connectionGeneration) _mode06Tests.value = report
+        return report
+    }
+
+    /** Mode 05 oxygen sensor tests (non-CAN fallback where Mode 06 is unavailable). */
+    suspend fun refreshO2Tests(): O2TestReport? {
+        check(connectJob?.isActive != true) { "Adapter is still initializing" }
+        if (_isPollingPaused.value) return null
+        if (connectionState.value !is ConnectionState.Connected) return null
+        val generation = connectionGeneration
+        val link = transport
+        val responses = linkedMapOf<Int, String>()
+        val supported = mutableListOf<Int>()
+
+        for (base in 0x00..0xE0 step 0x20) {
+            if (generation != connectionGeneration) return null
+            val raw = try {
+                withTimeoutOrNull(3000) { link.sendObdCommand("05", Mode06TestParser.hex2(base), 3000) } ?: break
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                break
+            }
+            responses[base] = raw
+            val tids = Mode05O2Parser.decodeSupportedTids(raw)
+            if (tids.isEmpty()) break
+            supported += tids
+            if (base + 0x20 !in tids) break
+        }
+
+        for (tid in supported.distinct().sorted()) {
+            if (tid % 0x20 == 0 && tid in responses) continue
+            if (generation != connectionGeneration) return null
+            responses[tid] = try {
+                withTimeoutOrNull(3000) { link.sendObdCommand("05", Mode06TestParser.hex2(tid), 3000) } ?: ""
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                ""
+            }
+        }
+
+        val report = Mode05O2Parser.decode(responses)
+        if (generation == connectionGeneration) _o2Tests.value = report
+        return report
+    }
+
+    /**
+     * Runs (or stops) one Mode 08 actuator test.
+     *
+     * Refused when the vehicle is not demonstrably stationary: a missing speed reading counts as
+     * unsafe. The refusal is returned as state so the UI can explain it.
+     */
+    suspend fun executeActuatorTest(tid: Int, start: Boolean = true): ActuatorTestState {
+        val definition = Mode08Actuators.find(tid)
+            ?: return ActuatorTestState(message = "Unknown actuator test id 0x${Mode06TestParser.hex2(tid)}")
+        if (connectionState.value !is ConnectionState.Connected) {
+            val state = ActuatorTestState(message = "Connect to the ECU before running actuator tests")
+            _actuatorState.value = state
+            return state
+        }
+        val speed = _telemetry.value.speedKmh
+        if (_isPollingPaused.value) {
+            val state = ActuatorTestState(message = "Polling is paused — resume polling before running actuator tests")
+            _actuatorState.value = state
+            return state
+        }
+        if (!Mode08Actuators.isSafeToRun(speed)) {
+            val state = ActuatorTestState(
+                message = "Actuator tests are blocked while the vehicle speed is " +
+                    (speed?.let { "$it km/h" } ?: "unknown") + ". Park the vehicle and retry."
+            )
+            _actuatorState.value = state
+            return state
+        }
+        val command = if (start) Mode08Actuators.startCommand(tid) else Mode08Actuators.stopCommand(tid)
+        _actuatorState.value = ActuatorTestState(
+            activeTid = tid,
+            activeName = definition.name,
+            isRunning = start,
+            lastCommand = command,
+            message = if (start) "Test command sent" else "Stop command sent"
+        )
+        val response = try {
+            withTimeoutOrNull(4000) { transport.sendCommand(command, 4000) } ?: ""
+        } catch (e: CancellationException) {
+            throw e
+        } catch (error: Exception) {
+            "ERROR: ${error.localizedMessage ?: "no response"}"
+        }
+        val state = ActuatorTestState(
+            activeTid = tid,
+            activeName = definition.name,
+            isRunning = start && !response.contains("ERROR", ignoreCase = true) && response.isNotBlank(),
+            lastCommand = command,
+            lastResponse = response.ifBlank { "No response" },
+            message = when {
+                response.isBlank() -> "The ECU did not answer the actuator command"
+                response.contains("ERROR", ignoreCase = true) -> "The ECU rejected the actuator command"
+                start -> "Test running — watch ${definition.observeHint}"
+                else -> "Stop requested"
+            }
+        )
+        _actuatorState.value = state
+        return state
+    }
+
+    /** Everything read so far, for the shareable diagnostic report. */
+    fun diagnosticSnapshot(): DiagnosticSnapshot = DiagnosticSnapshot(
+        vehicle = _vehicleIdentity.value,
+        storedDtcs = _dtcList.value,
+        pendingDtcs = _pendingDtcList.value,
+        permanentDtcs = _permanentDtcList.value,
+        freezeFrame = _freezeFrame.value,
+        mode06 = _mode06Tests.value,
+        o2Tests = _o2Tests.value,
+        readiness = _readiness.value
+    )
+
+    private fun identityKey(): String? =
+        activeDevice?.let { BluetoothDeviceInfo.address(this, it) }?.let { "vehicle_identity_$it" }
+
+    private fun persistIdentity(identity: VehicleIdentity) {
+        if (!identity.hasAnyValue) return
+        val key = identityKey() ?: return
+        val encoded = listOf(
+            identity.vin ?: "",
+            identity.calibrationId ?: "",
+            identity.calibrationVerificationNumber ?: "",
+            identity.ecuName ?: ""
+        ).joinToString(FIELD_SEPARATOR)
+        prefs().edit().putString(key, encoded).apply()
+    }
+
+    private fun loadPersistedIdentity(): VehicleIdentity? {
+        val stored = identityKey()?.let { prefs().getString(it, null) } ?: return null
+        val parts = stored.split(FIELD_SEPARATOR)
+        if (parts.isEmpty()) return null
+        fun part(index: Int) = parts.getOrNull(index)?.takeIf { it.isNotBlank() }
+        val identity = VehicleIdentity(
+            vin = part(0),
+            calibrationId = part(1),
+            calibrationVerificationNumber = part(2),
+            ecuName = part(3)
+        )
+        return identity.takeIf { it.hasAnyValue }
+    }
+
     /** Mode 09 PID 02: vehicle identification number. */
     suspend fun readVin(): String? {
         return try {
@@ -631,6 +885,9 @@ class ObdService : Service() {
 
         try {
             readVin()
+        } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+        try {
+            readVehicleIdentity()
         } catch (e: CancellationException) { throw e } catch (_: Exception) {}
         try {
             readReadiness()

@@ -15,6 +15,22 @@ interface ElmTransport {
     /** Sends one ELM327 command and returns the response (prompt stripped). */
     suspend fun sendCommand(command: String, timeoutMs: Long = 2500): String
 
+    /**
+     * Sends a standard OBD service request and returns the reassembled ISO-TP payload.
+     *
+     * Multi-frame replies (Mode 09 VIN/calibration, Mode 06 result blocks) are normalised into a
+     * single hex payload by [com.sportage.obd.obd.IsoTp], so callers never have to deal with
+     * sequence bytes. When the reply cannot be reassembled the raw adapter text is returned
+     * unchanged, so nothing is lost.
+     */
+    suspend fun sendObdCommand(mode: String, pid: String = "", timeoutMs: Long = 2500): String {
+        val command = mode.trim().uppercase() + pid.trim().uppercase()
+        val raw = sendCommand(command, timeoutMs)
+        val assembled = com.sportage.obd.obd.IsoTp.assembleAll(raw)
+        if (assembled.isEmpty()) return raw
+        return assembled.maxByOrNull { it.length } ?: raw
+    }
+
     fun disconnect()
 }
 
