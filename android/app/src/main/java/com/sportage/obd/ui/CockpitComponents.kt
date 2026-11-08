@@ -28,6 +28,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.testTag
 
 @Composable
 fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, onOpenBluetoothClick: () -> Unit) {
@@ -43,7 +44,7 @@ fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, on
         else -> "Connect"
     }
     Row(
-        Modifier.fillMaxWidth().background(DarkBackground()).padding(horizontal = 12.dp),
+        Modifier.testTag("dashboard_header").fillMaxWidth().background(DarkBackground()).padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
     ) {
         Column(Modifier.weight(1f)) {
@@ -60,7 +61,6 @@ fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, on
             ), contentPadding = PaddingValues(horizontal = 14.dp)
         ) {
             if (busy) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = ElectricCyan())
-            else if (isDemoMode) Icon(Icons.Default.PhoneAndroid, null, Modifier.size(18.dp))
             else Icon(Icons.Default.Bluetooth, null, Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
             Text(status, style = MaterialTheme.typography.labelLarge)
@@ -107,20 +107,46 @@ fun CockpitNavigation(activePage: Int, onNavigate: (Int) -> Unit, onOpenApps: ()
             }
         }
     } else {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-            destinations.take(5).forEach { item ->
-                IconButton(onClick = { select(item.page) }, modifier = Modifier.size(48.dp)) {
-                    Icon(
-                        item.icon, item.label,
-                        tint = if (activePage == item.page) ElectricCyan() else SecondaryText(),
-                        modifier = Modifier.size(22.dp)
+        var expanded by remember { mutableStateOf(false) }
+        NavigationBar(containerColor = DarkBackground(), windowInsets = WindowInsets(0, 0, 0, 0)) {
+            destinations.filter { it.page in listOf(0, 1, 7, 3, 4) }.forEach { item ->
+                NavigationBarItem(
+                    selected = activePage == item.page, onClick = { select(item.page) },
+                    icon = { Icon(item.icon, item.label, Modifier.size(22.dp)) },
+                    label = { Text(item.label, maxLines = 1) },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = ElectricCyan(), selectedTextColor = ElectricCyan(),
+                        indicatorColor = DarkSurfaceElevated(),
+                        unselectedIconColor = SecondaryText(), unselectedTextColor = SecondaryText()
                     )
+                )
+            }
+            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                Row(Modifier.height(80.dp)) {
+                    NavigationBarItem(
+                        selected = activePage in listOf(2, 5, 6), onClick = { expanded = true },
+                        icon = { Icon(Icons.Default.MoreHoriz, "More", Modifier.size(22.dp)) },
+                        label = { Text("More", maxLines = 1) },
+                        colors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = ElectricCyan(), selectedTextColor = ElectricCyan(),
+                            indicatorColor = DarkSurfaceElevated(),
+                            unselectedIconColor = SecondaryText(), unselectedTextColor = SecondaryText()
+                        )
+                    )
+                }
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    destinations.filter { it.page in listOf(6, 2, 9, -1, 5, 8) }.forEach { item ->
+                        DropdownMenuItem(text = { Text(item.label) },
+                            leadingIcon = { Icon(item.icon, null) },
+                            onClick = { expanded = false; select(item.page) })
+                    }
                 }
             }
         }
     }
 }
 
+/** Human label for the current transmission state. */
 fun gearLabel(transmissionGear: Int?, estimatedGear: Int): String = when (transmissionGear) {
     -2 -> "P"
     -1 -> "R"
@@ -157,10 +183,7 @@ fun CockpitTelemetryPane(
             ) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.Timer, "Live readings", tint = if (isDemoMode) AmberWarning() else ElectricCyan(), modifier = Modifier.size(18.dp))
-                            Text("Vehicle", style = MaterialTheme.typography.titleMedium, color = PrimaryText())
-                        }
+                        Text("Vehicle", style = MaterialTheme.typography.titleMedium, color = PrimaryText())
                         Text(
                             when {
                                 isDemoMode -> "Demo data"
@@ -171,10 +194,12 @@ fun CockpitTelemetryPane(
                             style = MaterialTheme.typography.labelMedium
                         )
                     }
-                    Text(gearLabel(transmissionGear, gear), color = SecondaryText(), style = MaterialTheme.typography.labelLarge)
+                    Text(gearLabel(transmissionGear, gear),
+                        color = SecondaryText(), style = MaterialTheme.typography.labelLarge)
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    // Combined dial: outer arc = speed, inner arc = engine speed.
                     CockpitDial(
                         speed = speed, speedUnit = speedUnit, rpm = rpm, onToggleSpeedUnit = onToggleSpeedUnit,
                         modifier = Modifier.weight(1.25f).fillMaxWidth()
@@ -212,5 +237,119 @@ fun CockpitTelemetryPane(
                 }
             }
         }
+    }
+}
+
+/**
+ * Combined analog dial: outer arc and long needle for speed, inner arc and short
+ * needle for engine RPM. Replaces the separate digital speed/RPM tiles.
+ */
+@Composable
+private fun CockpitDial(speed: Int?, speedUnit: String, rpm: Int?, onToggleSpeedUnit: () -> Unit, modifier: Modifier = Modifier) {
+    val speedColor = ElectricCyan()
+    val rpmColor = WarningAmber()
+    val trackColor = DarkSurfaceElevated()
+    val needleColor = PrimaryText()
+    val speedValue = speed?.toFloat() ?: 0f
+    val rpmValue = rpm?.toFloat() ?: 0f
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(Modifier.fillMaxWidth().height(210.dp)) {
+            val stroke = 10.dp.toPx()
+            val rpmStroke = 5.dp.toPx()
+            val inset = stroke / 2 + 2.dp.toPx()
+            val diameter = minOf(size.width, size.height) - inset * 2
+            val arcSize = Size(diameter, diameter)
+            val topLeft = Offset((size.width - diameter) / 2, inset)
+            val sweep = 240f
+            val start = 150f
+            // Speed arc (outer): 0..220 km/h (or mph scaled dial stays 0..220 units of the shown unit).
+            drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
+                topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            val speedFrac = (speedValue / 220f).coerceIn(0f, 1f)
+            drawArc(color = speedColor, startAngle = start, sweepAngle = sweep * speedFrac, useCenter = false,
+                topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
+            // RPM arc (inner): 0..7000 rpm.
+            val innerInset = inset + stroke + 8.dp.toPx()
+            val innerDiameter = diameter - (innerInset - inset) * 2
+            val innerSize = Size(innerDiameter, innerDiameter)
+            val innerTopLeft = Offset((size.width - innerDiameter) / 2, innerInset)
+            drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
+                topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
+            val rpmFrac = (rpmValue / 7000f).coerceIn(0f, 1f)
+            drawArc(color = rpmColor, startAngle = start, sweepAngle = sweep * rpmFrac, useCenter = false,
+                topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
+            // Needles from the dial center.
+            val centerX = size.width / 2
+            val centerY = arcSize.height / 2 + inset
+            fun angle(frac: Float) = Math.toRadians((start + sweep * frac).toDouble())
+            val speedAngle = angle(speedFrac)
+            val speedLen = arcSize.width / 2 - stroke
+            drawLine(needleColor, Offset(centerX, centerY),
+                Offset(centerX + (speedLen * Math.cos(speedAngle)).toFloat(),
+                    centerY + (speedLen * Math.sin(speedAngle)).toFloat()),
+                strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+            val rpmAngle = angle(rpmFrac)
+            val rpmLen = innerSize.width / 2
+            drawLine(rpmColor, Offset(centerX, centerY),
+                Offset(centerX + (rpmLen * Math.cos(rpmAngle)).toFloat(),
+                    centerY + (rpmLen * Math.sin(rpmAngle)).toFloat()),
+                strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+            drawCircle(needleColor, radius = 4.dp.toPx(), center = Offset(centerX, centerY))
+        }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("${speed ?: "--"} $speedUnit", color = PrimaryText(), fontSize = 20.sp, fontWeight = FontWeight.Medium,
+                modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                maxLines = 1)
+            Text("${rpm ?: "--"} rpm", color = rpmColor, fontSize = 16.sp, maxLines = 1)
+        }
+        TextButton(onClick = onToggleSpeedUnit, modifier = Modifier.heightIn(min = 36.dp)) {
+            Text("Switch to ${if (speedUnit == "km/h") "mph" else "km/h"}", color = SecondaryText(),
+                style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
+private fun CockpitSpeed(speed: Int?, unit: String, toggle: () -> Unit, size: Int) {
+    Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+        BoxWithConstraints(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            val reading = speed?.toString() ?: "--"
+            val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale
+            var fittedSize by remember(reading.length, maxWidth, fontScale, size) {
+                mutableFloatStateOf(size.toFloat())
+            }
+            Text(reading, color = PrimaryText(), fontSize = fittedSize.sp,
+                lineHeight = (fittedSize * 1.1f).sp,
+                fontWeight = FontWeight.Light, style = TextStyle(fontFeatureSettings = "tnum", letterSpacing = (-2).sp),
+                maxLines = 1,
+                onTextLayout = { result ->
+                    if (result.didOverflowWidth && fittedSize > 20f) fittedSize = (fittedSize * 0.9f).coerceAtLeast(20f)
+                })
+        }
+        TextButton(onClick = toggle, modifier = Modifier.heightIn(min = 48.dp)) {
+            Text(unit, color = ElectricCyan(), style = MaterialTheme.typography.labelLarge)
+        }
+    }
+}
+
+@Composable
+private fun CockpitRpm(rpm: Int?) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Text("Engine speed", style = MaterialTheme.typography.labelMedium, color = SecondaryText())
+        Text("${rpm?.toString() ?: "--"} rpm", style = MaterialTheme.typography.labelLarge, color = PrimaryText())
+        LinearProgressIndicator(
+            progress = { ((rpm ?: 0) / 7000f).coerceIn(0f, 1f) },
+            modifier = Modifier.fillMaxWidth().height(4.dp),
+            color = if ((rpm ?: 0) > 6500) CriticalRed() else ElectricCyan(), trackColor = DarkSurfaceElevated())
+    }
+}
+
+@Composable
+private fun CockpitReading(label: String, value: String, modifier: Modifier, color: androidx.compose.ui.graphics.Color = PrimaryText()) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = SecondaryText(),
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(value, style = MaterialTheme.typography.titleLarge, color = color, maxLines = 1)
     }
 }

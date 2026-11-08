@@ -20,7 +20,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** ObdViewModel: Bridges the ObdRepository to Jetpack Compose UI. */
+/**
+ * ObdViewModel: Bridges the ObdRepository to Jetpack Compose UI.
+ * Handles UI state derivation, graph telemetry history, trip stats,
+ * and background operations cleanly decoupled from the UI.
+ */
 class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = ObdRepository(application.applicationContext)
@@ -78,6 +82,7 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val rpmHistory: StateFlow<List<Pair<Long, Int>>> = _rpmHistory.asStateFlow()
 
     init {
+        // A real 60-second window. Sensor-only state updates must not duplicate core samples.
         viewModelScope.launch {
             repository.telemetry.collect { telem ->
                 val now = telem.timestamp
@@ -173,6 +178,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        // Unbinding leaves the foreground service (and the Bluetooth link) running on purpose:
+        // only the UI teardown happens here.
         repository.close()
     }
 }

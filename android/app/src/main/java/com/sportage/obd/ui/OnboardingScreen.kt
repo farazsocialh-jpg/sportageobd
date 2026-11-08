@@ -23,8 +23,14 @@ fun OnboardingScreen(
     onComplete: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
     var currentPage by remember { mutableIntStateOf(0) }
-    val totalPages = 5
+    val totalPages = 4
+
+    // Track which pages the user has seen (for analytics)
+    LaunchedEffect(currentPage) {
+        // In a full implementation, you'd track page views here
+    }
 
     Column(
         modifier = Modifier
@@ -34,6 +40,7 @@ fun OnboardingScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
+        // Progress indicator
         LinearProgressIndicator(
             progress = { currentPage.toFloat() / (totalPages - 1) },
             modifier = Modifier
@@ -46,9 +53,10 @@ fun OnboardingScreen(
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        // Page content
         when (currentPage) {
             0 -> OnboardingPage(
-                icon = Icons.Default.Info,
+                icon = Icons.Default.Speed,
                 title = "Welcome to Sportage OBD",
                 body = "Your two-in-one automotive companion: real-time OBD-II diagnostics and a car launcher for head units and phones."
             )
@@ -58,24 +66,20 @@ fun OnboardingScreen(
                 body = "Pair an ELM327 Bluetooth adapter with your phone, then connect in the app. Required permissions: Bluetooth, location (for device scanning), and notifications (for alerts)."
             )
             2 -> OnboardingPage(
-                icon = Icons.Default.PrivacyTip,
+                icon = Icons.Default.Info,
                 title = "Your Data Stays Private",
-                body = "Vehicle data (OBD readings, DTCs, trips) is stored locally on your device. Crash reports are optional. No vehicle data is sent to a cloud service for advertising or profiling."
+                body = "Vehicle data (OBD readings, DTCs, trips) is stored locally on your device. Analytics are anonymous. No data is sold. Full details in Settings → Privacy Policy."
             )
             3 -> OnboardingPage(
                 icon = Icons.Default.DirectionsCar,
                 title = "Ready to Drive",
                 body = "Explore live gauges, scan for trouble codes, track trips and fuel, control media, and navigate — all from one screen."
             )
-            4 -> OnboardingPage(
-                icon = Icons.Default.CloudDownload,
-                title = "Optional Crash Reports",
-                body = "If the app crashes unexpectedly, you may send an anonymous crash report through Firebase Crashlytics to help us fix it. No name, contacts, location history, trips, or diagnostic trouble codes are included. You can leave this off and the app still works fully."
-            )
         }
 
         Spacer(modifier = Modifier.height(32.dp))
 
+        // Navigation buttons
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp)
@@ -137,7 +141,7 @@ private fun OnboardingPage(
             fontSize = 22.sp,
             fontWeight = FontWeight.Bold,
             fontFamily = FontFamily.SansSerif,
-            textAlign = TextAlign.Center
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -148,7 +152,7 @@ private fun OnboardingPage(
             fontSize = 15.sp,
             fontFamily = FontFamily.SansSerif,
             lineHeight = 22.sp,
-            textAlign = TextAlign.Center
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center
         )
     }
 }

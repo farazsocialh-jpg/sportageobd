@@ -19,7 +19,6 @@ import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.service.ObdService
 import com.sportage.obd.service.ObdTelemetry
-import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -30,8 +29,13 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.sin
 
-/** ObdRepository: Single source of truth for OBD-II vehicle state. */
+/**
+ * ObdRepository: Single source of truth for OBD-II vehicle state.
+ * Manages foreground service binding, handles bench demo telemetry generation,
+ * and exposes clean reactive StateFlows to ViewModels and UI.
+ */
 class ObdRepository(private val context: Context) {
 
     private val repositoryJob = SupervisorJob()
@@ -99,76 +103,104 @@ class ObdRepository(private val context: Context) {
                 return
             }
 
+            // A connect request that arrived before the binding completed is applied now.
             pendingDevice?.let { device ->
                 val ble = pendingDeviceIsBle
                 pendingDevice = null
                 obdService?.connectToDevice(device, ble)
             }
 
+            // Forward telemetry and states from ObdService
             serviceCollectorJob?.cancel()
             serviceCollectorJob = scope.launch {
                 val s = obdService ?: return@launch
                 launch {
                     s.telemetry.collect {
-                        if (!_isDemoMode.value) _telemetry.value = it
+                        if (!_isDemoMode.value) {
+                            _telemetry.value = it
+                        }
                     }
                 }
                 launch {
                     s.connectionState.collect {
-                        if (!_isDemoMode.value) _connectionState.value = it
+                        if (!_isDemoMode.value) {
+                            _connectionState.value = it
+                        }
                     }
                 }
                 launch {
-                    s.isPollingPaused.collect { _isPollingPaused.value = it }
+                    s.isPollingPaused.collect {
+                        _isPollingPaused.value = it
+                    }
                 }
                 launch {
                     s.dtcList.collect {
-                        if (!_isDemoMode.value) _dtcList.value = it
+                        if (!_isDemoMode.value) {
+                            _dtcList.value = it
+                        }
                     }
                 }
                 launch {
                     s.pendingDtcList.collect {
-                        if (!_isDemoMode.value) _pendingDtcList.value = it
+                        if (!_isDemoMode.value) {
+                            _pendingDtcList.value = it
+                        }
                     }
                 }
                 launch {
                     s.permanentDtcList.collect {
-                        if (!_isDemoMode.value) _permanentDtcList.value = it
+                        if (!_isDemoMode.value) {
+                            _permanentDtcList.value = it
+                        }
                     }
                 }
                 launch {
                     s.freezeFrame.collect {
-                        if (!_isDemoMode.value) _freezeFrame.value = it
+                        if (!_isDemoMode.value) {
+                            _freezeFrame.value = it
+                        }
                     }
                 }
                 launch {
                     s.readiness.collect {
-                        if (!_isDemoMode.value) _readiness.value = it
+                        if (!_isDemoMode.value) {
+                            _readiness.value = it
+                        }
                     }
                 }
                 launch {
                     s.mode06MonitorResult.collect {
-                        if (!_isDemoMode.value) _mode06MonitorResult.value = it
+                        if (!_isDemoMode.value) {
+                            _mode06MonitorResult.value = it
+                        }
                     }
                 }
                 launch {
                     s.vin.collect {
-                        if (!_isDemoMode.value) _vin.value = it
+                        if (!_isDemoMode.value) {
+                            _vin.value = it
+                        }
                     }
                 }
                 launch {
                     s.supportedPids.collect {
-                        if (!_isDemoMode.value) _supportedPids.value = it
+                        if (!_isDemoMode.value) {
+                            _supportedPids.value = it
+                        }
                     }
                 }
                 launch {
                     s.activeAlerts.collect {
-                        if (!_isDemoMode.value) _activeAlerts.value = it
+                        if (!_isDemoMode.value) {
+                            _activeAlerts.value = it
+                        }
                     }
                 }
                 launch {
                     s.isCsvLogging.collect {
-                        if (!_isDemoMode.value) _isCsvLogging.value = it
+                        if (!_isDemoMode.value) {
+                            _isCsvLogging.value = it
+                        }
                     }
                 }
             }
@@ -184,8 +216,16 @@ class ObdRepository(private val context: Context) {
         }
     }
 
+    /**
+     * Starts and binds the foreground service. Called on the first connect so the service is only
+     * promoted to the foreground once Bluetooth permissions have been granted.
+     */
     init {
-        if (ObdService.isRunning) bindService()
+        // If the foreground service survived the activity (background streaming), re-attach to it so
+        // the relaunched UI shows live telemetry instead of a disconnected cockpit.
+        if (ObdService.isRunning) {
+            bindService()
+        }
     }
 
     private fun bindService() {
@@ -229,6 +269,7 @@ class ObdRepository(private val context: Context) {
         } catch (_: Exception) {}
     }
 
+    /** Releases the binding, collectors and coroutine scope when the UI goes away for good. */
     fun close() {
         unbindService()
         repositoryJob.cancel()
@@ -249,7 +290,9 @@ class ObdRepository(private val context: Context) {
     fun connectDevice(device: BluetoothDevice, ble: Boolean = false) {
         if (_connectionState.value is ConnectionState.Connecting || pendingDevice != null) return
         try {
-            if (_isDemoMode.value) setDemoMode(false)
+            if (_isDemoMode.value) {
+                setDemoMode(false)
+            }
             val address = com.sportage.obd.bluetooth.BluetoothDeviceInfo.address(context, device)
                 ?: throw SecurityException("Nearby devices permission is required")
             _connectionState.value = ConnectionState.Connecting(address)
@@ -264,6 +307,8 @@ class ObdRepository(private val context: Context) {
                 startAndBindService()
             }
         } catch (e: Exception) {
+            // Some head-unit Bluetooth stacks throw instead of failing gracefully when the
+            // RFCOMM socket cannot be opened. Surface it as an error state instead of crashing.
             _connectionState.value =
                 ConnectionState.Error("Connect failed: ${e.localizedMessage ?: e.javaClass.simpleName}")
         }
@@ -272,7 +317,11 @@ class ObdRepository(private val context: Context) {
     fun disconnect() {
         pendingDevice = null
         obdService?.disconnect()
-        if (_isDemoMode.value) setDemoMode(false)
+        if (_isDemoMode.value) {
+            setDemoMode(false)
+        }
+        // Nothing is streaming any more, so retire the foreground service and its notification;
+        // the next connect restarts and rebinds it.
         stopServiceIfRunning()
         unbindService()
         _connectionState.value = ConnectionState.Disconnected
@@ -282,7 +331,11 @@ class ObdRepository(private val context: Context) {
     }
 
     fun togglePausePolling(pause: Boolean) {
-        if (pause) obdService?.pausePolling() else obdService?.resumePolling()
+        if (pause) {
+            obdService?.pausePolling()
+        } else {
+            obdService?.resumePolling()
+        }
         _isPollingPaused.value = pause
     }
 
@@ -327,7 +380,9 @@ class ObdRepository(private val context: Context) {
             )
             _dtcList.value = demoList
             demoList
-        } else obdService?.scanDtcCodes() ?: emptyList()
+        } else {
+            obdService?.scanDtcCodes() ?: emptyList()
+        }
     }
 
     suspend fun clearDtcCodes(): Boolean {
@@ -336,9 +391,12 @@ class ObdRepository(private val context: Context) {
             _dtcList.value = emptyList()
             _pendingDtcList.value = emptyList()
             true
-        } else obdService?.clearDtcCodes() ?: false
+        } else {
+            obdService?.clearDtcCodes() ?: false
+        }
     }
 
+    /** Mode 07 pending codes. */
     suspend fun scanPendingDtcs(): List<DtcItem> {
         return if (_isDemoMode.value) {
             delay(1000)
@@ -353,9 +411,12 @@ class ObdRepository(private val context: Context) {
             )
             _pendingDtcList.value = demoList
             demoList
-        } else obdService?.scanPendingDtcs() ?: emptyList()
+        } else {
+            obdService?.scanPendingDtcs() ?: emptyList()
+        }
     }
 
+    /** Mode 0A permanent codes. */
     suspend fun scanPermanentDtcs(): List<DtcItem> {
         return if (_isDemoMode.value) {
             delay(1000)
@@ -370,9 +431,12 @@ class ObdRepository(private val context: Context) {
             )
             _permanentDtcList.value = demoList
             demoList
-        } else obdService?.scanPermanentDtcs() ?: emptyList()
+        } else {
+            obdService?.scanPermanentDtcs() ?: emptyList()
+        }
     }
 
+    /** Mode 02 freeze frame. */
     suspend fun readFreezeFrame(): FreezeFrame? {
         return if (_isDemoMode.value) {
             delay(900)
@@ -381,25 +445,38 @@ class ObdRepository(private val context: Context) {
             )
             _freezeFrame.value = frame
             frame
-        } else obdService?.readFreezeFrame()
+        } else {
+            obdService?.readFreezeFrame()
+        }
     }
 
+    /** Mode 01 PID 01 readiness. */
     suspend fun readReadiness(): ReadinessState? {
         return if (_isDemoMode.value) {
             delay(700)
             val state = PidDecoders.decodeReadiness("41 01 82 07 65")
             if (state != null) _readiness.value = state
             state
-        } else obdService?.readReadiness()
+        } else {
+            obdService?.readReadiness()
+        }
     }
 
     /** Mode 06 on-board monitor results. */
     suspend fun refreshMode06Monitors() {
-        if (_isDemoMode.value) {
-            _mode06MonitorResult.value = Mode06Decoders.decodeMode06(demoMode06Raw())
-        } else {
+        if (!_isDemoMode.value) {
             obdService?.refreshMode06Monitors()
+        } else {
+            delay(600)
+            _mode06MonitorResult.value = Mode06Decoders.decodeMode06(
+                "46 00 10 20 05 20 30 01 46 01 10 20 05 20 30 02"
+            )
         }
+    }
+
+    /** Mode 09 PID 02 VIN. */
+    suspend fun refreshSensorCapabilities() {
+        if (!_isDemoMode.value) obdService?.refreshSensorCapabilities()
     }
 
     suspend fun readVehicleInformation() {
@@ -412,24 +489,15 @@ class ObdRepository(private val context: Context) {
             val vin = "KNDPMCAC5N7123456"
             _vin.value = vin
             vin
-        } else obdService?.readVin()
-    }
-
-    private fun demoMode06Raw(): String {
-        // Representative SAE J1979 in-use performance tracking payload for demo mode.
-        // First four hex chars = items reported (0x0013 = 19), followed by the documented
-        // spark-ignition component pairs: completion count then conditions encountered.
-        val payload = buildString {
-            append("0013")
-            repeat(19) { append("0001") }
-            append("0000")
+        } else {
+            obdService?.readVin()
         }
-        return "46 $payload"
     }
 
     // --- Warning thresholds ---
 
-    fun alertThresholds(): AlertThresholds = obdService?.alertThresholds() ?: AlertThresholds()
+    fun alertThresholds(): AlertThresholds =
+        obdService?.alertThresholds() ?: AlertThresholds()
 
     fun setFuelCalibration(factor: Float) {
         scope.launch { obdService?.setFuelCalibration(factor) }
@@ -445,7 +513,8 @@ class ObdRepository(private val context: Context) {
 
     // --- CSV logging ---
 
-    fun startCsvLogging(): Boolean = obdService?.startCsvLogging() ?: false
+    fun startCsvLogging(): Boolean =
+        obdService?.startCsvLogging() ?: false
 
     fun stopCsvLogging() {
         obdService?.stopCsvLogging()
@@ -457,6 +526,7 @@ class ObdRepository(private val context: Context) {
         obdService?.setCsvAutostart(enabled)
     }
 
+    /** Current log file for sharing, if a session is active. */
     fun csvLogFile(): java.io.File? = obdService?.csvLogFile
 
     suspend fun sendRawCommand(cmd: String): String {
@@ -470,7 +540,9 @@ class ObdRepository(private val context: Context) {
                 "ATRV" -> "14.2V"
                 else -> "OK"
             }
-        } else obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
+        } else {
+            obdService?.sendRawCommand(cmd) ?: "Service Not Bound"
+        }
     }
 
     private fun startDemoSimulation() {
@@ -486,10 +558,10 @@ class ObdRepository(private val context: Context) {
                 val throttle = (((sin(step * 1.4) + 1.0) * 22.0) + 8.0).toFloat().coerceIn(0f, 100f)
                 val load = (((sin(step * 1.1) + 1.0) * 28.0) + 15.0).toFloat().coerceIn(0f, 100f)
                 val voltage = 14.2f + (sin(step * 0.5) * 0.15).toFloat()
-                val maf = (load / 100f * 60f + 2f).coerceIn(1f, 120f)
+                val maf = (load / 100f * 60f + 2f).coerceIn(1f, 120f) // g/s estimate
                 val stft = ((sin(step * 0.9) * 4.0)).toFloat()
                 val ltft = 1.8f
-                val timing = ((sin(step * 0.6) + 1.0) * 12.0).toFloat()
+                val timing = ((sin(step * 0.6) + 1.0) * 12.0).toFloat() // deg BTDC
                 val litersPerHour = maf * 3.6f / (14.7f * 0.745f)
                 val economy = if (speed > 3) litersPerHour / speed * 100f else null
                 val gear = when {

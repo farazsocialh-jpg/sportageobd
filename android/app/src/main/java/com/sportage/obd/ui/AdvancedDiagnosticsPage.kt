@@ -35,7 +35,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.sportage.obd.obd.DtcItem
-import com.sportage.obd.obd.Mode06MonitorResult
 import com.sportage.obd.viewmodel.ObdViewModel
 import com.sportage.obd.ui.theme.CriticalRed
 import com.sportage.obd.ui.theme.DarkSurface
@@ -74,7 +73,6 @@ fun AdvancedDiagnosticsPage(
     val telemetry = viewModel?.telemetry?.collectAsState()?.value
     val supported = viewModel?.supportedPids?.collectAsState()?.value ?: emptySet()
     val readiness = viewModel?.readiness?.collectAsState()?.value
-    val mode06MonitorResult = viewModel?.mode06MonitorResult?.collectAsState()?.value
     val sensors = telemetry?.sensors ?: emptyMap()
     val vehicleInfo = telemetry?.vehicleInfo ?: emptyMap()
 
@@ -196,59 +194,11 @@ fun AdvancedDiagnosticsPage(
                 },
                 color = SecondaryText(), style = MaterialTheme.typography.bodySmall
             )
-            // Mode 06 monitor results
-            if (mode06MonitorResult != null && (mode06MonitorResult.sparkIgnitionComponents.isNotEmpty() || mode06MonitorResult.compressionIgnitionComponents.isNotEmpty())) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Mode 06 monitor results", Modifier.weight(1f), color = SecondaryText())
-                    StatusBadge(ParamStatus.CONFIRMED)
-                }
-                if (mode06MonitorResult.sparkIgnitionComponents.isNotEmpty()) {
-                    Text(
-                        "SAE J1979 in-use performance tracking (spark ignition): " +
-                            mode06MonitorResult.sparkIgnitionComponents
-                                .map { "${it.componentId}: ${it.rawCounts}" }
-                                .joinToString(", "),
-                        color = SecondaryText(), style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                if (mode06MonitorResult.compressionIgnitionComponents.isNotEmpty()) {
-                    Text(
-                        "SAE J1979 in-use performance tracking (compression ignition): " +
-                            mode06MonitorResult.compressionIgnitionComponents
-                                .map { "${it.componentId}: ${it.rawCounts}" }
-                                .joinToString(", "),
-                        color = SecondaryText(), style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                if (mode06MonitorResult.rawResponse.isNotBlank() && mode06MonitorResult.rawResponse != "No response") {
-                    Text(
-                        "Raw response preserved: ${mode06MonitorResult.rawResponse}",
-                        color = SecondaryText(), style = MaterialTheme.typography.bodySmall
-                    )
-                }
-                Text(
-                    "Mode 06 results are shown as completion/condition counts, not pass/fail. " +
-                        "Manufacturer-specific limits are not assumed.",
-                    color = SecondaryText(), style = MaterialTheme.typography.labelSmall
-                )
-            } else {
-                Text(
-                    "Mode 06 monitor results: " +
-                        (mode06MonitorResult?.let {
-                            buildString {
-                                if (it.sparkIgnitionComponents.isNotEmpty()) append("SI ${it.sparkIgnitionComponents.size} components")
-                                if (it.compressionIgnitionComponents.isNotEmpty()) {
-                                    if (isNotEmpty()) append(", ")
-                                    append("CI ${it.compressionIgnitionComponents.size} components")
-                                }
-                                if (it.rawResponse.isNotBlank() && it.rawResponse != "No response") append(" · raw preserved")
-                            }
-                        } ?: "not requested yet") +
-                        (mode06MonitorResult?.standardShape != true ? "; raw Mode 06 preserved where no SAE J1979 shape matches" : "") +
-                        ". Not a diagnosis — limits are not assumed.",
-                    color = SecondaryText(), style = MaterialTheme.typography.labelSmall
-                )
-            }
+            Text(
+                "Mode 06 (on-board monitoring test results) is not exposed by this adapter's ECU responses; " +
+                    "readiness and live temperatures above come from Mode 01.",
+                color = SecondaryText(), style = MaterialTheme.typography.labelSmall
+            )
         }
 
         // ---------------- TRANSMISSION ----------------
@@ -270,7 +220,7 @@ fun AdvancedDiagnosticsPage(
             )
             Text(
                 "Fluid temperature and clutch/solenoid data require Kia-specific manufacturer codes " +
-                    " (AVAILABLE BUT UNTESTED with this ELM327-style adapter). Not requested automatically — " +
+                    "(AVAILABLE BUT UNTESTED with this ELM327-style adapter). Not requested automatically — " +
                     "the app never sends commands that could alter transmission behaviour.",
                 color = SecondaryText(), style = MaterialTheme.typography.bodySmall
             )
