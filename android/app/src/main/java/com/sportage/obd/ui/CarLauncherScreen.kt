@@ -61,6 +61,12 @@ import com.sportage.obd.service.ActiveAlert
 import com.sportage.obd.service.AlertSeverity
 import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.ui.theme.*
+import com.sportage.obd.ui.dashboard.DashboardActions
+import com.sportage.obd.ui.dashboard.DashboardData
+import com.sportage.obd.ui.dashboard.DashboardLayoutCard
+import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
+import com.sportage.obd.ui.dashboard.DashboardThemeHost
+import com.sportage.obd.ui.dashboard.rememberDashboardMedia
 import com.sportage.obd.ui.boards.BoardData
 import com.sportage.obd.ui.boards.BoardScreen
 import com.sportage.obd.ui.boards.PrefsBoardConfigStore
@@ -160,7 +166,9 @@ fun CarLauncherScreen(
     onSetAccentOverride: (String?) -> Unit = {},
     onSetDensityOverride: (String?) -> Unit = {},
     onSetGaugeStyleOverride: (String?) -> Unit = {},
-    onOpenPrivacyPolicy: () -> Unit = {}
+    onOpenPrivacyPolicy: () -> Unit = {},
+    dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
+    onSetDashboardLayoutId: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -259,6 +267,55 @@ fun CarLauncherScreen(
         } catch (_: Exception) {}
     }
 
+    fun openNavigation() {
+        if (!NavigationLauncher.open(context, currentLat, currentLon)) {
+            Toast.makeText(
+                context,
+                "No compatible navigation app could open. Install or enable a maps app.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    // Layout themes are pure renderers: all live values and callbacks are assembled once
+    // here, so swapping the home layout never re-subscribes OBD telemetry or media.
+    val dashboardLayout = DashboardLayoutTheme.fromId(dashboardLayoutId)
+    val dashboardData = DashboardData(
+        connectionState = connectionState,
+        measuredHz = measuredHz,
+        speed = displaySpeed,
+        speedUnit = speedUnit,
+        rpm = rpm,
+        coolant = coolant,
+        intakeTemp = intakeTemp,
+        fuelLevel = fuelLevel,
+        throttle = throttle,
+        load = load,
+        voltage = voltage,
+        gear = gear,
+        transmissionGear = transmissionGear,
+        isDemoMode = isDemoMode,
+        weatherTempC = weatherTempC,
+        weatherText = weatherText,
+        gpsStatus = gpsStatus,
+        tripDistanceKm = tripDistanceKm,
+        tripDurationSeconds = tripDurationSeconds,
+        speedHistory = speedHistory,
+        rpmHistory = rpmHistory
+    )
+    val dashboardActions = DashboardActions(
+        onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+        onOpenBluetooth = onOpenBluetoothClick,
+        onOpenNavigation = { openNavigation() },
+        onOpenMusic = { launchLocalMusicApp() },
+        onOpenPhone = { openPhoneDialer(context) },
+        onOpenApps = onOpenAppDrawer
+    )
+    val dashboardMedia = rememberDashboardMedia(
+        enabled = dashboardLayout != DashboardLayoutTheme.Classic && activePage == 0,
+        fallbackMediaKey = { sendMediaKey(it) }
+    )
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -289,30 +346,33 @@ fun CarLauncherScreen(
 
                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                         when (activePage) {
-                            0 -> PermanentHomeSplitView(
-                                isLandscape = true,
-                                aspectRatio = aspectRatio,
-                                currentLat = currentLat,
-                                currentLon = currentLon,
-                                gpsStatus = gpsStatus,
-                                speed = displaySpeed,
-                                speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
-                                rpm = rpm,
-                                coolant = coolant,
-                                voltage = voltage,
-                                load = load,
-                                throttle = throttle,
-                                gear = gear,
-                                connectionState = connectionState,
-                                measuredHz = measuredHz,
-                                isDemoMode = isDemoMode,
-                                onOpenNavigation = {
-                                    if (!NavigationLauncher.open(context, currentLat, currentLon)) {
-                                        Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
-                                    }
-                                }
-                            )
+                            0 -> DashboardThemeHost(
+                                theme = dashboardLayout,
+                                data = dashboardData,
+                                actions = dashboardActions,
+                                media = dashboardMedia
+                            ) {
+                                PermanentHomeSplitView(
+                                    isLandscape = true,
+                                    aspectRatio = aspectRatio,
+                                    currentLat = currentLat,
+                                    currentLon = currentLon,
+                                    gpsStatus = gpsStatus,
+                                    speed = displaySpeed,
+                                    speedUnit = speedUnit,
+                                    onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                    rpm = rpm,
+                                    coolant = coolant,
+                                    voltage = voltage,
+                                    load = load,
+                                    throttle = throttle,
+                                    gear = gear,
+                                    connectionState = connectionState,
+                                    measuredHz = measuredHz,
+                                    isDemoMode = isDemoMode,
+                                    onOpenNavigation = { openNavigation() }
+                                )
+                            }
                             1 -> GaugesAndGraphsPage(
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
@@ -409,21 +469,27 @@ fun CarLauncherScreen(
                                 onSetAccentOverride = onSetAccentOverride,
                                 onSetDensityOverride = onSetDensityOverride,
                                 onSetGaugeStyleOverride = onSetGaugeStyleOverride,
-                                onOpenPrivacyPolicy = onOpenPrivacyPolicy
+                                onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+                                dashboardLayoutId = dashboardLayoutId,
+                                onSetDashboardLayoutId = onSetDashboardLayoutId
                             )
                         }
                     }
-                    QuickActionDock(
-                        onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
-                        onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
-                        onBluetooth = onOpenBluetoothClick,
-                        logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
-                        canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
-                        onLogging = {
-                            if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
-                            else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
-                        }
-                    )
+                    // New layout themes own their five-icon dock; keep the legacy quick dock
+                    // for the classic home screen and every secondary page.
+                    if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
+                        QuickActionDock(
+                            onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+                            onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+                            onBluetooth = onOpenBluetoothClick,
+                            logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+                            canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+                            onLogging = {
+                                if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+                                else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
                 }
             }
         } else {
@@ -439,36 +505,39 @@ fun CarLauncherScreen(
 
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
                     when (activePage) {
-                        0 -> PermanentHomeSplitView(
-                            isLandscape = false,
-                            aspectRatio = aspectRatio,
-                            currentLat = currentLat,
-                            currentLon = currentLon,
-                            gpsStatus = gpsStatus,
-                            speed = displaySpeed,
-                            speedUnit = speedUnit,
-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
-                            rpm = rpm,
-                            coolant = coolant,
-                            voltage = voltage,
-                            load = load,
-                            throttle = throttle,
-                            intake = intakeTemp,
-                            fuel = fuelLevel,
-                            transmissionGear = transmissionGear,
-                            gear = gear,
-                            weatherTempC = weatherTempC,
-                            weatherText = weatherText,
-                            currentBearing = currentBearing,
-                            connectionState = connectionState,
-                            measuredHz = measuredHz,
-                            isDemoMode = isDemoMode,
-                            onOpenNavigation = {
-                                if (!NavigationLauncher.open(context, currentLat, currentLon)) {
-                                    Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        )
+                        0 -> DashboardThemeHost(
+                            theme = dashboardLayout,
+                            data = dashboardData,
+                            actions = dashboardActions,
+                            media = dashboardMedia
+                        ) {
+                            PermanentHomeSplitView(
+                                isLandscape = false,
+                                aspectRatio = aspectRatio,
+                                currentLat = currentLat,
+                                currentLon = currentLon,
+                                gpsStatus = gpsStatus,
+                                speed = displaySpeed,
+                                speedUnit = speedUnit,
+                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                rpm = rpm,
+                                coolant = coolant,
+                                voltage = voltage,
+                                load = load,
+                                throttle = throttle,
+                                intake = intakeTemp,
+                                fuel = fuelLevel,
+                                transmissionGear = transmissionGear,
+                                gear = gear,
+                                weatherTempC = weatherTempC,
+                                weatherText = weatherText,
+                                currentBearing = currentBearing,
+                                connectionState = connectionState,
+                                measuredHz = measuredHz,
+                                isDemoMode = isDemoMode,
+                                onOpenNavigation = { openNavigation() }
+                            )
+                        }
                         1 -> GaugesAndGraphsPage(
                             speed = displaySpeed,
                             speedUnit = speedUnit,
@@ -565,22 +634,26 @@ fun CarLauncherScreen(
                             onSetAccentOverride = onSetAccentOverride,
                             onSetDensityOverride = onSetDensityOverride,
                             onSetGaugeStyleOverride = onSetGaugeStyleOverride,
-                            onOpenPrivacyPolicy = onOpenPrivacyPolicy
+                            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+                            dashboardLayoutId = dashboardLayoutId,
+                            onSetDashboardLayoutId = onSetDashboardLayoutId
                         )
                     }
                 }
 
-                QuickActionDock(
-                    onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
-                    onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
-                    onBluetooth = onOpenBluetoothClick,
-                    logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
-                    canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
-                    onLogging = {
-                        if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
-                        else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
-                    }
-                )
+                if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
+                    QuickActionDock(
+                        onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+                        onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+                        onBluetooth = onOpenBluetoothClick,
+                        logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+                        canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+                        onLogging = {
+                            if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+                            else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+                        }
+                    )
+                }
                 CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
             }
         }
@@ -1705,7 +1778,9 @@ fun SettingsPage(
     onSetAccentOverride: (String?) -> Unit = {},
     onSetDensityOverride: (String?) -> Unit = {},
     onSetGaugeStyleOverride: (String?) -> Unit = {},
-    onOpenPrivacyPolicy: () -> Unit = {}
+    onOpenPrivacyPolicy: () -> Unit = {},
+    dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
+    onSetDashboardLayoutId: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
@@ -1732,6 +1807,12 @@ fun SettingsPage(
             onSetDensityOverride = onSetDensityOverride,
             onSetGaugeStyleOverride = onSetGaugeStyleOverride,
             onOpenPrivacyPolicy = onOpenPrivacyPolicy
+        )
+
+        // 0b. Whole-screen layout: switches the home screen itself, not just its palette.
+        DashboardLayoutCard(
+            selectedId = dashboardLayoutId,
+            onSelect = { onSetDashboardLayoutId(it.id) }
         )
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)

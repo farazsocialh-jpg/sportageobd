@@ -37,6 +37,8 @@ import com.sportage.obd.ui.AppDrawerDialog
 import com.sportage.obd.ui.BluetoothDialog
 import com.sportage.obd.ui.CarLauncherScreen
 import com.sportage.obd.ui.OnboardingScreen
+import com.sportage.obd.ui.dashboard.DashboardLayoutStore
+import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
 import com.sportage.obd.ui.PrivacyPolicyScreen
 import com.sportage.obd.ui.TerminalLog
 import com.sportage.obd.ui.theme.ImportedThemeStore
@@ -152,6 +154,10 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var densityOverride by mutableStateOf<String?>(null)
     private var gaugeStyleOverride by mutableStateOf<String?>(null)
 
+    // Whole-screen home layout theme (persisted separately from the color theme).
+    private var dashboardLayoutId by mutableStateOf(DashboardLayoutTheme.DEFAULT_ID)
+    private val dashboardLayoutStore by lazy { DashboardLayoutStore(this) }
+
     // In-app font scaling (persisted). The new typography minimums (32/24sp) already meet
     // the spec at 1.0x, so this is a comfort feature, not a legibility crutch.
     private var fontScale by mutableStateOf(1.0f)
@@ -217,6 +223,7 @@ class MainActivity : ComponentActivity(), LocationListener {
         accentOverride = uiPrefs.getString("accentOverride", null)
         densityOverride = uiPrefs.getString("densityOverride", null)
         gaugeStyleOverride = uiPrefs.getString("gaugeStyleOverride", null)
+        dashboardLayoutId = dashboardLayoutStore.load().id
         // Imported themes must be registered before the first composition resolves the theme.
         ImportedThemes.replaceAll(ImportedThemeStore(this).load())
         fontScale = uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.5f)
@@ -355,7 +362,13 @@ class MainActivity : ComponentActivity(), LocationListener {
                                     gaugeStyleOverride = style
                                     uiPrefs.edit().putString("gaugeStyleOverride", style).apply()
                                 },
-                                onOpenPrivacyPolicy = ::openPrivacyPolicy
+                                onOpenPrivacyPolicy = ::openPrivacyPolicy,
+                                dashboardLayoutId = dashboardLayoutId,
+                                onSetDashboardLayoutId = { id ->
+                                    val layout = DashboardLayoutTheme.fromId(id)
+                                    dashboardLayoutId = layout.id
+                                    dashboardLayoutStore.save(layout)
+                                }
                             )
                         }
 
