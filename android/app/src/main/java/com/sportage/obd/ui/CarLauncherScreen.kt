@@ -1797,6 +1797,7 @@ fun SettingsPage(
         Text("Settings", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
 
         // 0. Theme & Colors Card: restyles the whole app instantly, persisted across restarts.
+        // =============================================================\n        // SECTION 1: Theme & Colors\n        // =============================================================
         ThemeCustomizationCard(
             themeId = themeId,
             accentOverride = accentOverride,
@@ -1816,6 +1817,7 @@ fun SettingsPage(
         )
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
+        // =============================================================\n        // SECTION 2: Default Launcher & Units\n        // =============================================================
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = DarkBackground(),
@@ -1948,6 +1950,7 @@ fun SettingsPage(
         }
 
         // 3. Warning Thresholds Card
+        // =============================================================\n        // SECTION 3: Warning Thresholds & Logging\n        // =============================================================
         Surface(
             modifier = Modifier.fillMaxWidth(),
             color = DarkBackground(),
