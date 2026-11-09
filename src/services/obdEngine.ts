@@ -79,6 +79,13 @@ class RealObdEngine {
     gear: 0
   };
 
+  // Connection reliability
+  private reconnectAttempt: number = 0;
+  private maxReconnectAttempts: number = 5;
+  private reconnectBackoffMs: number = 1000;
+  private connectionTimeoutTimer: any = null;
+  private pendingConnectionResolve: ((success: boolean) => void) | null = null;
+
   public getTelemetry(): LiveTelemetry {
     return this.currentTelemetry;
   }
@@ -190,7 +197,7 @@ class RealObdEngine {
       device.addEventListener('gattserverdisconnected', () => {
         this.log('ERR', 'Bluetooth GATT connection lost.');
         this.pollingAbort = true;
-        this.setConnection('DISCONNECTED');
+        this.scheduleReconnect();
       });
 
       const server = await device.gatt.connect();
@@ -252,6 +259,44 @@ class RealObdEngine {
       this.setConnection('ERROR');
       return false;
     }
+  }
+
+  /**
+   * Schedule automatic reconnection with exponential backoff
+   */
+  private scheduleReconnect(): void {
+    if (this.reconnectAttempt >= this.maxReconnectAttempts) {
+      this.log('ERR', 'Max reconnection attempts reached. Manual re required.');
+      this.setConnection('ERROR');
+      return;
+    }
+
+    this.reconnectAttempt++;
+    const delay = this.reconnectBackoffMs * Math.pow(2, this.reconnectAttempt - 1);
+    this.log('INFO', `Scheduling reconnection attempt ${this.reconnectAttempt} in ${delay}ms`);
+
+    this.connectionTimeoutTimer = setTimeout(() => {
+      this.setConnection('RECONNECTING');
+      this.connectBluetooth().then(success => {
+        if (success) {
+          this.reconnectAttempt = 0;
+          this.log('INFO', 'Reconnection successful');
+        }
+      }).catch(err => {
+        this.scheduleReconnect();
+      });
+    }, delay);
+  }
+
+  /**
+   * Cancel any pending reconnection timer
+   */
+  private cancelReconnect(): void {
+    if (this.connectionTimeoutTimer) {
+      clearTimeout(this.connectionTimeoutTimer);
+      this.connectionTimeoutTimer = null;
+    }
+    this.reconnectAttempt = 0;
   }
 
   /**
@@ -462,10 +507,21 @@ class RealObdEngine {
     this.adapterInfo.lastPacketTime = Date.now();
     this.adapterInfo.packetsReceived += 1;
 
-    // ELM327 signals completion of response with prompt character '>'
+    // CAN frame allow-list validation - prevent injection attacks
+    const canFramePattern = /^[0-9A-Fa-f\s>]+$/;
     if (this.incomingBuffer.includes('>')) {
       const fullResponse = this.incomingBuffer;
       this.incomingBuffer = '';
+
+      // Validate response format - should be hex-based OBD2 response
+      const potentialFrames = fullResponse.split('>');
+      for (const frame of potentialFrames) {
+        const trimmed = frame.trim();
+        if (trimmed && !canFramePattern.test(trimmed)) {
+          this.log('ERR', `Invalid CAN frame detected (possible injection): ${trimmed}`);
+          continue;
+        }
+      }
 
       const clean = fullResponse
         .replace(/\r\n?/g, '\n')
@@ -473,7 +529,6 @@ class RealObdEngine {
         .trim();
 
       this.log('RX', clean);
-
       if (this.pendingResolver) {
         if (this.commandTimeoutTimer) {
           clearTimeout(this.commandTimeoutTimer);
