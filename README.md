@@ -58,10 +58,11 @@ cockpit instead of a normal home screen.
 
 **Theming and widgets**
 
-- **Live themes** — the Settings → Theme card switches between complete built-in themes
+- **Live themes** — the Settings → Theme card shows a cockpit preview for every built-in theme
   (`Minimal Daily`, `Cyber Neon`, `Classic Analog`, `Off-Road Rugged`, `Night Low-Glare`) plus the
-  original color presets. A theme changes colors, typography, shapes, density, motion, background,
-  gauge style and the default widget layout; switching is instant and persists.
+  original color presets. Pick a card to preview it, then tap Apply theme. A theme changes colors,
+  typography, shapes, density, motion, background, gauge style and the default widget layout, and
+  the choice persists across restarts.
 - **Overrides** — accent color, density and gauge style can be layered on any theme and reset in
   one tap. System font scaling and reduce-motion are respected.
 - **Import / export** — copy the active theme as strict JSON, edit it, and import it back. Invalid

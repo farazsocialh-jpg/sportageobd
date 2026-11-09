@@ -1,6 +1,7 @@
 package com.sportage.obd.ui.boards
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +38,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,8 +46,16 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -90,6 +100,7 @@ fun BoardScreen(
     var settingsTarget by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var history by remember { mutableStateOf<List<BoardSnapshot>>(emptyList()) }
+    var dragActive by remember { mutableStateOf(false) }
     val pagerState = rememberPagerState(pageCount = { layout.boards.size })
     val clipboard = LocalClipboardManager.current
     val scope = rememberCoroutineScope()
@@ -151,16 +162,20 @@ fun BoardScreen(
         persist(next, configs.withRemoved(boardIndex, widgetIndex))
     }
 
-    fun moveWidget(boardIndex: Int, widgetIndex: Int, delta: Int) {
+    /** Moves a widget to an absolute index, used by drag-and-drop and the arrow buttons. */
+    fun moveWidgetTo(boardIndex: Int, widgetIndex: Int, target: Int) {
         val board = layout.boards.getOrNull(boardIndex) ?: return
-        val target = widgetIndex + delta
-        if (target < 0 || target >= board.size) return
+        if (widgetIndex !in board.indices || target !in board.indices || target == widgetIndex) return
         snapshot()
-        val swapped = board.toMutableList().apply {
+        val reordered = board.toMutableList().apply {
             val w = removeAt(widgetIndex); add(target, w)
         }
-        val next = BoardLayout(layout.boards.mapIndexed { i, b -> if (i == boardIndex) swapped else b })
+        val next = BoardLayout(layout.boards.mapIndexed { i, b -> if (i == boardIndex) reordered else b })
         persist(next, configs.withMoved(boardIndex, widgetIndex, target))
+    }
+
+    fun moveWidget(boardIndex: Int, widgetIndex: Int, delta: Int) {
+        moveWidgetTo(boardIndex, widgetIndex, widgetIndex + delta)
     }
 
     fun updateConfig(boardIndex: Int, widgetIndex: Int, config: WidgetConfig) {
@@ -210,7 +225,7 @@ fun BoardScreen(
             Column(Modifier.weight(1f)) {
                 Text("Boards", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
                 Text(
-                    if (editing) "Edit mode · configure, duplicate, reorder or add widgets" else "Swipe left and right between your boards",
+                    if (editing) "Edit mode · drag to reorder, tap icons to configure, duplicate or add" else "Swipe left and right between your boards",
                     color = SecondaryText(), style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -295,7 +310,7 @@ fun BoardScreen(
         if (editing) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Widgets: pencil to configure, copy to duplicate, arrows to reorder",
+                    "Hold a widget and drag to reorder; arrows do the same with TalkBack",
                     color = SecondaryText(), fontSize = 11.sp, modifier = Modifier.weight(1f)
                 )
                 TextButton(onClick = ::resetLayout, modifier = Modifier.testTag("board_reset")) {
@@ -308,9 +323,19 @@ fun BoardScreen(
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.testTag("boards_pager").weight(1f).fillMaxWidth(),
-            beyondViewportPageCount = 0
+            beyondViewportPageCount = 0,
+            // A horizontal drag on a widget must reorder it, not swipe to the next board.
+            userScrollEnabled = !dragActive
         ) { pageIndex ->
             val widgets = layout.boards[pageIndex]
+            val dragState = remember(pageIndex) { WidgetDragState() }
+            val haptic = LocalHapticFeedback.current
+            LaunchedEffect(editing, pageIndex) {
+                if (!editing) {
+                    dragState.reset()
+                    dragActive = false
+                }
+            }
             if (widgets.isEmpty()) {
                 Surface(
                     modifier = Modifier.fillMaxSize().testTag("board_empty_${pageIndex}"),
@@ -346,6 +371,55 @@ fun BoardScreen(
                         }
                     ) { widgetIndex ->
                         val type = widgets[widgetIndex]
+                        val dragged = dragState.draggedIndex == widgetIndex
+                        val dropTarget = dragState.isDragging && !dragged &&
+                            dragState.targetIndex == widgetIndex
+                        val itemModifier = if (editing) {
+                            Modifier
+                                .onGloballyPositioned { coordinates ->
+                                    dragState.updateBounds(
+                                        widgetIndex,
+                                        coordinates.positionInParent(),
+                                        Size(
+                                            coordinates.size.width.toFloat(),
+                                            coordinates.size.height.toFloat()
+                                        )
+                                    )
+                                }
+                                .pointerInput(pageIndex, widgetIndex) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            dragState.start(widgetIndex, widgets.size)
+                                            dragActive = true
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            dragState.drag(amount)
+                                        },
+                                        onDragEnd = {
+                                            dragActive = false
+                                            dragState.finish()?.let { (from, to) ->
+                                                moveWidgetTo(pageIndex, from, to)
+                                            }
+                                        },
+                                        onDragCancel = {
+                                            dragActive = false
+                                            dragState.reset()
+                                        }
+                                    )
+                                }
+                                .zIndex(if (dragged) 1f else 0f)
+                                .graphicsLayer {
+                                    if (dragged) {
+                                        translationX = dragState.dragOffset.x
+                                        translationY = dragState.dragOffset.y
+                                        scaleX = 1.03f
+                                        scaleY = 1.03f
+                                        shadowElevation = 16.dp.toPx()
+                                    }
+                                }
+                        } else Modifier
                         BoardWidget(
                             type = type,
                             data = data,
@@ -353,11 +427,13 @@ fun BoardScreen(
                             canMoveLeft = editing && widgetIndex > 0,
                             canMoveRight = editing && widgetIndex < widgets.size - 1,
                             config = configs.configAt(pageIndex, widgetIndex),
+                            highlighted = dropTarget,
                             onRemove = { removeWidget(pageIndex, widgetIndex) },
                             onMoveLeft = { moveWidget(pageIndex, widgetIndex, -1) },
                             onMoveRight = { moveWidget(pageIndex, widgetIndex, 1) },
                             onConfigure = { settingsTarget = pageIndex to widgetIndex },
-                            onDuplicate = { duplicateWidget(pageIndex, widgetIndex) }
+                            onDuplicate = { duplicateWidget(pageIndex, widgetIndex) },
+                            modifier = itemModifier
                         )
                     }
                 }

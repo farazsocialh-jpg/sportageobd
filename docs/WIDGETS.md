@@ -88,6 +88,9 @@ defaults as fallback. Low-fuel and low-voltage warnings stay direction-aware.
 ## Editing
 
 Edit mode exposes, per widget: configure (pencil), duplicate (copy), reorder (arrows), remove (×).
+Hold any widget and drag it over another to reorder; the drop target is outlined and the rest of
+the grid stays put until release. Pager swiping is paused during a drag, and a drop in the gutters
+leaves the order unchanged. The arrows remain for TalkBack and precise single-step moves.
 The header adds undo (last 20 changes), copy layout, paste layout, and a reset to the active
 theme's default board. The picker groups types by Driving / Engine / Location / Trip / Status and
 marks types already on the current board.
