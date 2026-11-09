@@ -1,5 +1,6 @@
 package com.sportage.obd.ui.boards
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -68,17 +69,20 @@ fun BoardWidget(
     canMoveLeft: Boolean,
     canMoveRight: Boolean,
     config: WidgetConfig = WidgetConfig(),
+    highlighted: Boolean = false,
     onRemove: () -> Unit = {},
     onMoveLeft: () -> Unit = {},
     onMoveRight: () -> Unit = {},
     onConfigure: () -> Unit = {},
-    onDuplicate: () -> Unit = {}
+    onDuplicate: () -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val resolved = remember(config) { config.normalized() }
     Surface(
-        modifier = Modifier.testTag("board_widget_${type.id}").fillMaxWidth().heightIn(min = 96.dp),
+        modifier = modifier.testTag("board_widget_${type.id}").fillMaxWidth().heightIn(min = 96.dp),
         color = MaterialTheme.colorScheme.surface,
-        shape = themeWidgetShape()
+        shape = themeWidgetShape(),
+        border = if (highlighted) BorderStroke(2.dp, ElectricCyan()) else null
     ) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

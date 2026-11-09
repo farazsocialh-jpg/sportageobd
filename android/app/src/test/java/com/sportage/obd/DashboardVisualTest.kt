@@ -1,6 +1,7 @@
 package com.sportage.obd
 
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import android.app.Activity
 import android.graphics.Bitmap
@@ -43,9 +44,10 @@ class DashboardVisualTest {
 
     private fun launch(fontScale: Float = 1f, drivingSpeed: Int = 64, connected: Boolean = true) {
         val page = mutableIntStateOf(0)
+        val theme = mutableStateOf("cockpit-dark")
         compose.setContent {
             CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
-              SportageObdTheme {
+              SportageObdTheme(themeId = theme.value) {
                 activity = LocalContext.current as Activity
                 CarLauncherScreen(
                     connectionState = if (connected) ConnectionState.Connected("ELM327", "00:11:22:33:44:55") else ConnectionState.Disconnected,
@@ -55,6 +57,7 @@ class DashboardVisualTest {
                     rpmHistory = listOf(1000L to 800, 2000L to 1500, 3000L to 1900, 4000L to 2400, 5000L to 1800, 6000L to 2100),
                     currentLat = 25.2854, currentLon = 51.5310,
                     activePage = page.intValue, onNavigatePage = { page.intValue = it },
+                    themeId = theme.value, onSetThemeId = { theme.value = it },
                     onOpenBluetoothClick = { bluetoothOpens++ },
                     onOpenAppDrawer = { appDrawerOpens++ }, dtcCodes = emptyList(), isScanningDtc = false,
                     onScanDtc = { scans++ }, onClearDtc = { clears++ }, tripDistanceKm = 24.7,
@@ -257,10 +260,17 @@ class DashboardVisualTest {
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
         compose.onNodeWithText("THEME & COLORS").assertExists()
+        // Selecting only previews; the app restyles when Apply theme is pressed.
+        compose.onNodeWithTag("theme_preset_list").performScrollToNode(hasTestTag("theme_preset_arctic"))
         compose.onNodeWithTag("theme_preset_arctic").performClick()
-        compose.onNodeWithText("Arctic Light").assertExists()
+        compose.onNodeWithText("Apply theme").assertExists()
+        compose.onNodeWithTag("theme_active_title").assertTextContains("Active: Cockpit Dark")
+        compose.onNodeWithTag("theme_apply").performClick()
+        compose.onNodeWithTag("theme_active_title").assertTextContains("Active: Arctic Light")
         snapshot("settings-theme-arctic")
+        compose.onNodeWithTag("theme_preset_list").performScrollToNode(hasTestTag("theme_preset_cockpit-dark"))
         compose.onNodeWithTag("theme_preset_cockpit-dark").performClick()
-        compose.onNodeWithText("Cockpit Dark").assertExists()
+        compose.onNodeWithTag("theme_apply").performClick()
+        compose.onNodeWithTag("theme_active_title").assertTextContains("Active: Cockpit Dark")
     }
 }

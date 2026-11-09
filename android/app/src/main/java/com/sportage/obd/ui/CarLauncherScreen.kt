@@ -16,7 +16,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -27,7 +29,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
@@ -40,6 +44,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.bluetooth.ConnectionState
@@ -2063,6 +2069,9 @@ private fun ThemeCustomizationCard(
     }
     val contrastWarnings = remember(spec) { spec.accessibilityWarnings() }
     var statusMessage by remember { mutableStateOf<String?>(null) }
+    // Selecting a card previews it; the theme only restyles the app after Apply.
+    var pendingThemeId by remember(themeId) { mutableStateOf(themeId) }
+    val pendingTitle = presetList.firstOrNull { it.id == pendingThemeId }?.title ?: selected.title
 
     Surface(
         modifier = Modifier.fillMaxWidth().testTag("theme_card"),
@@ -2076,7 +2085,11 @@ private fun ThemeCustomizationCard(
         ) {
             Column {
                 Text("THEME & COLORS", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                Text("Restyle the whole app instantly · ${selected.title}", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                Text(
+                    "Active: ${selected.title}",
+                    color = PrimaryText(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                    fontFamily = FontFamily.SansSerif, modifier = Modifier.testTag("theme_active_title")
+                )
                 if (spec.description.isNotBlank()) {
                     Text(spec.description, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
                 }
@@ -2101,32 +2114,56 @@ private fun ThemeCustomizationCard(
                 colors = ListItemDefaults.colors(containerColor = DarkSurface())
             )
 
-            Text("THEMES", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                presetList.forEach { preset ->
-                    val isSel = preset.id == themeId
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Box(
-                            modifier = Modifier
-                                .testTag("theme_preset_${preset.id}")
-                                .size(52.dp)
-                                .border(
-                                    BorderStroke(if (isSel) 2.dp else 1.dp, if (isSel) ElectricCyan() else DarkSurfaceElevated()),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .background(preset.colors.background, RoundedCornerShape(10.dp))
-                                .clickable { onSetThemeId(preset.id) },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                Modifier.size(22.dp)
-                                    .background(preset.colors.accent, CircleShape)
-                                    .border(BorderStroke(2.dp, preset.colors.surface), CircleShape)
-                            )
-                        }
-                        Text(preset.title, fontSize = 10.sp, maxLines = 1, color = if (isSel) ElectricCyan() else SecondaryText())
-                    }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("THEMES", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+                Spacer(Modifier.weight(1f))
+                Text("${presetList.size} styles", color = SecondaryText(), fontSize = 10.sp, fontFamily = FontFamily.SansSerif)
+            }
+            Text(
+                "Pick a card to preview it, then tap Apply theme. The card marked ACTIVE is what you see now.",
+                color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif
+            )
+            LazyRow(
+                modifier = Modifier.fillMaxWidth().testTag("theme_preset_list"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(end = 4.dp)
+            ) {
+                items(presetList, key = { it.id }) { preset ->
+                    ThemePreviewCard(
+                        preset = preset,
+                        selected = preset.id == pendingThemeId,
+                        active = preset.id == themeId,
+                        onSelect = { pendingThemeId = preset.id }
+                    )
                 }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = { onSetThemeId(pendingThemeId) },
+                    enabled = pendingThemeId != themeId,
+                    modifier = Modifier.testTag("theme_apply"),
+                    shape = RoundedCornerShape(8.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ElectricCyan(),
+                        contentColor = OnAccent(),
+                        disabledContainerColor = DarkSurfaceElevated(),
+                        disabledContentColor = SecondaryText()
+                    )
+                ) {
+                    Text(
+                        if (pendingThemeId == themeId) "Theme applied" else "Apply theme",
+                        fontSize = 12.sp, fontWeight = FontWeight.SemiBold, fontFamily = FontFamily.SansSerif
+                    )
+                }
+                Text(
+                    if (pendingThemeId == themeId) "Active: $pendingTitle" else "Preview: $pendingTitle",
+                    color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
             }
 
             if (contrastWarnings.isNotEmpty()) {
@@ -2251,6 +2288,98 @@ private fun ThemeCustomizationCard(
             confirmButton = { TextButton(onClick = { statusMessage = null }) { Text("OK") } },
             title = { Text("Theme") },
             text = { Text(message) }
+        )
+    }
+}
+
+/**
+ * A small cockpit mock-up rendered with the preset's own colors, so the driver can see
+ * the background, text, accent and gauge before applying the theme.
+ */
+@Composable
+private fun ThemePreviewCard(
+    preset: CockpitThemePreset,
+    selected: Boolean,
+    active: Boolean,
+    onSelect: () -> Unit
+) {
+    val colors = preset.colors
+    val shape = RoundedCornerShape(12.dp)
+    Column(
+        modifier = Modifier
+            .testTag("theme_preset_${preset.id}")
+            .width(184.dp)
+            .clip(shape)
+            .border(
+                BorderStroke(if (selected) 2.dp else 1.dp, if (selected) ElectricCyan() else DarkSurfaceElevated()),
+                shape
+            )
+            .background(DarkSurface())
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
+            .padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(96.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(Brush.verticalGradient(listOf(colors.background, colors.surface)))
+                .padding(8.dp)
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "SPEED", color = colors.textSecondary, fontSize = 8.sp,
+                        fontWeight = FontWeight.Bold, letterSpacing = 1.sp
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (active) {
+                        Box(
+                            Modifier
+                                .background(colors.accent, RoundedCornerShape(4.dp))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Text("ACTIVE", color = colors.onAccent, fontSize = 7.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+                Row(verticalAlignment = Alignment.Bottom) {
+                    Text(
+                        "88", color = colors.textPrimary, fontSize = 30.sp,
+                        fontWeight = FontWeight.Light, fontFamily = FontFamily.Monospace
+                    )
+                    Text(
+                        " km/h", color = colors.textSecondary, fontSize = 8.sp,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Row(
+                    Modifier.fillMaxWidth().padding(end = 42.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Box(Modifier.weight(1.6f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.accent))
+                    Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.secondary))
+                    Box(Modifier.weight(1f).height(6.dp).clip(RoundedCornerShape(3.dp)).background(colors.warning))
+                }
+            }
+            Canvas(Modifier.align(Alignment.BottomEnd).size(38.dp)) {
+                val stroke = Stroke(width = 5.dp.toPx(), cap = StrokeCap.Round)
+                drawArc(colors.gaugeTrack, startAngle = 140f, sweepAngle = 260f, useCenter = false, style = stroke)
+                drawArc(colors.gaugeFill, startAngle = 140f, sweepAngle = 175f, useCenter = false, style = stroke)
+            }
+        }
+        Text(
+            preset.title,
+            color = if (selected) ElectricCyan() else PrimaryText(),
+            fontSize = 12.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = 1, overflow = TextOverflow.Ellipsis
+        )
+        Text(
+            preset.description.ifBlank { "Classic cockpit palette" },
+            color = SecondaryText(), fontSize = 10.sp, lineHeight = 13.sp,
+            maxLines = 2, minLines = 2, overflow = TextOverflow.Ellipsis
         )
     }
 }
