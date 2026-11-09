@@ -1,0 +1,1982 @@
+diff --git a/android/app/src/main/java/com/sportage/obd/MainActivity.kt b/android/app/src/main/java/com/sportage/obd/MainActivity.kt
+index 446d24f..4360972 100644
+--- a/android/app/src/main/java/com/sportage/obd/MainActivity.kt
++++ b/android/app/src/main/java/com/sportage/obd/MainActivity.kt
+@@ -37,6 +37,8 @@ import com.sportage.obd.ui.AppDrawerDialog
+ import com.sportage.obd.ui.BluetoothDialog
+ import com.sportage.obd.ui.CarLauncherScreen
+ import com.sportage.obd.ui.OnboardingScreen
++import com.sportage.obd.ui.dashboard.DashboardLayoutStore
++import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
+ import com.sportage.obd.ui.PrivacyPolicyScreen
+ import com.sportage.obd.ui.TerminalLog
+ import com.sportage.obd.ui.theme.ImportedThemeStore
+@@ -152,6 +154,10 @@ class MainActivity : ComponentActivity(), LocationListener {
+     private var densityOverride by mutableStateOf<String?>(null)
+     private var gaugeStyleOverride by mutableStateOf<String?>(null)
+ 
++    // Whole-screen home layout theme (persisted separately from the color theme).
++    private var dashboardLayoutId by mutableStateOf(DashboardLayoutTheme.DEFAULT_ID)
++    private val dashboardLayoutStore by lazy { DashboardLayoutStore(this) }
++
+     // In-app font scaling (persisted). The new typography minimums (32/24sp) already meet
+     // the spec at 1.0x, so this is a comfort feature, not a legibility crutch.
+     private var fontScale by mutableStateOf(1.0f)
+@@ -217,6 +223,7 @@ class MainActivity : ComponentActivity(), LocationListener {
+         accentOverride = uiPrefs.getString("accentOverride", null)
+         densityOverride = uiPrefs.getString("densityOverride", null)
+         gaugeStyleOverride = uiPrefs.getString("gaugeStyleOverride", null)
++        dashboardLayoutId = dashboardLayoutStore.load().id
+         // Imported themes must be registered before the first composition resolves the theme.
+         ImportedThemes.replaceAll(ImportedThemeStore(this).load())
+         fontScale = uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.5f)
+@@ -355,7 +362,13 @@ class MainActivity : ComponentActivity(), LocationListener {
+                                     gaugeStyleOverride = style
+                                     uiPrefs.edit().putString("gaugeStyleOverride", style).apply()
+                                 },
+-                                onOpenPrivacyPolicy = ::openPrivacyPolicy
++                                onOpenPrivacyPolicy = ::openPrivacyPolicy,
++                                dashboardLayoutId = dashboardLayoutId,
++                                onSetDashboardLayoutId = { id ->
++                                    val layout = DashboardLayoutTheme.fromId(id)
++                                    dashboardLayoutId = layout.id
++                                    dashboardLayoutStore.save(layout)
++                                }
+                             )
+                         }
+ 
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt b/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
+index 505e7d1..94a9c77 100644
+--- a/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
++++ b/android/app/src/main/java/com/sportage/obd/ui/CarLauncherScreen.kt
+@@ -61,6 +61,12 @@ import com.sportage.obd.service.ActiveAlert
+ import com.sportage.obd.service.AlertSeverity
+ import com.sportage.obd.service.AlertThresholds
+ import com.sportage.obd.ui.theme.*
++import com.sportage.obd.ui.dashboard.DashboardActions
++import com.sportage.obd.ui.dashboard.DashboardData
++import com.sportage.obd.ui.dashboard.DashboardLayoutCard
++import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
++import com.sportage.obd.ui.dashboard.DashboardThemeHost
++import com.sportage.obd.ui.dashboard.rememberDashboardMedia
+ import com.sportage.obd.ui.boards.BoardData
+ import com.sportage.obd.ui.boards.BoardScreen
+ import com.sportage.obd.ui.boards.PrefsBoardConfigStore
+@@ -160,7 +166,9 @@ fun CarLauncherScreen(
+     onSetAccentOverride: (String?) -> Unit = {},
+     onSetDensityOverride: (String?) -> Unit = {},
+     onSetGaugeStyleOverride: (String?) -> Unit = {},
+-    onOpenPrivacyPolicy: () -> Unit = {}
++    onOpenPrivacyPolicy: () -> Unit = {},
++    dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
++    onSetDashboardLayoutId: (String) -> Unit = {}
+ ) {
+     val context = LocalContext.current
+     val configuration = LocalConfiguration.current
+@@ -259,6 +267,55 @@ fun CarLauncherScreen(
+         } catch (_: Exception) {}
+     }
+ 
++    fun openNavigation() {
++        if (!NavigationLauncher.open(context, currentLat, currentLon)) {
++            Toast.makeText(
++                context,
++                "No compatible navigation app could open. Install or enable a maps app.",
++                Toast.LENGTH_LONG
++            ).show()
++        }
++    }
++
++    // Layout themes are pure renderers: all live values and callbacks are assembled once
++    // here, so swapping the home layout never re-subscribes OBD telemetry or media.
++    val dashboardLayout = DashboardLayoutTheme.fromId(dashboardLayoutId)
++    val dashboardData = DashboardData(
++        connectionState = connectionState,
++        measuredHz = measuredHz,
++        speed = displaySpeed,
++        speedUnit = speedUnit,
++        rpm = rpm,
++        coolant = coolant,
++        intakeTemp = intakeTemp,
++        fuelLevel = fuelLevel,
++        throttle = throttle,
++        load = load,
++        voltage = voltage,
++        gear = gear,
++        transmissionGear = transmissionGear,
++        isDemoMode = isDemoMode,
++        weatherTempC = weatherTempC,
++        weatherText = weatherText,
++        gpsStatus = gpsStatus,
++        tripDistanceKm = tripDistanceKm,
++        tripDurationSeconds = tripDurationSeconds,
++        speedHistory = speedHistory,
++        rpmHistory = rpmHistory
++    )
++    val dashboardActions = DashboardActions(
++        onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
++        onOpenBluetooth = onOpenBluetoothClick,
++        onOpenNavigation = { openNavigation() },
++        onOpenMusic = { launchLocalMusicApp() },
++        onOpenPhone = { openPhoneDialer(context) },
++        onOpenApps = onOpenAppDrawer
++    )
++    val dashboardMedia = rememberDashboardMedia(
++        enabled = dashboardLayout != DashboardLayoutTheme.Classic && activePage == 0,
++        fallbackMediaKey = { sendMediaKey(it) }
++    )
++
+     BoxWithConstraints(
+         modifier = Modifier
+             .fillMaxSize()
+@@ -289,30 +346,33 @@ fun CarLauncherScreen(
+ 
+                     Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                         when (activePage) {
+-                            0 -> PermanentHomeSplitView(
+-                                isLandscape = true,
+-                                aspectRatio = aspectRatio,
+-                                currentLat = currentLat,
+-                                currentLon = currentLon,
+-                                gpsStatus = gpsStatus,
+-                                speed = displaySpeed,
+-                                speedUnit = speedUnit,
+-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+-                                rpm = rpm,
+-                                coolant = coolant,
+-                                voltage = voltage,
+-                                load = load,
+-                                throttle = throttle,
+-                                gear = gear,
+-                                connectionState = connectionState,
+-                                measuredHz = measuredHz,
+-                                isDemoMode = isDemoMode,
+-                                onOpenNavigation = {
+-                                    if (!NavigationLauncher.open(context, currentLat, currentLon)) {
+-                                        Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
+-                                    }
+-                                }
+-                            )
++                            0 -> DashboardThemeHost(
++                                theme = dashboardLayout,
++                                data = dashboardData,
++                                actions = dashboardActions,
++                                media = dashboardMedia
++                            ) {
++                                PermanentHomeSplitView(
++                                    isLandscape = true,
++                                    aspectRatio = aspectRatio,
++                                    currentLat = currentLat,
++                                    currentLon = currentLon,
++                                    gpsStatus = gpsStatus,
++                                    speed = displaySpeed,
++                                    speedUnit = speedUnit,
++                                    onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
++                                    rpm = rpm,
++                                    coolant = coolant,
++                                    voltage = voltage,
++                                    load = load,
++                                    throttle = throttle,
++                                    gear = gear,
++                                    connectionState = connectionState,
++                                    measuredHz = measuredHz,
++                                    isDemoMode = isDemoMode,
++                                    onOpenNavigation = { openNavigation() }
++                                )
++                            }
+                             1 -> GaugesAndGraphsPage(
+                                 speed = displaySpeed,
+                                 speedUnit = speedUnit,
+@@ -409,21 +469,27 @@ fun CarLauncherScreen(
+                                 onSetAccentOverride = onSetAccentOverride,
+                                 onSetDensityOverride = onSetDensityOverride,
+                                 onSetGaugeStyleOverride = onSetGaugeStyleOverride,
+-                                onOpenPrivacyPolicy = onOpenPrivacyPolicy
++                                onOpenPrivacyPolicy = onOpenPrivacyPolicy,
++                                dashboardLayoutId = dashboardLayoutId,
++                                onSetDashboardLayoutId = onSetDashboardLayoutId
+                             )
+                         }
+                     }
+-                    QuickActionDock(
+-                        onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+-                        onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+-                        onBluetooth = onOpenBluetoothClick,
+-                        logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+-                        canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+-                        onLogging = {
+-                            if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+-                            else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+-                        }
+-                    )
++                    // New layout themes own their five-icon dock; keep the legacy quick dock
++                    // for the classic home screen and every secondary page.
++                    if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
++                        QuickActionDock(
++                            onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
++                            onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
++                            onBluetooth = onOpenBluetoothClick,
++                            logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
++                            canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
++                            onLogging = {
++                                if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
++                                else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
++                            }
++                        )
++                    }
+                 }
+             }
+         } else {
+@@ -439,36 +505,39 @@ fun CarLauncherScreen(
+ 
+                 Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                     when (activePage) {
+-                        0 -> PermanentHomeSplitView(
+-                            isLandscape = false,
+-                            aspectRatio = aspectRatio,
+-                            currentLat = currentLat,
+-                            currentLon = currentLon,
+-                            gpsStatus = gpsStatus,
+-                            speed = displaySpeed,
+-                            speedUnit = speedUnit,
+-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+-                            rpm = rpm,
+-                            coolant = coolant,
+-                            voltage = voltage,
+-                            load = load,
+-                            throttle = throttle,
+-                            intake = intakeTemp,
+-                            fuel = fuelLevel,
+-                            transmissionGear = transmissionGear,
+-                            gear = gear,
+-                            weatherTempC = weatherTempC,
+-                            weatherText = weatherText,
+-                            currentBearing = currentBearing,
+-                            connectionState = connectionState,
+-                            measuredHz = measuredHz,
+-                            isDemoMode = isDemoMode,
+-                            onOpenNavigation = {
+-                                if (!NavigationLauncher.open(context, currentLat, currentLon)) {
+-                                    Toast.makeText(context, "No compatible navigation app could open. Install or enable a maps app.", Toast.LENGTH_LONG).show()
+-                                }
+-                            }
+-                        )
++                        0 -> DashboardThemeHost(
++                            theme = dashboardLayout,
++                            data = dashboardData,
++                            actions = dashboardActions,
++                            media = dashboardMedia
++                        ) {
++                            PermanentHomeSplitView(
++                                isLandscape = false,
++                                aspectRatio = aspectRatio,
++                                currentLat = currentLat,
++                                currentLon = currentLon,
++                                gpsStatus = gpsStatus,
++                                speed = displaySpeed,
++                                speedUnit = speedUnit,
++                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
++                                rpm = rpm,
++                                coolant = coolant,
++                                voltage = voltage,
++                                load = load,
++                                throttle = throttle,
++                                intake = intakeTemp,
++                                fuel = fuelLevel,
++                                transmissionGear = transmissionGear,
++                                gear = gear,
++                                weatherTempC = weatherTempC,
++                                weatherText = weatherText,
++                                currentBearing = currentBearing,
++                                connectionState = connectionState,
++                                measuredHz = measuredHz,
++                                isDemoMode = isDemoMode,
++                                onOpenNavigation = { openNavigation() }
++                            )
++                        }
+                         1 -> GaugesAndGraphsPage(
+                             speed = displaySpeed,
+                             speedUnit = speedUnit,
+@@ -565,22 +634,26 @@ fun CarLauncherScreen(
+                             onSetAccentOverride = onSetAccentOverride,
+                             onSetDensityOverride = onSetDensityOverride,
+                             onSetGaugeStyleOverride = onSetGaugeStyleOverride,
+-                            onOpenPrivacyPolicy = onOpenPrivacyPolicy
++                            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
++                            dashboardLayoutId = dashboardLayoutId,
++                            onSetDashboardLayoutId = onSetDashboardLayoutId
+                         )
+                     }
+                 }
+ 
+-                QuickActionDock(
+-                    onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
+-                    onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
+-                    onBluetooth = onOpenBluetoothClick,
+-                    logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
+-                    canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
+-                    onLogging = {
+-                        if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
+-                        else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
+-                    }
+-                )
++                if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
++                    QuickActionDock(
++                        onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
++                        onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
++                        onBluetooth = onOpenBluetoothClick,
++                        logging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false,
++                        canLog = viewModel != null && connectionState is ConnectionState.Connected && !isDemoMode,
++                        onLogging = {
++                            if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
++                            else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
++                        }
++                    )
++                }
+                 CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
+             }
+         }
+@@ -1705,7 +1778,9 @@ fun SettingsPage(
+     onSetAccentOverride: (String?) -> Unit = {},
+     onSetDensityOverride: (String?) -> Unit = {},
+     onSetGaugeStyleOverride: (String?) -> Unit = {},
+-    onOpenPrivacyPolicy: () -> Unit = {}
++    onOpenPrivacyPolicy: () -> Unit = {},
++    dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
++    onSetDashboardLayoutId: (String) -> Unit = {}
+ ) {
+     val context = LocalContext.current
+     var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
+@@ -1734,6 +1809,12 @@ fun SettingsPage(
+             onOpenPrivacyPolicy = onOpenPrivacyPolicy
+         )
+ 
++        // 0b. Whole-screen layout: switches the home screen itself, not just its palette.
++        DashboardLayoutCard(
++            selectedId = dashboardLayoutId,
++            onSelect = { onSetDashboardLayoutId(it.id) }
++        )
++
+         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
+         Surface(
+             modifier = Modifier.fillMaxWidth(),
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/CircularDashboardTheme.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/CircularDashboardTheme.kt
+new file mode 100644
+index 0000000..2718194
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/CircularDashboardTheme.kt
+@@ -0,0 +1,361 @@
++package com.sportage.obd.ui.dashboard
++
++import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.aspectRatio
++import androidx.compose.foundation.layout.fillMaxHeight
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.MusicNote
++import androidx.compose.material.icons.filled.Pause
++import androidx.compose.material.icons.filled.PlayArrow
++import androidx.compose.material.icons.filled.SkipNext
++import androidx.compose.material.icons.filled.SkipPrevious
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.StrokeCap
++import androidx.compose.ui.graphics.drawscope.Stroke
++import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.sportage.obd.ui.theme.DarkBackground
++import com.sportage.obd.ui.theme.DarkSurface
++import com.sportage.obd.ui.theme.DarkSurfaceElevated
++import com.sportage.obd.ui.theme.ElectricCyan
++import com.sportage.obd.ui.theme.GaugeFill
++import com.sportage.obd.ui.theme.GaugeTrack
++import com.sportage.obd.ui.theme.OnAccent
++import com.sportage.obd.ui.theme.PrimaryText
++import com.sportage.obd.ui.theme.SecondaryText
++import com.sportage.obd.ui.theme.WarningAmber
++import kotlin.math.cos
++import kotlin.math.min
++import kotlin.math.sin
++
++/**
++ * Theme A — circular gauge dashboard.
++ *
++ * Landscape (head units): circular music player left, car graphic centre, large circular
++ * speedometer right, five-icon dock along the bottom.
++ * Portrait: the speedometer dominates the top, car and music sit side by side below it.
++ */
++@Composable
++fun CircularDashboardTheme(
++    data: DashboardData,
++    actions: DashboardActions,
++    media: DashboardMedia,
++    modifier: Modifier = Modifier
++) {
++    BoxWithConstraints(
++        modifier = modifier.fillMaxSize().testTag("dashboard_circular_theme")
++    ) {
++        val landscape = maxWidth >= maxHeight
++        if (landscape) {
++            Column(Modifier.fillMaxSize()) {
++                Row(
++                    modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp),
++                    verticalAlignment = Alignment.CenterVertically
++                ) {
++                    CircularMusicPlayer(media, Modifier.weight(1f).fillMaxHeight())
++                    CarGraphicPanel(data, Modifier.weight(1.15f).fillMaxHeight())
++                    CircularSpeedometer(data, actions, Modifier.weight(1f).fillMaxHeight())
++                }
++                DashboardDock(actions)
++            }
++        } else {
++            Column(Modifier.fillMaxSize()) {
++                Box(
++                    modifier = Modifier.weight(1.2f).fillMaxWidth().padding(8.dp),
++                    contentAlignment = Alignment.Center
++                ) {
++                    CircularSpeedometer(
++                        data = data,
++                        actions = actions,
++                        modifier = Modifier.fillMaxHeight().aspectRatio(1f, matchHeightConstraintsFirst = true)
++                    )
++                }
++                Row(
++                    modifier = Modifier.weight(0.9f).fillMaxWidth().padding(horizontal = 8.dp),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp)
++                ) {
++                    CircularMusicPlayer(media, Modifier.weight(1f).fillMaxHeight())
++                    CarGraphicPanel(data, Modifier.weight(1f).fillMaxHeight())
++                }
++                DashboardDock(actions)
++            }
++        }
++    }
++}
++
++@Composable
++private fun CircularSpeedometer(
++    data: DashboardData,
++    actions: DashboardActions,
++    modifier: Modifier = Modifier
++) {
++    Surface(
++        modifier = modifier.testTag("circular_speedometer"),
++        color = DarkSurface(),
++        shape = RoundedCornerShape(20.dp),
++        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceElevated())
++    ) {
++        BoxWithConstraints(
++            modifier = Modifier.fillMaxSize().padding(8.dp),
++            contentAlignment = Alignment.Center
++        ) {
++            val diameter = minOf(maxWidth, maxHeight)
++            val speedFont = (diameter.value * 0.27f).coerceIn(26f, 76f)
++            val maxSpeed = if (data.speedUnit == "mph") 140f else 220f
++            val speedColor = ElectricCyan()
++            val trackColor = GaugeTrack()
++            val fillColor = GaugeFill()
++            val rpmColor = WarningAmber()
++            val needleColor = PrimaryText()
++            val hubColor = DarkBackground()
++            val tickColor = SecondaryText().copy(alpha = 0.55f)
++            val speedFraction = ((data.speed ?: 0).toFloat() / maxSpeed).coerceIn(0f, 1f)
++            val rpmFraction = ((data.rpm ?: 0).toFloat() / 7000f).coerceIn(0f, 1f)
++
++            Box(Modifier.size(diameter), contentAlignment = Alignment.Center) {
++                Canvas(Modifier.fillMaxSize()) {
++                    val startAngle = 135f
++                    val sweepAngle = 270f
++                    val outerStroke = 12.dp.toPx()
++                    val inset = outerStroke / 2f + 2.dp.toPx()
++                    val radius = (size.minDimension / 2f) - inset
++                    val arcSize = androidx.compose.ui.geometry.Size(radius * 2f, radius * 2f)
++                    val topLeft = Offset((size.width - radius * 2f) / 2f, (size.height - radius * 2f) / 2f)
++                    val centre = Offset(size.width / 2f, size.height / 2f)
++
++                    // Outer speed track.
++                    drawArc(
++                        color = trackColor,
++                        startAngle = startAngle,
++                        sweepAngle = sweepAngle,
++                        useCenter = false,
++                        topLeft = topLeft,
++                        size = arcSize,
++                        style = Stroke(width = outerStroke, cap = StrokeCap.Round)
++                    )
++                    drawArc(
++                        color = fillColor,
++                        startAngle = startAngle,
++                        sweepAngle = sweepAngle * speedFraction,
++                        useCenter = false,
++                        topLeft = topLeft,
++                        size = arcSize,
++                        style = Stroke(width = outerStroke, cap = StrokeCap.Round)
++                    )
++
++                    // Inner RPM ring.
++                    val rpmInset = inset + outerStroke + 7.dp.toPx()
++                    val rpmRadius = (size.minDimension / 2f) - rpmInset
++                    val rpmSize = androidx.compose.ui.geometry.Size(rpmRadius * 2f, rpmRadius * 2f)
++                    val rpmTopLeft = Offset((size.width - rpmRadius * 2f) / 2f, (size.height - rpmRadius * 2f) / 2f)
++                    drawArc(
++                        color = trackColor.copy(alpha = 0.7f),
++                        startAngle = startAngle,
++                        sweepAngle = sweepAngle,
++                        useCenter = false,
++                        topLeft = rpmTopLeft,
++                        size = rpmSize,
++                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
++                    )
++                    drawArc(
++                        color = rpmColor,
++                        startAngle = startAngle,
++                        sweepAngle = sweepAngle * rpmFraction,
++                        useCenter = false,
++                        topLeft = rpmTopLeft,
++                        size = rpmSize,
++                        style = Stroke(width = 4.dp.toPx(), cap = StrokeCap.Round)
++                    )
++
++                    // Major ticks around the outer track.
++                    for (i in 0..10) {
++                        val angle = Math.toRadians((startAngle + sweepAngle * i / 10f).toDouble())
++                        val tickOuter = radius
++                        val tickInner = radius - if (i % 5 == 0) 15.dp.toPx() else 8.dp.toPx()
++                        drawLine(
++                            color = tickColor,
++                            start = centre + Offset(
++                                (cos(angle) * tickInner).toFloat(),
++                                (sin(angle) * tickInner).toFloat()
++                            ),
++                            end = centre + Offset(
++                                (cos(angle) * tickOuter).toFloat(),
++                                (sin(angle) * tickOuter).toFloat()
++                            ),
++                            strokeWidth = if (i % 5 == 0) 3.dp.toPx() else 1.5.dp.toPx(),
++                            cap = StrokeCap.Round
++                        )
++                    }
++
++                    // Speed needle.
++                    val needleAngle = Math.toRadians((startAngle + sweepAngle * speedFraction).toDouble())
++                    val needleLength = radius * 0.78f
++                    drawLine(
++                        color = needleColor,
++                        start = centre,
++                        end = centre + Offset(
++                            (cos(needleAngle) * needleLength).toFloat(),
++                            (sin(needleAngle) * needleLength).toFloat()
++                        ),
++                        strokeWidth = 3.dp.toPx(),
++                        cap = StrokeCap.Round
++                    )
++                    drawCircle(speedColor, radius = 6.dp.toPx(), center = centre)
++                    drawCircle(hubColor, radius = 2.5.dp.toPx(), center = centre)
++                }
++
++                Column(
++                    horizontalAlignment = Alignment.CenterHorizontally,
++                    modifier = Modifier.padding(horizontal = 24.dp)
++                ) {
++                    Text(
++                        data.speedText,
++                        color = speedColor,
++                        fontSize = speedFont.sp,
++                        lineHeight = (speedFont * 1.05f).sp,
++                        fontWeight = FontWeight.Light,
++                        maxLines = 1
++                    )
++                    TextButton(
++                        onClick = actions.onToggleSpeedUnit,
++                        modifier = Modifier.testTag("circular_speed_unit")
++                    ) {
++                        Text(data.speedUnit, color = PrimaryText(), style = MaterialTheme.typography.labelLarge)
++                    }
++                    Text(
++                        data.rpm?.let { "$it rpm" } ?: "-- rpm",
++                        color = rpmColor,
++                        style = MaterialTheme.typography.labelMedium,
++                        maxLines = 1
++                    )
++                    Text(
++                        data.gearText,
++                        color = SecondaryText(),
++                        style = MaterialTheme.typography.labelSmall,
++                        maxLines = 1
++                    )
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun CarGraphicPanel(data: DashboardData, modifier: Modifier = Modifier) {
++    DashboardPanel(modifier) {
++        CarGraphic(data, Modifier.fillMaxSize())
++    }
++}
++
++@Composable
++private fun CircularMusicPlayer(media: DashboardMedia, modifier: Modifier = Modifier) {
++    Surface(
++        modifier = modifier.testTag("circular_music_player"),
++        color = DarkSurface(),
++        shape = RoundedCornerShape(20.dp),
++        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceElevated())
++    ) {
++        Column(
++            modifier = Modifier.fillMaxSize().padding(12.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++            verticalArrangement = Arrangement.Center
++        ) {
++            Box(
++                modifier = Modifier.weight(1f).fillMaxWidth(),
++                contentAlignment = Alignment.Center
++            ) {
++                Box(
++                    modifier = Modifier
++                        .fillMaxHeight()
++                        .aspectRatio(1f, matchHeightConstraintsFirst = true)
++                        .clip(CircleShape)
++                        .background(
++                            Brush.radialGradient(
++                                listOf(ElectricCyan().copy(alpha = 0.28f), DarkSurfaceElevated(), DarkBackground())
++                            )
++                        )
++                        .border(2.dp, ElectricCyan().copy(alpha = 0.55f), CircleShape),
++                    contentAlignment = Alignment.Center
++                ) {
++                    Icon(
++                        Icons.Default.MusicNote,
++                        contentDescription = null,
++                        tint = ElectricCyan(),
++                        modifier = Modifier.fillMaxSize(0.32f)
++                    )
++                }
++            }
++            Text(
++                media.nowPlaying?.title ?: "No music session",
++                color = PrimaryText(),
++                style = MaterialTheme.typography.titleMedium,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.fillMaxWidth()
++            )
++            Text(
++                media.nowPlaying?.artist ?: media.nowPlaying?.appName ?: "Tap play to send media keys",
++                color = SecondaryText(),
++                fontSize = 11.sp,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                textAlign = TextAlign.Center,
++                modifier = Modifier.fillMaxWidth()
++            )
++            Row(
++                verticalAlignment = Alignment.CenterVertically,
++                horizontalArrangement = Arrangement.Center
++            ) {
++                IconButton(onClick = media.onPrevious, modifier = Modifier.size(40.dp)) {
++                    Icon(Icons.Default.SkipPrevious, "Previous track", tint = SecondaryText())
++                }
++                IconButton(
++                    onClick = media.onPlayPause,
++                    modifier = Modifier
++                        .size(48.dp)
++                        .background(ElectricCyan(), CircleShape)
++                        .testTag("circular_music_play")
++                ) {
++                    Icon(
++                        if (media.nowPlaying?.isPlaying == true) Icons.Default.Pause else Icons.Default.PlayArrow,
++                        if (media.nowPlaying?.isPlaying == true) "Pause" else "Play",
++                        tint = OnAccent()
++                    )
++                }
++                IconButton(onClick = media.onNext, modifier = Modifier.size(40.dp)) {
++                    Icon(Icons.Default.SkipNext, "Next track", tint = SecondaryText())
++                }
++            }
++        }
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardComponents.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardComponents.kt
+new file mode 100644
+index 0000000..c49320b
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardComponents.kt
+@@ -0,0 +1,258 @@
++package com.sportage.obd.ui.dashboard
++
++import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.ColumnScope
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.Apps
++import androidx.compose.material.icons.filled.Bluetooth
++import androidx.compose.material.icons.filled.Headphones
++import androidx.compose.material.icons.filled.Navigation
++import androidx.compose.material.icons.filled.Phone
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.CornerRadius
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.drawscope.Stroke
++import androidx.compose.ui.graphics.vector.ImageVector
++import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.sportage.obd.ui.theme.DarkSurface
++import com.sportage.obd.ui.theme.DarkSurfaceElevated
++import com.sportage.obd.ui.theme.ElectricCyan
++import com.sportage.obd.ui.theme.PrimaryText
++import com.sportage.obd.ui.theme.SecondaryText
++import com.sportage.obd.ui.theme.TealAccent
++import com.sportage.obd.ui.theme.WarningAmber
++import kotlin.math.min
++
++/** Consistent rounded card used by the widget dashboard and the car/status panels. */
++@Composable
++fun DashboardPanel(
++    modifier: Modifier = Modifier,
++    content: @Composable ColumnScope.() -> Unit
++) {
++    Surface(
++        modifier = modifier,
++        color = DarkSurface(),
++        shape = RoundedCornerShape(18.dp),
++        border = androidx.compose.foundation.BorderStroke(1.dp, DarkSurfaceElevated())
++    ) {
++        Column(
++            modifier = Modifier.fillMaxSize().padding(14.dp),
++            content = content
++        )
++    }
++}
++
++/** Small labelled reading, e.g. "COOLANT 89°C". */
++@Composable
++fun DashboardStat(label: String, value: String, modifier: Modifier = Modifier, valueColor: Color = PrimaryText()) {
++    Column(modifier) {
++        Text(
++            label.uppercase(),
++            color = SecondaryText(),
++            fontSize = 10.sp,
++            letterSpacing = 0.8.sp,
++            fontWeight = FontWeight.Bold,
++            maxLines = 1
++        )
++        Text(
++            value,
++            color = valueColor,
++            style = MaterialTheme.typography.titleMedium,
++            maxLines = 1,
++            overflow = TextOverflow.Ellipsis
++        )
++    }
++}
++
++/**
++ * Top-down car silhouette shared by both themes. Purely decorative: it reacts to the
++ * already-live gear/connection values but never holds state of its own.
++ */
++@Composable
++fun CarGraphic(data: DashboardData, modifier: Modifier = Modifier) {
++    val bodyColor = DarkSurfaceElevated()
++    val roofColor = com.sportage.obd.ui.theme.DarkBackground()
++    val accent = ElectricCyan()
++    val wheelColor = Color(0xFF11161A)
++    val detailColor = SecondaryText()
++    val warning = WarningAmber()
++
++    Box(modifier.testTag("dashboard_car_graphic")) {
++        Canvas(Modifier.fillMaxSize().padding(horizontal = 12.dp, vertical = 24.dp)) {
++            val carWidth = min(size.width * 0.72f, size.height * 0.5f)
++            val carHeight = size.height * 0.94f
++            val left = (size.width - carWidth) / 2f
++            val top = (size.height - carHeight) / 2f
++            val right = left + carWidth
++            val bottom = top + carHeight
++            val wheelWidth = carWidth * 0.10f
++            val wheelHeight = carHeight * 0.16f
++
++            // Tyres first, so the body overlaps them cleanly.
++            listOf(
++                Offset(left - wheelWidth * 0.5f, top + carHeight * 0.13f),
++                Offset(right - wheelWidth * 0.5f, top + carHeight * 0.13f),
++                Offset(left - wheelWidth * 0.5f, bottom - carHeight * 0.29f),
++                Offset(right - wheelWidth * 0.5f, bottom - carHeight * 0.29f)
++            ).forEach { corner ->
++                drawRoundRect(
++                    color = wheelColor,
++                    topLeft = corner,
++                    size = Size(wheelWidth, wheelHeight),
++                    cornerRadius = CornerRadius(wheelWidth * 0.35f)
++                )
++            }
++
++            // Body.
++            drawRoundRect(
++                color = bodyColor,
++                topLeft = Offset(left, top),
++                size = Size(carWidth, carHeight),
++                cornerRadius = CornerRadius(carWidth * 0.26f)
++            )
++
++            // Cabin / greenhouse.
++            drawRoundRect(
++                color = roofColor,
++                topLeft = Offset(left + carWidth * 0.13f, top + carHeight * 0.22f),
++                size = Size(carWidth * 0.74f, carHeight * 0.42f),
++                cornerRadius = CornerRadius(carWidth * 0.16f)
++            )
++
++            // Windscreen and rear glass as thin accent strokes.
++            val glassStroke = 1.5.dp.toPx()
++            drawLine(
++                accent.copy(alpha = 0.55f),
++                Offset(left + carWidth * 0.20f, top + carHeight * 0.25f),
++                Offset(right - carWidth * 0.20f, top + carHeight * 0.25f),
++                strokeWidth = glassStroke
++            )
++            drawLine(
++                accent.copy(alpha = 0.35f),
++                Offset(left + carWidth * 0.20f, top + carHeight * 0.60f),
++                Offset(right - carWidth * 0.20f, top + carHeight * 0.60f),
++                strokeWidth = glassStroke
++            )
++
++            // Centre spine.
++            drawLine(
++                accent.copy(alpha = 0.35f),
++                Offset(size.width / 2f, top + carHeight * 0.66f),
++                Offset(size.width / 2f, bottom - carHeight * 0.05f),
++                strokeWidth = 2.dp.toPx()
++            )
++
++            // Headlights and tail lights.
++            val lightHeight = carHeight * 0.025f
++            val lightWidth = carWidth * 0.17f
++            val lightColor = if (data.connected || data.isDemoMode) accent else detailColor.copy(alpha = 0.45f)
++            drawRoundRect(
++                color = lightColor,
++                topLeft = Offset(left + carWidth * 0.17f, top + carHeight * 0.03f),
++                size = Size(lightWidth, lightHeight),
++                cornerRadius = CornerRadius(lightHeight / 2f)
++            )
++            drawRoundRect(
++                color = lightColor,
++                topLeft = Offset(right - carWidth * 0.17f - lightWidth, top + carHeight * 0.03f),
++                size = Size(lightWidth, lightHeight),
++                cornerRadius = CornerRadius(lightHeight / 2f)
++            )
++            drawRoundRect(
++                color = warning.copy(alpha = 0.85f),
++                topLeft = Offset(left + carWidth * 0.17f, bottom - carHeight * 0.055f),
++                size = Size(lightWidth, lightHeight),
++                cornerRadius = CornerRadius(lightHeight / 2f)
++            )
++            drawRoundRect(
++                color = warning.copy(alpha = 0.85f),
++                topLeft = Offset(right - carWidth * 0.17f - lightWidth, bottom - carHeight * 0.055f),
++                size = Size(lightWidth, lightHeight),
++                cornerRadius = CornerRadius(lightHeight / 2f)
++            )
++
++            // Soft outline keeps the silhouette readable on light themes.
++            drawRoundRect(
++                color = accent.copy(alpha = 0.30f),
++                topLeft = Offset(left, top),
++                size = Size(carWidth, carHeight),
++                cornerRadius = CornerRadius(carWidth * 0.26f),
++                style = Stroke(width = 1.dp.toPx())
++            )
++        }
++
++        Column(Modifier.align(Alignment.TopStart)) {
++            Text("VEHICLE", color = SecondaryText(), fontSize = 10.sp, letterSpacing = 1.sp, fontWeight = FontWeight.Bold)
++            Text(data.gearText, color = PrimaryText(), style = MaterialTheme.typography.headlineSmall)
++        }
++        Column(Modifier.align(Alignment.TopEnd), horizontalAlignment = Alignment.End) {
++            Text(if (data.isDemoMode) "DEMO" else "OBD", color = if (data.isDemoMode) WarningAmber() else TealAccent(),
++                fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
++            Text(data.connectionLabel, color = SecondaryText(), fontSize = 10.sp, maxLines = 1,
++                overflow = TextOverflow.Ellipsis)
++        }
++        Text(
++            "SPORTAGE",
++            color = SecondaryText().copy(alpha = 0.7f),
++            fontSize = 10.sp,
++            letterSpacing = 2.sp,
++            fontWeight = FontWeight.Bold,
++            modifier = Modifier.align(Alignment.BottomCenter)
++        )
++    }
++}
++
++/**
++ * Five-icon quick dock shared by both layout themes: music, navigation, phone, all apps
++ * and OBD Bluetooth. Deliberately fixed at five targets so it matches the launcher
++ * reference and stays thumb-reachable on 1024x600 head units.
++ */
++@Composable
++fun DashboardDock(actions: DashboardActions, modifier: Modifier = Modifier) {
++    Surface(
++        modifier = modifier.fillMaxWidth().testTag("dashboard_dock"),
++        color = DarkSurface(),
++        shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp)
++    ) {
++        Row(
++            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 4.dp),
++            horizontalArrangement = Arrangement.SpaceEvenly,
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            DockButton(Icons.Default.Headphones, "Open music app", actions.onOpenMusic)
++            DockButton(Icons.Default.Navigation, "Open navigation app", actions.onOpenNavigation)
++            DockButton(Icons.Default.Phone, "Open phone dialer", actions.onOpenPhone)
++            DockButton(Icons.Default.Apps, "Open installed apps", actions.onOpenApps)
++            DockButton(Icons.Default.Bluetooth, "OBD Bluetooth", actions.onOpenBluetooth)
++        }
++    }
++}
++
++@Composable
++private fun DockButton(icon: ImageVector, description: String, onClick: () -> Unit) {
++    IconButton(onClick = onClick, modifier = Modifier.size(52.dp)) {
++        Icon(icon, contentDescription = description, tint = ElectricCyan(), modifier = Modifier.size(24.dp))
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutCard.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutCard.kt
+new file mode 100644
+index 0000000..c8958a7
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutCard.kt
+@@ -0,0 +1,203 @@
++package com.sportage.obd.ui.dashboard
++
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Canvas
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.horizontalScroll
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.selection.selectable
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.Surface
++import androidx.compose.material3.Text
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.geometry.CornerRadius
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.semantics.Role
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.sportage.obd.ui.theme.DarkBackground
++import com.sportage.obd.ui.theme.DarkSurface
++import com.sportage.obd.ui.theme.DarkSurfaceElevated
++import com.sportage.obd.ui.theme.ElectricCyan
++import com.sportage.obd.ui.theme.PrimaryText
++import com.sportage.obd.ui.theme.SecondaryText
++
++/**
++ * Settings entry for whole-screen layouts. Tapping a card switches the home screen
++ * immediately and persists the choice; no separate Apply step, unlike color themes.
++ */
++@Composable
++fun DashboardLayoutCard(
++    selectedId: String,
++    onSelect: (DashboardLayoutTheme) -> Unit,
++    modifier: Modifier = Modifier
++) {
++    val selected = DashboardLayoutTheme.fromId(selectedId)
++    Surface(
++        modifier = modifier.fillMaxWidth().testTag("dashboard_layout_card"),
++        color = DarkBackground(),
++        shape = RoundedCornerShape(10.dp),
++        border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
++    ) {
++        Column(
++            modifier = Modifier.fillMaxWidth().padding(14.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp)
++        ) {
++            Column {
++                Text(
++                    "DASHBOARD LAYOUT",
++                    color = ElectricCyan(),
++                    fontSize = 12.sp,
++                    fontWeight = FontWeight.Bold
++                )
++                Text(
++                    "Active: ${selected.title}",
++                    color = PrimaryText(),
++                    fontSize = 14.sp,
++                    fontWeight = FontWeight.SemiBold,
++                    modifier = Modifier.testTag("dashboard_layout_active_title")
++                )
++                Text(
++                    "Swaps the whole home screen, not just the colors. Live speed, RPM, clock, media and Bluetooth status feed every layout.",
++                    color = SecondaryText(),
++                    fontSize = 11.sp
++                )
++            }
++            Row(
++                modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
++                horizontalArrangement = Arrangement.spacedBy(8.dp)
++            ) {
++                DashboardLayoutTheme.all.forEach { theme ->
++                    LayoutPreviewCard(
++                        theme = theme,
++                        selected = theme.id == selected.id,
++                        onSelect = { onSelect(theme) }
++                    )
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun LayoutPreviewCard(
++    theme: DashboardLayoutTheme,
++    selected: Boolean,
++    onSelect: () -> Unit
++) {
++    val shape = RoundedCornerShape(12.dp)
++    Column(
++        modifier = Modifier
++            .testTag("dashboard_layout_${theme.id}")
++            .width(176.dp)
++            .clip(shape)
++            .border(
++                BorderStroke(if (selected) 2.dp else 1.dp, if (selected) ElectricCyan() else DarkSurfaceElevated()),
++                shape
++            )
++            .background(DarkSurface())
++            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect)
++            .padding(8.dp),
++        verticalArrangement = Arrangement.spacedBy(6.dp)
++    ) {
++        LayoutPreview(theme)
++        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
++            Text(
++                theme.title,
++                color = if (selected) ElectricCyan() else PrimaryText(),
++                fontSize = 12.sp,
++                fontWeight = FontWeight.SemiBold,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                modifier = Modifier.weight(1f)
++            )
++            if (selected) {
++                Text("ACTIVE", color = ElectricCyan(), fontSize = 8.sp, fontWeight = FontWeight.Bold)
++            }
++        }
++        Text(
++            theme.description,
++            color = SecondaryText(),
++            fontSize = 10.sp,
++            lineHeight = 13.sp,
++            maxLines = 2,
++            minLines = 2,
++            overflow = TextOverflow.Ellipsis
++        )
++    }
++}
++
++/** Small wireframe of each layout; same drawing code for every card, no screenshots. */
++@Composable
++private fun LayoutPreview(theme: DashboardLayoutTheme) {
++    val surface = DarkSurfaceElevated()
++    val accent = ElectricCyan()
++    val background = DarkBackground()
++    Box(
++        modifier = Modifier
++            .fillMaxWidth()
++            .height(78.dp)
++            .clip(RoundedCornerShape(8.dp))
++            .background(Brush.verticalGradient(listOf(background, DarkSurface())))
++            .padding(7.dp)
++    ) {
++        Canvas(Modifier.fillMaxSize()) {
++            val gap = 4.dp.toPx()
++            val w = size.width
++            val h = size.height
++            val cardRadius = CornerRadius(3.dp.toPx())
++            fun card(left: Float, top: Float, width: Float, height: Float, color: Color = surface) {
++                drawRoundRect(
++                    color = color,
++                    topLeft = Offset(left, top),
++                    size = Size(width.coerceAtLeast(0f), height.coerceAtLeast(0f)),
++                    cornerRadius = cardRadius
++                )
++            }
++
++            when (theme.id) {
++                DashboardLayoutTheme.Classic.id -> {
++                    val mapWidth = w * 0.60f
++                    card(0f, 0f, mapWidth, h, accent.copy(alpha = 0.22f))
++                    card(mapWidth + gap, 0f, w - mapWidth - gap, h * 0.55f)
++                    card(mapWidth + gap, h * 0.55f + gap, w - mapWidth - gap, h * 0.45f - gap)
++                }
++                DashboardLayoutTheme.CircularGauge.id -> {
++                    val dial = h
++                    drawCircle(accent.copy(alpha = 0.20f), radius = dial / 2f, center = Offset(dial / 2f, h / 2f))
++                    drawCircle(accent, radius = dial * 0.34f, center = Offset(dial / 2f, h / 2f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
++                    card(dial + gap, h * 0.16f, w - dial * 2f - gap * 2f, h * 0.68f)
++                    drawCircle(accent.copy(alpha = 0.20f), radius = dial / 2f, center = Offset(w - dial / 2f, h / 2f))
++                    drawCircle(accent, radius = dial * 0.34f, center = Offset(w - dial / 2f, h / 2f), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx()))
++                    card(0f, h - 4.dp.toPx(), w, 4.dp.toPx(), accent.copy(alpha = 0.55f))
++                }
++                else -> {
++                    val columnWidth = (w - gap) / 2f
++                    card(0f, 0f, columnWidth, h * 0.5f - gap / 2f, accent.copy(alpha = 0.22f))
++                    card(0f, h * 0.5f + gap / 2f, columnWidth, h * 0.5f - gap / 2f)
++                    card(columnWidth + gap, 0f, columnWidth, h * 0.42f)
++                    card(columnWidth + gap, h * 0.42f + gap, columnWidth, h * 0.58f - gap, accent.copy(alpha = 0.22f))
++                    card(0f, h - 4.dp.toPx(), w, 4.dp.toPx(), accent.copy(alpha = 0.55f))
++                }
++            }
++        }
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutStore.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutStore.kt
+new file mode 100644
+index 0000000..42c0f0c
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutStore.kt
+@@ -0,0 +1,27 @@
++package com.sportage.obd.ui.dashboard
++
++import android.content.Context
++
++/**
++ * Persists the selected layout theme next to the existing cockpit appearance settings.
++ *
++ * The project already standardises on SharedPreferences for UI preferences
++ * ("sportage_obd_ui"), so this deliberately follows that convention instead of adding a
++ * second persistence dependency. Corrupt values fall back to [DashboardLayoutTheme.Classic].
++ */
++class DashboardLayoutStore(context: Context) {
++
++    private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
++
++    fun load(): DashboardLayoutTheme =
++        DashboardLayoutTheme.fromId(prefs.getString(KEY_LAYOUT, null))
++
++    fun save(theme: DashboardLayoutTheme) {
++        prefs.edit().putString(KEY_LAYOUT, theme.id).apply()
++    }
++
++    companion object {
++        const val PREFS_NAME = "sportage_obd_ui"
++        const val KEY_LAYOUT = "dashboard_layout"
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutTheme.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutTheme.kt
+new file mode 100644
+index 0000000..4f2373f
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardLayoutTheme.kt
+@@ -0,0 +1,46 @@
++package com.sportage.obd.ui.dashboard
++
++/**
++ * A user-selectable dashboard layout theme.
++ *
++ * Unlike [com.sportage.obd.ui.theme.ThemeSpec], which describes colors, typography and
++ * gauge tokens, a layout theme decides the whole home-screen arrangement. The ids are
++ * persisted, so they are part of the on-disk contract: rename a theme's title freely,
++ * but never reuse or change an id without a migration.
++ */
++sealed interface DashboardLayoutTheme {
++    val id: String
++    val title: String
++    val description: String
++
++    /** Existing map + telemetry home screen. Kept as the default for continuity. */
++    data object Classic : DashboardLayoutTheme {
++        override val id = DEFAULT_ID
++        override val title = "Map & Cockpit"
++        override val description = "Live map beside the analogue cockpit. The original Sportage home screen."
++    }
++
++    /** Theme A: central car, large circular speedometer, circular music player, icon dock. */
++    data object CircularGauge : DashboardLayoutTheme {
++        override val id = "circular-gauge"
++        override val title = "Circular Gauge"
++        override val description = "Centre car graphic with a large speed dial and circular now-playing disc."
++    }
++
++    /** Theme B: rectangular speed/car and clock/media widgets above an icon dock. */
++    data object RectangularWidgets : DashboardLayoutTheme {
++        override val id = "widget-board"
++        override val title = "Widget Board"
++        override val description = "Rectangular speed, clock and media widgets laid out like a car launcher."
++    }
++
++    companion object {
++        const val DEFAULT_ID = "classic"
++
++        val all: List<DashboardLayoutTheme> = listOf(Classic, CircularGauge, RectangularWidgets)
++
++        /** Unknown or corrupt persisted ids fall back to the classic dashboard, never crash. */
++        fun fromId(id: String?): DashboardLayoutTheme =
++            all.firstOrNull { it.id == id } ?: Classic
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardMediaState.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardMediaState.kt
+new file mode 100644
+index 0000000..e0d49ab
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardMediaState.kt
+@@ -0,0 +1,50 @@
++package com.sportage.obd.ui.dashboard
++
++import android.view.KeyEvent
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.collectAsState
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.remember
++import androidx.compose.ui.platform.LocalContext
++import com.sportage.obd.media.NowPlayingController
++import com.sportage.obd.media.chosenMusicApp
++
++/**
++ * Binds the dashboard to the active media session for as long as a layout theme is on
++ * screen. Both themes receive the same [DashboardMedia] instance from the launcher host,
++ * so switching layouts does not create a second session or reset playback metadata.
++ *
++ * When no MediaBrowserService is reachable, transport buttons fall back to standard
++ * media-key broadcasts, matching the existing Media page behaviour.
++ */
++@Composable
++fun rememberDashboardMedia(
++    enabled: Boolean = true,
++    fallbackMediaKey: (Int) -> Unit
++): DashboardMedia {
++    val context = LocalContext.current
++    val controller = remember(context) { NowPlayingController(context) }
++    val nowPlaying by controller.state.collectAsState()
++
++    DisposableEffect(controller, enabled) {
++        if (enabled) controller.connect(chosenMusicApp(context))
++        onDispose { if (enabled) controller.disconnect() }
++    }
++
++    return DashboardMedia(
++        nowPlaying = if (enabled) nowPlaying else null,
++        onPrevious = {
++            if (controller.isConnected) controller.previous()
++            else fallbackMediaKey(KeyEvent.KEYCODE_MEDIA_PREVIOUS)
++        },
++        onPlayPause = {
++            if (controller.isConnected) controller.playPause()
++            else fallbackMediaKey(KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
++        },
++        onNext = {
++            if (controller.isConnected) controller.next()
++            else fallbackMediaKey(KeyEvent.KEYCODE_MEDIA_NEXT)
++        }
++    )
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardThemeHost.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardThemeHost.kt
+new file mode 100644
+index 0000000..fb11f6d
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardThemeHost.kt
+@@ -0,0 +1,26 @@
++package com.sportage.obd.ui.dashboard
++
++import androidx.compose.runtime.Composable
++
++/**
++ * Single dispatch point for home-screen layout themes.
++ *
++ * The classic screen is passed as a slot because it still lives in CarLauncherScreen and
++ * owns its map/trip/navigation arguments. The two new themes share the same
++ * [DashboardData], [DashboardActions] and [DashboardMedia] instances, so switching between
++ * them never re-subscribes telemetry or opens a second media session.
++ */
++@Composable
++fun DashboardThemeHost(
++    theme: DashboardLayoutTheme,
++    data: DashboardData,
++    actions: DashboardActions,
++    media: DashboardMedia,
++    classic: @Composable () -> Unit
++) {
++    when (theme) {
++        DashboardLayoutTheme.Classic -> classic()
++        DashboardLayoutTheme.CircularGauge -> CircularDashboardTheme(data, actions, media)
++        DashboardLayoutTheme.RectangularWidgets -> RectangularDashboardTheme(data, actions, media)
++    }
++}
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardUiModel.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardUiModel.kt
+new file mode 100644
+index 0000000..8692ff9
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/DashboardUiModel.kt
+@@ -0,0 +1,71 @@
++package com.sportage.obd.ui.dashboard
++
++import com.sportage.obd.bluetooth.ConnectionState
++import com.sportage.obd.media.NowPlaying
++import com.sportage.obd.ui.gearLabel
++
++/**
++ * Everything a layout theme needs, assembled once by the launcher host.
++ *
++ * The themes are intentionally dumb renderers: neither fetches telemetry, opens a media
++ * session nor owns a clock. That keeps both layouts on exactly the same live data and
++ * makes switching layouts a pure re-composition instead of a data reload.
++ */
++data class DashboardData(
++    val connectionState: ConnectionState = ConnectionState.Disconnected,
++    val measuredHz: Float? = null,
++    val speed: Int? = null,
++    val speedUnit: String = "km/h",
++    val rpm: Int? = null,
++    val coolant: Int? = null,
++    val intakeTemp: Int? = null,
++    val fuelLevel: Int? = null,
++    val throttle: Float? = null,
++    val load: Float? = null,
++    val voltage: Float? = null,
++    val gear: Int = 0,
++    val transmissionGear: Int? = null,
++    val isDemoMode: Boolean = false,
++    val weatherTempC: String? = null,
++    val weatherText: String? = null,
++    val gpsStatus: String? = null,
++    val tripDistanceKm: Double = 0.0,
++    val tripDurationSeconds: Long = 0L,
++    val speedHistory: List<Pair<Long, Int>> = emptyList(),
++    val rpmHistory: List<Pair<Long, Int>> = emptyList()
++) {
++    val connected: Boolean get() = connectionState is ConnectionState.Connected
++
++    val connectionLabel: String
++        get() = when (connectionState) {
++            is ConnectionState.Connected -> "Connected · ${connectionState.deviceName}"
++            is ConnectionState.Connecting -> "Connecting"
++            is ConnectionState.Error -> "Error · reconnect"
++            ConnectionState.Disconnected -> "Disconnected"
++        }
++
++    val gearText: String get() = gearLabel(transmissionGear, gear)
++
++    val speedText: String get() = speed?.toString() ?: "--"
++}
++
++/** Navigation and media actions shared by every layout theme's dock and widgets. */
++data class DashboardActions(
++    val onToggleSpeedUnit: () -> Unit = {},
++    val onOpenBluetooth: () -> Unit = {},
++    val onOpenNavigation: () -> Unit = {},
++    val onOpenMusic: () -> Unit = {},
++    val onOpenPhone: () -> Unit = {},
++    val onOpenApps: () -> Unit = {}
++)
++
++/**
++ * One media session snapshot plus transport controls. Created once by the host so the
++ * circular disc and the rectangular media widget read the same now-playing metadata.
++ */
++data class DashboardMedia(
++    val nowPlaying: NowPlaying? = null,
++    val onPrevious: () -> Unit = {},
++    val onPlayPause: () -> Unit = {},
++    val onNext: () -> Unit = {}
++)
+diff --git a/android/app/src/main/java/com/sportage/obd/ui/dashboard/WidgetDashboardTheme.kt b/android/app/src/main/java/com/sportage/obd/ui/dashboard/WidgetDashboardTheme.kt
+new file mode 100644
+index 0000000..aa9aec0
+--- /dev/null
++++ b/android/app/src/main/java/com/sportage/obd/ui/dashboard/WidgetDashboardTheme.kt
+@@ -0,0 +1,331 @@
++package com.sportage.obd.ui.dashboard
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
++import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.Spacer
++import androidx.compose.foundation.layout.fillMaxHeight
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.layout.size
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.MusicNote
++import androidx.compose.material.icons.filled.Pause
++import androidx.compose.material.icons.filled.PlayArrow
++import androidx.compose.material.icons.filled.SkipNext
++import androidx.compose.material.icons.filled.SkipPrevious
++import androidx.compose.material3.Icon
++import androidx.compose.material3.IconButton
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Text
++import androidx.compose.material3.TextButton
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.text.font.FontFamily
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import com.sportage.obd.ui.theme.DarkSurfaceElevated
++import com.sportage.obd.ui.theme.ElectricCyan
++import com.sportage.obd.ui.theme.OnAccent
++import com.sportage.obd.ui.theme.PrimaryText
++import com.sportage.obd.ui.theme.SecondaryText
++import com.sportage.obd.ui.theme.TealAccent
++import com.sportage.obd.ui.theme.WarningAmber
++import kotlinx.coroutines.delay
++import java.text.SimpleDateFormat
++import java.util.Date
++import java.util.Locale
++
++/**
++ * Theme B — rectangular widget dashboard.
++ *
++ * Landscape: left column holds the speed widget above the car graphic; the right column
++ * holds the digital clock above the media widget. Portrait folds the same four widgets
++ * into a 2x2 grid. A five-icon dock stays pinned to the bottom.
++ */
++@Composable
++fun RectangularDashboardTheme(
++    data: DashboardData,
++    actions: DashboardActions,
++    media: DashboardMedia,
++    modifier: Modifier = Modifier
++) {
++    BoxWithConstraints(
++        modifier = modifier.fillMaxSize().testTag("dashboard_widgets_theme")
++    ) {
++        val landscape = maxWidth >= maxHeight
++        Column(Modifier.fillMaxSize()) {
++            if (landscape) {
++                Row(
++                    modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp)
++                ) {
++                    Column(
++                        modifier = Modifier.weight(0.44f).fillMaxHeight(),
++                        verticalArrangement = Arrangement.spacedBy(8.dp)
++                    ) {
++                        SpeedWidget(data, actions, Modifier.weight(1.15f).fillMaxWidth())
++                        CarGraphicPanel(data, Modifier.weight(1f).fillMaxWidth())
++                    }
++                    Column(
++                        modifier = Modifier.weight(0.56f).fillMaxHeight(),
++                        verticalArrangement = Arrangement.spacedBy(8.dp)
++                    ) {
++                        DigitalClockWidget(data, Modifier.weight(0.85f).fillMaxWidth())
++                        MediaWidget(media, actions, Modifier.weight(1.15f).fillMaxWidth())
++                    }
++                }
++            } else {
++                Column(
++                    modifier = Modifier.weight(1f).fillMaxWidth().padding(8.dp),
++                    verticalArrangement = Arrangement.spacedBy(8.dp)
++                ) {
++                    Row(
++                        modifier = Modifier.weight(0.85f).fillMaxWidth(),
++                        horizontalArrangement = Arrangement.spacedBy(8.dp)
++                    ) {
++                        SpeedWidget(data, actions, Modifier.weight(1f).fillMaxHeight())
++                        DigitalClockWidget(data, Modifier.weight(1f).fillMaxHeight())
++                    }
++                    Row(
++                        modifier = Modifier.weight(1.05f).fillMaxWidth(),
++                        horizontalArrangement = Arrangement.spacedBy(8.dp)
++                    ) {
++                        CarGraphicPanel(data, Modifier.weight(0.8f).fillMaxHeight())
++                        MediaWidget(media, actions, Modifier.weight(1.2f).fillMaxHeight())
++                    }
++                }
++            }
++            DashboardDock(actions)
++        }
++    }
++}
++
++@Composable
++private fun SpeedWidget(data: DashboardData, actions: DashboardActions, modifier: Modifier = Modifier) {
++    DashboardPanel(modifier.testTag("widget_speed_panel")) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            Text(
++                "SPEED",
++                color = SecondaryText(),
++                fontSize = 10.sp,
++                letterSpacing = 1.sp,
++                fontWeight = FontWeight.Bold
++            )
++            Text(
++                if (data.isDemoMode) "DEMO" else if (data.connected) "LIVE · ${data.measuredHz?.let { "%.1f Hz".format(it) } ?: "OBD"}" else "OFFLINE",
++                color = if (data.isDemoMode) WarningAmber() else if (data.connected) TealAccent() else SecondaryText(),
++                fontSize = 10.sp,
++                fontWeight = FontWeight.Bold,
++                maxLines = 1
++            )
++        }
++        BoxWithConstraints(
++            modifier = Modifier.weight(1f).fillMaxWidth(),
++            contentAlignment = Alignment.CenterStart
++        ) {
++            val speedFont = (maxWidth.value * 0.30f).coerceIn(34f, 86f)
++            Row(verticalAlignment = Alignment.Bottom) {
++                Text(
++                    data.speedText,
++                    color = ElectricCyan(),
++                    fontSize = speedFont.sp,
++                    lineHeight = (speedFont * 1.02f).sp,
++                    fontWeight = FontWeight.Light,
++                    fontFamily = FontFamily.Monospace,
++                    maxLines = 1
++                )
++                TextButton(
++                    onClick = actions.onToggleSpeedUnit,
++                    modifier = Modifier.padding(bottom = 6.dp).testTag("widget_speed_unit")
++                ) {
++                    Text(data.speedUnit, color = PrimaryText(), fontSize = 12.sp)
++                }
++            }
++        }
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            Text("RPM", color = SecondaryText(), fontSize = 10.sp, fontWeight = FontWeight.Bold)
++            Text(data.rpm?.let { "$it" } ?: "--", color = WarningAmber(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
++            Text(data.gearText, color = PrimaryText(), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
++        }
++        Spacer(Modifier.height(4.dp))
++        LinearProgressIndicator(
++            progress = { ((data.rpm ?: 0) / 7000f).coerceIn(0f, 1f) },
++            modifier = Modifier.fillMaxWidth().height(4.dp),
++            color = WarningAmber(),
++            trackColor = DarkSurfaceElevated()
++        )
++        Spacer(Modifier.height(8.dp))
++        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            DashboardStat("Coolant", data.coolant?.let { "$it°C" } ?: "--", Modifier.weight(1f),
++                if ((data.coolant ?: 0) > 105) WarningAmber() else PrimaryText())
++            DashboardStat("Fuel", data.fuelLevel?.let { "$it%" } ?: "--", Modifier.weight(1f))
++            DashboardStat("Battery", data.voltage?.let { "%.1f V".format(it) } ?: "--", Modifier.weight(1f))
++        }
++    }
++}
++
++@Composable
++private fun DigitalClockWidget(data: DashboardData, modifier: Modifier = Modifier) {
++    var now by remember { mutableStateOf(Date()) }
++    LaunchedEffect(Unit) {
++        while (true) {
++            now = Date()
++            delay(5_000)
++        }
++    }
++    val timeText = SimpleDateFormat("HH:mm", Locale.getDefault()).format(now)
++    val dateText = SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(now)
++
++    DashboardPanel(modifier.testTag("widget_clock_panel")) {
++        Text(
++            "CLOCK",
++            color = SecondaryText(),
++            fontSize = 10.sp,
++            letterSpacing = 1.sp,
++            fontWeight = FontWeight.Bold
++        )
++        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
++            Column(horizontalAlignment = Alignment.CenterHorizontally) {
++                Text(
++                    timeText,
++                    color = PrimaryText(),
++                    fontSize = 46.sp,
++                    lineHeight = 50.sp,
++                    fontWeight = FontWeight.Light,
++                    fontFamily = FontFamily.Monospace,
++                    maxLines = 1
++                )
++                Text(dateText, color = SecondaryText(), fontSize = 12.sp, maxLines = 1)
++            }
++        }
++        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
++            Text(
++                data.weatherTempC ?: "--",
++                color = PrimaryText(),
++                fontSize = 14.sp,
++                fontWeight = FontWeight.SemiBold
++            )
++            Text(
++                data.weatherText ?: data.gpsStatus ?: "No GPS",
++                color = SecondaryText(),
++                fontSize = 11.sp,
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                textAlign = TextAlign.End,
++                modifier = Modifier.weight(1f).padding(start = 8.dp)
++            )
++        }
++    }
++}
++
++@Composable
++private fun CarGraphicPanel(data: DashboardData, modifier: Modifier = Modifier) {
++    DashboardPanel(modifier) {
++        CarGraphic(data, Modifier.fillMaxSize())
++    }
++}
++
++@Composable
++private fun MediaWidget(media: DashboardMedia, actions: DashboardActions, modifier: Modifier = Modifier) {
++    DashboardPanel(modifier.testTag("widget_media_panel")) {
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.SpaceBetween,
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            Text(
++                "MEDIA",
++                color = SecondaryText(),
++                fontSize = 10.sp,
++                letterSpacing = 1.sp,
++                fontWeight = FontWeight.Bold
++            )
++            TextButton(onClick = actions.onOpenMusic, modifier = Modifier.height(32.dp)) {
++                Text("OPEN APP", color = TealAccent(), fontSize = 10.sp, fontWeight = FontWeight.Bold)
++            }
++        }
++        Row(
++            modifier = Modifier.weight(1f).fillMaxWidth(),
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(10.dp)
++        ) {
++            Box(
++                modifier = Modifier
++                    .size(52.dp)
++                    .clip(CircleShape)
++                    .background(ElectricCyan().copy(alpha = 0.18f)),
++                contentAlignment = Alignment.Center
++            ) {
++                Icon(Icons.Default.MusicNote, contentDescription = null, tint = ElectricCyan())
++            }
++            Column(Modifier.weight(1f)) {
++                Text(
++                    media.nowPlaying?.title ?: "No music session",
++                    color = PrimaryText(),
++                    style = MaterialTheme.typography.titleMedium,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis
++                )
++                Text(
++                    media.nowPlaying?.artist ?: media.nowPlaying?.appName ?: "Controls send media keys",
++                    color = SecondaryText(),
++                    fontSize = 11.sp,
++                    maxLines = 1,
++                    overflow = TextOverflow.Ellipsis
++                )
++            }
++        }
++        Row(
++            modifier = Modifier.fillMaxWidth(),
++            horizontalArrangement = Arrangement.Center,
++            verticalAlignment = Alignment.CenterVertically
++        ) {
++            IconButton(onClick = media.onPrevious, modifier = Modifier.size(40.dp)) {
++                Icon(Icons.Default.SkipPrevious, "Previous track", tint = SecondaryText())
++            }
++            IconButton(
++                onClick = media.onPlayPause,
++                modifier = Modifier
++                    .size(46.dp)
++                    .background(ElectricCyan(), CircleShape)
++                    .testTag("widget_media_play")
++            ) {
++                Icon(
++                    if (media.nowPlaying?.isPlaying == true) Icons.Default.Pause else Icons.Default.PlayArrow,
++                    if (media.nowPlaying?.isPlaying == true) "Pause" else "Play",
++                    tint = OnAccent()
++                )
++            }
++            IconButton(onClick = media.onNext, modifier = Modifier.size(40.dp)) {
++                Icon(Icons.Default.SkipNext, "Next track", tint = SecondaryText())
++            }
++        }
++    }
++}
+diff --git a/android/app/src/test/java/com/sportage/obd/DashboardLayoutStoreTest.kt b/android/app/src/test/java/com/sportage/obd/DashboardLayoutStoreTest.kt
+new file mode 100644
+index 0000000..c53bbea
+--- /dev/null
++++ b/android/app/src/test/java/com/sportage/obd/DashboardLayoutStoreTest.kt
+@@ -0,0 +1,40 @@
++package com.sportage.obd
++
++import android.content.Context
++import com.sportage.obd.ui.dashboard.DashboardLayoutStore
++import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
++import org.junit.Assert.assertEquals
++import org.junit.Before
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.RuntimeEnvironment
++import org.robolectric.annotation.Config
++
++/** The selected layout must survive an app restart and tolerate a corrupt preference. */
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [29])
++class DashboardLayoutStoreTest {
++
++    private val context: Context get() = RuntimeEnvironment.getApplication()
++    private val store get() = DashboardLayoutStore(context)
++
++    @Before fun clearPrefs() {
++        context.getSharedPreferences(DashboardLayoutStore.PREFS_NAME, Context.MODE_PRIVATE)
++            .edit().clear().commit()
++    }
++
++    @Test fun selectionRoundTripsAcrossStoreInstances() {
++        assertEquals(DashboardLayoutTheme.Classic, store.load())
++        store.save(DashboardLayoutTheme.CircularGauge)
++        assertEquals(DashboardLayoutTheme.CircularGauge, DashboardLayoutStore(context).load())
++        store.save(DashboardLayoutTheme.RectangularWidgets)
++        assertEquals(DashboardLayoutTheme.RectangularWidgets, DashboardLayoutStore(context).load())
++    }
++
++    @Test fun corruptPersistedIdFallsBackToClassic() {
++        context.getSharedPreferences(DashboardLayoutStore.PREFS_NAME, Context.MODE_PRIVATE)
++            .edit().putString(DashboardLayoutStore.KEY_LAYOUT, "removed-layout").commit()
++        assertEquals(DashboardLayoutTheme.Classic, store.load())
++    }
++}
+diff --git a/android/app/src/test/java/com/sportage/obd/DashboardLayoutSwitchTest.kt b/android/app/src/test/java/com/sportage/obd/DashboardLayoutSwitchTest.kt
+new file mode 100644
+index 0000000..3f6ecf9
+--- /dev/null
++++ b/android/app/src/test/java/com/sportage/obd/DashboardLayoutSwitchTest.kt
+@@ -0,0 +1,77 @@
++package com.sportage.obd
++
++import androidx.compose.ui.test.assertCountEquals
++import androidx.compose.ui.test.junit4.createComposeRule
++import androidx.compose.ui.test.onAllNodesWithContentDescription
++import androidx.compose.ui.test.onNodeWithTag
++import androidx.compose.ui.test.onNodeWithText
++import com.sportage.obd.bluetooth.ConnectionState
++import com.sportage.obd.ui.dashboard.DashboardActions
++import com.sportage.obd.ui.dashboard.DashboardData
++import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
++import com.sportage.obd.ui.dashboard.DashboardMedia
++import com.sportage.obd.ui.dashboard.DashboardThemeHost
++import com.sportage.obd.ui.theme.SportageObdTheme
++import org.junit.Rule
++import org.junit.Test
++import org.junit.runner.RunWith
++import org.robolectric.RobolectricTestRunner
++import org.robolectric.annotation.Config
++import org.robolectric.annotation.GraphicsMode
++
++/** Both layout themes must render from the same data bundle and expose the five-icon dock. */
++@RunWith(RobolectricTestRunner::class)
++@Config(sdk = [29], qualifiers = "w1024dp-h600dp-land-mdpi")
++@GraphicsMode(GraphicsMode.Mode.NATIVE)
++class DashboardLayoutSwitchTest {
++
++    @get:Rule val compose = createComposeRule()
++
++    private fun launch(theme: DashboardLayoutTheme) {
++        compose.setContent {
++            SportageObdTheme {
++                DashboardThemeHost(
++                    theme = theme,
++                    data = DashboardData(
++                        connectionState = ConnectionState.Connected("ELM327", "00:11:22:33:44:55"),
++                        measuredHz = 8.7f,
++                        speed = 88,
++                        speedUnit = "km/h",
++                        rpm = 2400,
++                        coolant = 89,
++                        fuelLevel = 68,
++                        voltage = 13.8f,
++                        gear = 4,
++                        transmissionGear = 4
++                    ),
++                    actions = DashboardActions(),
++                    media = DashboardMedia()
++                ) {
++                    androidx.compose.material3.Text("classic")
++                }
++            }
++        }
++    }
++
++    @Test fun circularThemeRendersGaugeCarMusicAndDock() {
++        launch(DashboardLayoutTheme.CircularGauge)
++        compose.onNodeWithTag("dashboard_circular_theme").assertExists()
++        compose.onNodeWithTag("circular_speedometer").assertExists()
++        compose.onNodeWithTag("circular_music_player").assertExists()
++        compose.onNodeWithTag("dashboard_car_graphic").assertExists()
++        compose.onNodeWithTag("dashboard_dock").assertExists()
++        compose.onNodeWithText("88").assertExists()
++        compose.onAllNodesWithContentDescription("Open navigation app").assertCountEquals(1)
++    }
++
++    @Test fun widgetThemeRendersSpeedClockMediaAndDock() {
++        launch(DashboardLayoutTheme.RectangularWidgets)
++        compose.onNodeWithTag("dashboard_widgets_theme").assertExists()
++        compose.onNodeWithTag("widget_speed_panel").assertExists()
++        compose.onNodeWithTag("widget_clock_panel").assertExists()
++        compose.onNodeWithTag("widget_media_panel").assertExists()
++        compose.onNodeWithTag("dashboard_car_graphic").assertExists()
++        compose.onNodeWithTag("dashboard_dock").assertExists()
++        compose.onNodeWithText("88").assertExists()
++    }
++}
+diff --git a/android/app/src/test/java/com/sportage/obd/DashboardLayoutThemeTest.kt b/android/app/src/test/java/com/sportage/obd/DashboardLayoutThemeTest.kt
+new file mode 100644
+index 0000000..4a4d458
+--- /dev/null
++++ b/android/app/src/test/java/com/sportage/obd/DashboardLayoutThemeTest.kt
+@@ -0,0 +1,58 @@
++package com.sportage.obd
++
++import com.sportage.obd.bluetooth.ConnectionState
++import com.sportage.obd.ui.dashboard.DashboardData
++import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++/** Layout themes are persisted by id, so these values are a compatibility contract. */
++class DashboardLayoutThemeTest {
++
++    @Test fun persistedIdsAreUniqueAndStable() {
++        assertEquals(3, DashboardLayoutTheme.all.size)
++        assertEquals(
++            DashboardLayoutTheme.all.size,
++            DashboardLayoutTheme.all.map { it.id }.toSet().size
++        )
++        assertEquals("classic", DashboardLayoutTheme.Classic.id)
++        assertEquals("circular-gauge", DashboardLayoutTheme.CircularGauge.id)
++        assertEquals("widget-board", DashboardLayoutTheme.RectangularWidgets.id)
++    }
++
++    @Test fun defaultLayoutIsTheExistingDashboard() {
++        assertEquals(DashboardLayoutTheme.Classic, DashboardLayoutTheme.fromId(null))
++        assertEquals(DashboardLayoutTheme.Classic, DashboardLayoutTheme.fromId(""))
++        assertEquals(DashboardLayoutTheme.Classic, DashboardLayoutTheme.fromId(DashboardLayoutTheme.DEFAULT_ID))
++    }
++
++    @Test fun unknownOrCorruptIdFallsBackInsteadOfCrashing() {
++        assertEquals(DashboardLayoutTheme.Classic, DashboardLayoutTheme.fromId("not-a-layout"))
++        assertEquals(DashboardLayoutTheme.Classic, DashboardLayoutTheme.fromId("CIRCULAR-GAUGE"))
++    }
++
++    @Test fun everyLayoutIsPresentableInSettings() {
++        DashboardLayoutTheme.all.forEach { theme ->
++            assertTrue("id must be stable and non-blank", theme.id.isNotBlank())
++            assertTrue("${theme.id} needs a title", theme.title.isNotBlank())
++            assertTrue("${theme.id} needs a description", theme.description.isNotBlank())
++        }
++    }
++
++    @Test fun sharedDataDerivesConnectionAndGearForBothThemes() {
++        val connected = DashboardData(
++            connectionState = ConnectionState.Connected("ELM327", "00:11:22:33:44:55"),
++            gear = 4,
++            transmissionGear = 4
++        )
++        assertTrue(connected.connected)
++        assertEquals("Connected · ELM327", connected.connectionLabel)
++        assertEquals("D4", connected.gearText)
++        assertEquals("--", connected.speedText)
++
++        val disconnected = DashboardData(connectionState = ConnectionState.Disconnected)
++        assertTrue(!disconnected.connected)
++        assertEquals("Disconnected", disconnected.connectionLabel)
++    }
++}
