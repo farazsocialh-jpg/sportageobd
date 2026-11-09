@@ -373,6 +373,7 @@ fun CarLauncherScreen(
                                     onOpenNavigation = { openNavigation() }
                                 )
                             }
+                            // LIVE DATA SECTION
                             1 -> GaugesAndGraphsPage(
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
@@ -390,6 +391,7 @@ fun CarLauncherScreen(
                             )
                             6 -> SensorExplorer(viewModel)
                             7 -> BoardScreen(data = boardData, store = boardStore, configStore = boardConfigStore)
+                            // DIAGNOSTICS SECTION
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
@@ -398,6 +400,7 @@ fun CarLauncherScreen(
                                 connectionState = connectionState,
                                 viewModel = viewModel
                             )
+                            // TRIPS SECTION
                             3 -> TripComputerPage(
                                 distanceKm = tripDistanceKm,
                                 durationSeconds = tripDurationSeconds,
@@ -422,6 +425,7 @@ fun CarLauncherScreen(
                                 dtcCodes = dtcCodes,
                                 viewModel = viewModel
                             )
+                            // MORE SECTION
                             4 -> MediaRadioPage(
                                 radioFreq = radioFreq,
                                 onFreqChange = { radioFreq = it },
@@ -440,6 +444,7 @@ fun CarLauncherScreen(
                                 onLaunchNativeRadio = { launchHeadUnitRadioApp() },
                                 onLaunchLocalMusic = { launchLocalMusicApp() }
                             )
+                            // SETTINGS SECTION
                             5 -> SettingsPage(
                                 speedUnit = speedUnit,
                                 onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
@@ -555,6 +560,7 @@ fun CarLauncherScreen(
                         )
                         6 -> SensorExplorer(viewModel)
                         7 -> BoardScreen(data = boardData, store = boardStore, configStore = boardConfigStore)
+                            // DIAGNOSTICS SECTION
                             2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
