@@ -445,38 +445,9 @@ fun CarLauncherScreen(
                                 onLaunchLocalMusic = { launchLocalMusicApp() }
                             )
                             // SETTINGS SECTION
-                            5 -> SettingsPage(
-                                speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
-                                onSetDefaultLauncher = onSetDefaultLauncher,
-                                isDemoMode = isDemoMode,
-                                onToggleDemoMode = onToggleDemoMode,
-                                onOpenBluetoothSettings = {
-                                    try {
-                                        context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
-                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        })
-                                    } catch (_: Exception) {}
-                                },
-                                isPollingPaused = isPollingPaused,
-                                onTogglePausePolling = onTogglePausePolling,
-                                onOpenAppDrawer = onOpenAppDrawer,
-                                viewModel = viewModel,
-                                autoNightDim = autoNightDim,
-                                nightDimLevel = nightDimLevel,
-                                onSetAutoNightDim = onSetAutoNightDim,
-                                onSetNightDimLevel = onSetNightDimLevel,
-                                themeId = themeId,
-                                accentOverride = accentOverride,
-                                densityOverride = densityOverride,
-                                gaugeStyleOverride = gaugeStyleOverride,
-                                onSetThemeId = onSetThemeId,
-                                onSetAccentOverride = onSetAccentOverride,
-                                onSetDensityOverride = onSetDensityOverride,
-                                onSetGaugeStyleOverride = onSetGaugeStyleOverride,
-                                onOpenPrivacyPolicy = onOpenPrivacyPolicy,
-                                dashboardLayoutId = dashboardLayoutId,
-                                onSetDashboardLayoutId = onSetDashboardLayoutId
+                            5 -> SettingsHome(
+                                onCategoryClick = { page -> onNavigatePage(page) },
+                                viewModel = viewModel
                             )
                         }
                     }
@@ -611,39 +582,10 @@ fun CarLauncherScreen(
                             onLaunchNativeRadio = { launchHeadUnitRadioApp() },
                             onLaunchLocalMusic = { launchLocalMusicApp() }
                         )
-                        5 -> SettingsPage(
-                            speedUnit = speedUnit,
-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
-                            onSetDefaultLauncher = onSetDefaultLauncher,
-                            isDemoMode = isDemoMode,
-                            onToggleDemoMode = onToggleDemoMode,
-                            onOpenBluetoothSettings = {
-                                try {
-                                    context.startActivity(Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
-                                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    })
-                                } catch (_: Exception) {}
-                            },
-                            isPollingPaused = isPollingPaused,
-                            onTogglePausePolling = onTogglePausePolling,
-                            onOpenAppDrawer = onOpenAppDrawer,
-                            viewModel = viewModel,
-                            autoNightDim = autoNightDim,
-                            nightDimLevel = nightDimLevel,
-                            onSetAutoNightDim = onSetAutoNightDim,
-                            onSetNightDimLevel = onSetNightDimLevel,
-                            themeId = themeId,
-                            accentOverride = accentOverride,
-                            densityOverride = densityOverride,
-                            gaugeStyleOverride = gaugeStyleOverride,
-                            onSetThemeId = onSetThemeId,
-                            onSetAccentOverride = onSetAccentOverride,
-                            onSetDensityOverride = onSetDensityOverride,
-                            onSetGaugeStyleOverride = onSetGaugeStyleOverride,
-                            onOpenPrivacyPolicy = onOpenPrivacyPolicy,
-                            dashboardLayoutId = dashboardLayoutId,
-                            onSetDashboardLayoutId = onSetDashboardLayoutId
-                        )
+                        5 -> SettingsHome(
+                                onCategoryClick = { page -> onNavigatePage(page) },
+                                viewModel = viewModel
+                            )
                     }
                 }
 

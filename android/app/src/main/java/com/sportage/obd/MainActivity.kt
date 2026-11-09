@@ -233,19 +233,28 @@ class MainActivity : ComponentActivity(), LocationListener {
         refreshPairedDevices()
         startTripTicker()
 
-        // Handle Back button: Return to Home if on secondary page; do not exit launcher on Home
-        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (showAppDrawer) {
-                    showAppDrawer = false
-                } else if (showBluetoothDialog) {
-                    showBluetoothDialog = false
-                } else if (activePage != 0) {
-                    activePage = 0
-                }
-                // When on home (activePage == 0), intentionally absorb Back press
+        // Handle Back button: Navigation hierarchy
+    // Home (0) -> Settings Home (5) -> Settings Sub-pages (6-13)
+    // Back from sub-page -> Settings Home; Back from Settings Home -> Home; Back from Home -> absorbed
+    onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+        override fun handleOnBackPressed() {
+            if (showAppDrawer) {
+                showAppDrawer = false
+            } else if (showBluetoothDialog) {
+                showBluetoothDialog = false
+            } else if (activePage >= 6 && activePage <= 13) {
+                // Back from settings sub-page -> Settings Home
+                activePage = 5
+            } else if (activePage == 5) {
+                // Back from Settings Home -> Home
+                activePage = 0
+            } else if (activePage != 0) {
+                // Back to Home if on secondary page
+                activePage = 0
             }
-        })
+            // When on home (activePage == 0), intentionally absorb Back press
+        }
+    })
 
         setContent {
             val connState by viewModel.connectionState.collectAsState()
