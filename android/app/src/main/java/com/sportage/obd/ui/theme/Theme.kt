@@ -792,57 +792,7 @@ object CockpitThemes {
     return if (cleaned.length == 8) Color(cleaned.toLong(16).toInt()) else Color(0xFF181E24)
   }
 
-  /** Applies an optional accent override (ARGB hex like "FF22D3EE") on top of a preset. */
-  fun apply(
-    presetId: String?,
-    accentOverride: String?
-  ): CockpitThemeColors {
-    val preset = byId(presetId)
-    val parsed = parseAccent(accentOverride)
-    return if (parsed == null) preset.colors else preset.colors.copy(
-      accent = parsed,
-      onAccent = if (parsed.luminance() > 0.5f) Color(0xFF0A0F14) else Color(0xFFFFFFFF)
-    )
-  }
-
-  fun parseAccent(hex: String?): Color? {
-    if (hex.isNullOrBlank()) return null
-    return try {
-      val cleaned = hex.removePrefix("#").takeLast(8)
-      if (cleaned.length == 8) Color(cleaned.toLong(16).toInt()) else null
-    } catch (_: Exception) { null }
-  }
-
-  /** Provide the default theme at app start. */
-  @Composable
-  fun applyDefaultTheme() {
-    val defaultPreset = CockpitThemes.byId(CockpitThemes.defaultPresetId)
-    val defaultOverrides = ThemeOverrides(
-      accent = null,
-      background = null,
-      gaugeStyle = null,
-      density = null,
-      fontScale = 1.0f,
-      widgetLayout = null
-    )
-    CockpitTheme.SportageObdTheme(presetId = defaultPreset.id, overrides = defaultOverrides) {
-      // Composition content will receive the theme via MaterialTheme
-    }
-  }
-
-  /** Composition local for the current resolved theme. */
-  val LocalCockpitTheme = staticCompositionLocalOf<ResolvedTheme> { ResolvedTheme(
-    colors = DefaultTheme.colors,
-    typography = MaterialTheme.typography,
-    shape = Shape.Default,
-    motion = mapOf("durationFast" to 150, "durationNormal" to 250, "durationSlow" to 400, "easing" to "ease-out"),
-    backgroundStyle = "solid",
-    gaugeConfig = mapOf(),
-    layoutConfig = mapOf(),
-    overrides = ThemeOverrides(accent = null, background = null, gaugeStyle = null, density = null, fontScale = 1.0f, widgetLayout = null)
-  )}
-
-/** Provide theme via composition locals. */
+  /** Provides theme via composition locals. */
   @Composable
   fun SportageObdTheme(
     presetId: String = defaultPresetId,
@@ -859,12 +809,8 @@ object CockpitThemes {
     // Load preset
     val preset = remember { CockpitThemes.byId(presetId) }
 
-    // Persist selection via remember + DataStore (simplified: state in prefs)
-    val savedPresetId by remember { mutableStateOf(preset.id) }
-    val savedOverrides by remember { mutableStateOf(overrides) }
-
     // Apply overrides on top of preset
-    val resolved = CockpitThemes.resolvePreset(preset, savedOverrides)
+    val resolved = CockpitThemes.resolvePreset(preset, overrides)
 
     // Provide theme via composition locals
     provideLocalTheme(resolved)
@@ -925,8 +871,9 @@ object CockpitThemes {
   }
 
   /** Provide color accessor composables so existing code continues to work. */
-  private fun provideColorLocalAccessors(colors: CockpitThemeColors) {
-    // LocalCockpitColors accessors read from LocalCockpitTheme.current.colors
+  @Composable
+  fun provideColorLocalAccessors(colors: CockpitThemeColors) {
+    // Accessors read from LocalCockpitTheme.current.colors
     // The existing DarkBackground(), ElectricCyan() etc. will resolve through the composition local
   }
 }
@@ -980,7 +927,8 @@ object DefaultTheme {
   )
 }
 
-/** Accessor composables that read from LocalCockpitTheme colors. */
+/** Accessor composables that read from LocalCockpitTheme colors.
+  * These match the signatures expected by existing UI screens. */
 @Composable
 fun DarkBackground(): Color = LocalCockpitTheme.current.colors.background
 
