@@ -39,6 +39,8 @@ import com.sportage.obd.ui.CarLauncherScreen
 import com.sportage.obd.ui.OnboardingScreen
 import com.sportage.obd.ui.PrivacyPolicyScreen
 import com.sportage.obd.ui.TerminalLog
+import com.sportage.obd.ui.theme.ImportedThemeStore
+import com.sportage.obd.ui.theme.ImportedThemes
 import com.sportage.obd.ui.theme.SportageObdTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -144,9 +146,11 @@ class MainActivity : ComponentActivity(), LocationListener {
     private var autoNightDim by mutableStateOf(true)
     private var nightDimLevel by mutableStateOf(0.55f)
 
-    // Theme customization (persisted): full-app color preset + optional accent override.
+    // Theme customization (persisted): full-app theme, plus accent/density/gauge overrides.
     private var themeId by mutableStateOf("cockpit-dark")
     private var accentOverride by mutableStateOf<String?>(null)
+    private var densityOverride by mutableStateOf<String?>(null)
+    private var gaugeStyleOverride by mutableStateOf<String?>(null)
 
     // In-app font scaling (persisted). The new typography minimums (32/24sp) already meet
     // the spec at 1.0x, so this is a comfort feature, not a legibility crutch.
@@ -211,6 +215,10 @@ class MainActivity : ComponentActivity(), LocationListener {
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
         themeId = uiPrefs.getString("themeId", "cockpit-dark") ?: "cockpit-dark"
         accentOverride = uiPrefs.getString("accentOverride", null)
+        densityOverride = uiPrefs.getString("densityOverride", null)
+        gaugeStyleOverride = uiPrefs.getString("gaugeStyleOverride", null)
+        // Imported themes must be registered before the first composition resolves the theme.
+        ImportedThemes.replaceAll(ImportedThemeStore(this).load())
         fontScale = uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.5f)
 
         checkAndRequestPermissions()
@@ -270,7 +278,12 @@ class MainActivity : ComponentActivity(), LocationListener {
             }
 
             CompositionLocalProvider(fontScaleProvider provides fontScale) {
-                SportageObdTheme(themeId = themeId, accentOverride = accentOverride) {
+                SportageObdTheme(
+                    themeId = themeId,
+                    accentOverride = accentOverride,
+                    densityOverride = densityOverride,
+                    gaugeStyleOverride = gaugeStyleOverride
+                ) {
                     val isNight = isSystemInDarkTheme()
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -324,6 +337,8 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 },
                                 themeId = themeId,
                                 accentOverride = accentOverride,
+                                densityOverride = densityOverride,
+                                gaugeStyleOverride = gaugeStyleOverride,
                                 onSetThemeId = { id ->
                                     themeId = id
                                     uiPrefs.edit().putString("themeId", id).apply()
@@ -331,6 +346,14 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 onSetAccentOverride = { hex ->
                                     accentOverride = hex
                                     uiPrefs.edit().putString("accentOverride", hex).apply()
+                                },
+                                onSetDensityOverride = { density ->
+                                    densityOverride = density
+                                    uiPrefs.edit().putString("densityOverride", density).apply()
+                                },
+                                onSetGaugeStyleOverride = { style ->
+                                    gaugeStyleOverride = style
+                                    uiPrefs.edit().putString("gaugeStyleOverride", style).apply()
                                 },
                                 onOpenPrivacyPolicy = ::openPrivacyPolicy
                             )

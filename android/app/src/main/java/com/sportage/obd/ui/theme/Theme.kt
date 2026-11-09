@@ -1,17 +1,16 @@
 package com.sportage.obd.ui.theme
 
+import android.provider.Settings
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
 
 /**
  * The complete color identity of the cockpit. Every screen reads its colors from here
@@ -32,13 +31,19 @@ data class CockpitThemeColors(
     val textPrimary: Color,
     val textSecondary: Color,
     /** Text/icon color that sits on top of [accent] filled buttons. */
-    val onAccent: Color
+    val onAccent: Color,
+    val success: Color = Color(0xFF9BE7A0),
+    val outline: Color = Color(0xFF5B6B76),
+    val gaugeTrack: Color = Color(0xFF2A353E),
+    val gaugeFill: Color = Color(0xFF8BD8E7)
 )
 
 data class CockpitThemePreset(
     val id: String,
     val title: String,
-    val colors: CockpitThemeColors
+    val colors: CockpitThemeColors,
+    /** One-line description shown in the theme gallery; empty for legacy presets. */
+    val description: String = ""
 )
 
 object CockpitThemes {
@@ -125,7 +130,7 @@ object CockpitThemes {
                 textPrimary = Color(0xFF141A21), textSecondary = Color(0xFF55616E), onAccent = Color(0xFFFFFFFF)
             )
         )
-    )
+    ) + BuiltInThemes.all.map { CockpitThemePreset(it.id, it.name, it.toCockpitColors(), it.description) }
 
     /** Accent colors the driver can layer on top of any preset. */
     val accentChoices: List<Color> = listOf(
@@ -137,13 +142,17 @@ object CockpitThemes {
     fun byId(id: String?): CockpitThemePreset =
         presets.firstOrNull { it.id == id } ?: presets.first()
 
+    /** Resolved full token theme (colors + typography + layout) used by the app theme. */
+    fun specFor(themeId: String?): ThemeSpec = BuiltInThemes.specFor(byId(themeId))
+
     /** Applies an optional accent override (ARGB hex like "FF22D3EE") on top of a preset. */
     fun apply(presetId: String?, accentOverride: String?): CockpitThemeColors {
         val preset = byId(presetId)
         val parsed = parseAccent(accentOverride)
         return if (parsed == null) preset.colors else preset.colors.copy(
             accent = parsed,
-            onAccent = if (parsed.luminance() > 0.5f) Color(0xFF0A0F14) else Color(0xFFFFFFFF)
+            onAccent = if (parsed.luminance() > 0.5f) Color(0xFF0A0F14) else Color(0xFFFFFFFF),
+            gaugeFill = parsed
         )
     }
 
@@ -159,14 +168,33 @@ object CockpitThemes {
 /** Colors for the current theme; defaults keep non-preview tooling renders sensible. */
 val LocalCockpitColors = staticCompositionLocalOf { CockpitThemes.apply(CockpitThemes.defaultId, null) }
 
-private val CockpitTypography = Typography(
-    titleLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 22.sp, lineHeight = 28.sp),
-    titleMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 18.sp, lineHeight = 24.sp),
-    bodyLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 16.sp, lineHeight = 24.sp),
-    bodyMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 14.sp, lineHeight = 20.sp),
-    labelLarge = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 20.sp),
-    labelMedium = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.Medium, fontSize = 12.sp, lineHeight = 16.sp)
-)
+/** Resolved tokens (spec + reduce-motion flag) for screens that need more than colors. */
+@Immutable
+data class CockpitThemeState(val spec: ThemeSpec, val motion: ThemedMotion)
+
+val LocalCockpitTokens = staticCompositionLocalOf {
+    CockpitThemeState(
+        spec = BuiltInThemes.fromLegacyColors(CockpitThemes.byId(CockpitThemes.defaultId)),
+        motion = ThemedMotion(ThemeDefaults.motion, false)
+    )
+}
+
+/** System animator scale 0 means "remove animations", per Android accessibility settings. */
+@Composable
+private fun reduceMotionEnabled(): Boolean {
+    val context = LocalContext.current
+    return remember(context) {
+        try {
+            Settings.Global.getFloat(
+                context.contentResolver,
+                Settings.Global.ANIMATOR_DURATION_SCALE,
+                1f
+            ) == 0f
+        } catch (_: Exception) {
+            false
+        }
+    }
+}
 
 /**
  * Themed color accessors. They keep the historical names so every existing screen
@@ -184,60 +212,80 @@ private val CockpitTypography = Typography(
 @Composable fun PrimaryText(): Color = LocalCockpitColors.current.textPrimary
 @Composable fun SecondaryText(): Color = LocalCockpitColors.current.textSecondary
 @Composable fun OnAccent(): Color = LocalCockpitColors.current.onAccent
+@Composable fun SuccessColor(): Color = LocalCockpitColors.current.success
+@Composable fun OutlineColor(): Color = LocalCockpitColors.current.outline
+@Composable fun GaugeTrack(): Color = LocalCockpitColors.current.gaugeTrack
+@Composable fun GaugeFill(): Color = LocalCockpitColors.current.gaugeFill
 
 @Composable
 fun SportageObdTheme(
     themeId: String = CockpitThemes.defaultId,
     accentOverride: String? = null,
+    densityOverride: String? = null,
+    gaugeStyleOverride: String? = null,
     content: @Composable () -> Unit
 ) {
-    val colors = CockpitThemes.apply(themeId, accentOverride)
-    val scheme = if (colors.isDark) {
-        darkColorScheme(
-            primary = colors.accent,
-            primaryContainer = colors.surfaceElevated,
-            onPrimaryContainer = colors.accent,
-            secondary = colors.secondary,
-            secondaryContainer = colors.surfaceElevated,
-            onSecondaryContainer = colors.textPrimary,
-            background = colors.background,
-            surface = colors.surface,
-            surfaceVariant = colors.surfaceElevated,
-            onSurfaceVariant = colors.textSecondary,
-            outline = colors.textSecondary.copy(alpha = 0.5f),
-            outlineVariant = colors.surfaceElevated,
-            onPrimary = colors.onAccent,
-            onSecondary = colors.onAccent,
-            onBackground = colors.textPrimary,
-            onSurface = colors.textPrimary,
-            error = colors.critical
-        )
-    } else {
-        lightColorScheme(
-            primary = colors.accent,
-            primaryContainer = colors.surfaceElevated,
-            onPrimaryContainer = colors.accent,
-            secondary = colors.secondary,
-            secondaryContainer = colors.surfaceElevated,
-            onSecondaryContainer = colors.textPrimary,
-            background = colors.background,
-            surface = colors.surface,
-            surfaceVariant = colors.surfaceElevated,
-            onSurfaceVariant = colors.textSecondary,
-            outline = colors.textSecondary.copy(alpha = 0.5f),
-            outlineVariant = colors.surfaceElevated,
-            onPrimary = colors.onAccent,
-            onSecondary = colors.onAccent,
-            onBackground = colors.textPrimary,
-            onSurface = colors.textPrimary,
-            error = colors.critical
-        )
+    val spec = remember(themeId, accentOverride, densityOverride, gaugeStyleOverride) {
+        BuiltInThemes.resolved(themeId, accentOverride, densityOverride, gaugeStyleOverride)
     }
-    androidx.compose.runtime.CompositionLocalProvider(LocalCockpitColors provides colors) {
+    val colors = remember(spec) { spec.toCockpitColors() }
+    val reduceMotion = reduceMotionEnabled()
+    val state = remember(spec, reduceMotion) { CockpitThemeState(spec, ThemedMotion(spec.motion, reduceMotion)) }
+    val scheme = remember(spec) { cockpitScheme(colors) }
+    val typography = remember(spec) { ThemeComposeMapping.typography(spec.typography) }
+    val shapes = remember(spec) { ThemeComposeMapping.shapes(spec.shapes) }
+
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalCockpitColors provides colors,
+        LocalCockpitTokens provides state
+    ) {
         MaterialTheme(
             colorScheme = scheme,
-            typography = CockpitTypography,
+            typography = typography,
+            shapes = shapes,
             content = content
         )
     }
+}
+
+private fun cockpitScheme(colors: CockpitThemeColors) = if (colors.isDark) {
+    darkColorScheme(
+        primary = colors.accent,
+        primaryContainer = colors.surfaceElevated,
+        onPrimaryContainer = colors.accent,
+        secondary = colors.secondary,
+        secondaryContainer = colors.surfaceElevated,
+        onSecondaryContainer = colors.textPrimary,
+        background = colors.background,
+        surface = colors.surface,
+        surfaceVariant = colors.surfaceElevated,
+        onSurfaceVariant = colors.textSecondary,
+        outline = colors.outline,
+        outlineVariant = colors.surfaceElevated,
+        onPrimary = colors.onAccent,
+        onSecondary = colors.onAccent,
+        onBackground = colors.textPrimary,
+        onSurface = colors.textPrimary,
+        error = colors.critical
+    )
+} else {
+    lightColorScheme(
+        primary = colors.accent,
+        primaryContainer = colors.surfaceElevated,
+        onPrimaryContainer = colors.accent,
+        secondary = colors.secondary,
+        secondaryContainer = colors.surfaceElevated,
+        onSecondaryContainer = colors.textPrimary,
+        background = colors.background,
+        surface = colors.surface,
+        surfaceVariant = colors.surfaceElevated,
+        onSurfaceVariant = colors.textSecondary,
+        outline = colors.outline,
+        outlineVariant = colors.surfaceElevated,
+        onPrimary = colors.onAccent,
+        onSecondary = colors.onAccent,
+        onBackground = colors.textPrimary,
+        onSurface = colors.textPrimary,
+        error = colors.critical
+    )
 }

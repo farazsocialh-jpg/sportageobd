@@ -33,8 +33,10 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +57,7 @@ import com.sportage.obd.service.AlertThresholds
 import com.sportage.obd.ui.theme.*
 import com.sportage.obd.ui.boards.BoardData
 import com.sportage.obd.ui.boards.BoardScreen
+import com.sportage.obd.ui.boards.PrefsBoardConfigStore
 import com.sportage.obd.ui.boards.PrefsBoardStore
 import com.sportage.obd.viewmodel.ObdViewModel
 import kotlinx.coroutines.launch
@@ -145,8 +148,12 @@ fun CarLauncherScreen(
     gpsStatus: String? = null,
     themeId: String = "cockpit-dark",
     accentOverride: String? = null,
+    densityOverride: String? = null,
+    gaugeStyleOverride: String? = null,
     onSetThemeId: (String) -> Unit = {},
     onSetAccentOverride: (String?) -> Unit = {},
+    onSetDensityOverride: (String?) -> Unit = {},
+    onSetGaugeStyleOverride: (String?) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -161,6 +168,7 @@ fun CarLauncherScreen(
 
     // Customizable swipeable boards: live values bundled once for every widget.
     val boardStore = remember { PrefsBoardStore(context) }
+    val boardConfigStore = remember { PrefsBoardConfigStore(context) }
     val boardTelemetry = viewModel?.telemetry?.collectAsState()?.value
     val boardData = BoardData(
         speed = displaySpeed,
@@ -315,7 +323,7 @@ fun CarLauncherScreen(
                                 viewModel = viewModel
                             )
                             6 -> SensorExplorer(viewModel)
-                            7 -> BoardScreen(data = boardData, store = boardStore)
+                            7 -> BoardScreen(data = boardData, store = boardStore, configStore = boardConfigStore)
                             2 -> DiagnosticsPage(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
@@ -389,8 +397,12 @@ fun CarLauncherScreen(
                                 onSetNightDimLevel = onSetNightDimLevel,
                                 themeId = themeId,
                                 accentOverride = accentOverride,
+                                densityOverride = densityOverride,
+                                gaugeStyleOverride = gaugeStyleOverride,
                                 onSetThemeId = onSetThemeId,
                                 onSetAccentOverride = onSetAccentOverride,
+                                onSetDensityOverride = onSetDensityOverride,
+                                onSetGaugeStyleOverride = onSetGaugeStyleOverride,
                                 onOpenPrivacyPolicy = onOpenPrivacyPolicy
                             )
                         }
@@ -467,7 +479,7 @@ fun CarLauncherScreen(
                             viewModel = viewModel
                         )
                         6 -> SensorExplorer(viewModel)
-                        7 -> BoardScreen(data = boardData, store = boardStore)
+                        7 -> BoardScreen(data = boardData, store = boardStore, configStore = boardConfigStore)
                             2 -> DiagnosticsPage(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
@@ -541,8 +553,12 @@ fun CarLauncherScreen(
                             onSetNightDimLevel = onSetNightDimLevel,
                             themeId = themeId,
                             accentOverride = accentOverride,
+                            densityOverride = densityOverride,
+                            gaugeStyleOverride = gaugeStyleOverride,
                             onSetThemeId = onSetThemeId,
                             onSetAccentOverride = onSetAccentOverride,
+                            onSetDensityOverride = onSetDensityOverride,
+                            onSetGaugeStyleOverride = onSetGaugeStyleOverride,
                             onOpenPrivacyPolicy = onOpenPrivacyPolicy
                         )
                     }
@@ -1677,8 +1693,12 @@ fun SettingsPage(
     onSetNightDimLevel: (Float) -> Unit = {},
     themeId: String = "cockpit-dark",
     accentOverride: String? = null,
+    densityOverride: String? = null,
+    gaugeStyleOverride: String? = null,
     onSetThemeId: (String) -> Unit = {},
     onSetAccentOverride: (String?) -> Unit = {},
+    onSetDensityOverride: (String?) -> Unit = {},
+    onSetGaugeStyleOverride: (String?) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {}
 ) {
     val context = LocalContext.current
@@ -1696,7 +1716,17 @@ fun SettingsPage(
         Text("Settings", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
 
         // 0. Theme & Colors Card: restyles the whole app instantly, persisted across restarts.
-        ThemeCustomizationCard(themeId, accentOverride, onSetThemeId, onSetAccentOverride, onOpenPrivacyPolicy)
+        ThemeCustomizationCard(
+            themeId = themeId,
+            accentOverride = accentOverride,
+            densityOverride = densityOverride,
+            gaugeStyleOverride = gaugeStyleOverride,
+            onSetThemeId = onSetThemeId,
+            onSetAccentOverride = onSetAccentOverride,
+            onSetDensityOverride = onSetDensityOverride,
+            onSetGaugeStyleOverride = onSetGaugeStyleOverride,
+            onOpenPrivacyPolicy = onOpenPrivacyPolicy
+        )
 
         // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
         Surface(
@@ -2014,11 +2044,26 @@ fun SettingsPage(
 private fun ThemeCustomizationCard(
     themeId: String,
     accentOverride: String?,
+    densityOverride: String?,
+    gaugeStyleOverride: String?,
     onSetThemeId: (String) -> Unit,
     onSetAccentOverride: (String?) -> Unit,
+    onSetDensityOverride: (String?) -> Unit,
+    onSetGaugeStyleOverride: (String?) -> Unit,
     onOpenPrivacyPolicy: () -> Unit
 ) {
-    val selected = remember(themeId) { com.sportage.obd.ui.theme.CockpitThemes.byId(themeId) }
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val importStore = remember { ImportedThemeStore(context) }
+    val importedPresets = remember(themeId) { ImportedThemes.presets() }
+    val presetList = CockpitThemes.presets + importedPresets
+    val selected = remember(themeId) { CockpitThemes.byId(themeId) }
+    val spec = remember(themeId, accentOverride, densityOverride, gaugeStyleOverride) {
+        BuiltInThemes.resolved(themeId, accentOverride, densityOverride, gaugeStyleOverride)
+    }
+    val contrastWarnings = remember(spec) { spec.accessibilityWarnings() }
+    var statusMessage by remember { mutableStateOf<String?>(null) }
+
     Surface(
         modifier = Modifier.fillMaxWidth().testTag("theme_card"),
         color = DarkBackground(),
@@ -2032,6 +2077,9 @@ private fun ThemeCustomizationCard(
             Column {
                 Text("THEME & COLORS", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
                 Text("Restyle the whole app instantly · ${selected.title}", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
+                if (spec.description.isNotBlank()) {
+                    Text(spec.description, color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                }
             }
 
             HorizontalDivider(color = DarkSurfaceElevated())
@@ -2053,9 +2101,9 @@ private fun ThemeCustomizationCard(
                 colors = ListItemDefaults.colors(containerColor = DarkSurface())
             )
 
-            // Full-app theme presets.
+            Text("THEMES", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                com.sportage.obd.ui.theme.CockpitThemes.presets.forEach { preset ->
+                presetList.forEach { preset ->
                     val isSel = preset.id == themeId
                     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Box(
@@ -2081,10 +2129,50 @@ private fun ThemeCustomizationCard(
                 }
             }
 
-            // Accent color layered on top of the chosen preset.
+            if (contrastWarnings.isNotEmpty()) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    contrastWarnings.forEach { warning ->
+                        Text(warning, color = WarningAmber(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+                    }
+                }
+            }
+
+            Text("DENSITY", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(
+                    selected = densityOverride == null,
+                    onClick = { onSetDensityOverride(null) },
+                    label = { Text("Theme", fontSize = 11.sp) }
+                )
+                ThemeDensity.entries.forEach { density ->
+                    FilterChip(
+                        selected = densityOverride == density.id,
+                        onClick = { onSetDensityOverride(density.id) },
+                        label = { Text(density.id, fontSize = 11.sp) },
+                        modifier = Modifier.testTag("density_${density.id}")
+                    )
+                }
+            }
+
+            Text("GAUGE STYLE", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                FilterChip(
+                    selected = gaugeStyleOverride == null,
+                    onClick = { onSetGaugeStyleOverride(null) },
+                    label = { Text("Theme", fontSize = 11.sp) }
+                )
+                GaugeStyle.entries.forEach { gauge ->
+                    FilterChip(
+                        selected = gaugeStyleOverride == gauge.id,
+                        onClick = { onSetGaugeStyleOverride(gauge.id) },
+                        label = { Text(gauge.id, fontSize = 11.sp) },
+                        modifier = Modifier.testTag("gauge_${gauge.id}")
+                    )
+                }
+            }
+
             Text("ACCENT COLOR", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // "Preset default" clears any override.
                 Box(
                     modifier = Modifier
                         .testTag("accent_default")
@@ -2097,9 +2185,9 @@ private fun ThemeCustomizationCard(
                         .clickable { onSetAccentOverride(null) },
                     contentAlignment = Alignment.Center
                 ) { Text("A", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold) }
-                com.sportage.obd.ui.theme.CockpitThemes.accentChoices.forEach { accent ->
+                CockpitThemes.accentChoices.forEach { accent ->
                     val hex = "FF%06X".format(accent.toArgb() and 0xFFFFFF)
-                    val isSel = accentOverride != null && com.sportage.obd.ui.theme.CockpitThemes.parseAccent(accentOverride) == accent
+                    val isSel = accentOverride != null && CockpitThemes.parseAccent(accentOverride) == accent
                     Box(
                         modifier = Modifier
                             .testTag("accent_$hex")
@@ -2114,7 +2202,56 @@ private fun ThemeCustomizationCard(
                 }
             }
             Text("Tap a color to override the accent everywhere; A restores the preset default.", color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif)
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(
+                    onClick = {
+                        onSetAccentOverride(null)
+                        onSetDensityOverride(null)
+                        onSetGaugeStyleOverride(null)
+                    },
+                    modifier = Modifier.testTag("theme_reset_overrides")
+                ) { Text("Reset overrides", color = SecondaryText(), fontSize = 11.sp) }
+                TextButton(
+                    onClick = {
+                        clipboard.setText(AnnotatedString(ThemeJson.export(spec)))
+                        statusMessage = "Theme JSON copied to the clipboard"
+                    },
+                    modifier = Modifier.testTag("theme_export")
+                ) { Text("Copy JSON", color = ElectricCyan(), fontSize = 11.sp) }
+                TextButton(
+                    onClick = {
+                        when (val result = ThemeJson.parse(clipboard.getText()?.text)) {
+                            is ThemeParseResult.Success -> {
+                                if (importStore.add(result.spec)) {
+                                    onSetAccentOverride(null)
+                                    onSetThemeId(result.spec.id)
+                                    statusMessage = "Imported \"${result.spec.name}\""
+                                } else {
+                                    statusMessage = "Import limit reached (${ImportedThemeStore.MAX_IMPORTED} themes)"
+                                }
+                            }
+                            is ThemeParseResult.Failure ->
+                                statusMessage = result.errors.take(4).joinToString("\n")
+                        }
+                    },
+                    modifier = Modifier.testTag("theme_import")
+                ) { Text("Import JSON", color = ElectricCyan(), fontSize = 11.sp) }
+            }
+            Text(
+                "Copy the active theme JSON, edit it, then import it back. Imported themes are validated strictly: no URLs, no arbitrary layout injection.",
+                color = SecondaryText(), fontSize = 11.sp, fontFamily = FontFamily.SansSerif
+            )
         }
+    }
+
+    statusMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = { statusMessage = null },
+            confirmButton = { TextButton(onClick = { statusMessage = null }) { Text("OK") } },
+            title = { Text("Theme") },
+            text = { Text(message) }
+        )
     }
 }
 

@@ -1,198 +1,138 @@
-# SportageOBD Widget System
+# Widgets
 
-## Overview
+The **Boards** page is a set of horizontally swipeable pages that the driver fills with widgets.
+Each widget reads live OBD/session state, and every instance has its own configuration. Layouts
+and configuration persist across restarts and can be exported/imported as JSON.
 
-The widget system provides a complete framework for customizable boards with live OBD data, configuration, persistence, and theme-aware defaults. Widgets can be added, removed, resized, reordered, and duplicated from a picker, and layouts persist across restarts via DataStore.
+Source: `android/app/src/main/java/com/sportage/obd/ui/boards/`
 
-## Widget Types
+| File | Purpose |
+|---|---|
+| `BoardModels.kt` | Widget catalog, limits, layout codec, live data bundle, `BoardStore`. |
+| `BoardWidgets.kt` | Widget renderers and per-widget config application. |
+| `BoardScreen.kt` | Swipeable boards, edit mode, undo/reset, layout export/import. |
+| `WidgetPicker.kt` | Grouped widget picker. |
+| `WidgetSettingsDialog.kt` | Per-widget configuration editor. |
+| `WidgetConfig.kt` | Validated config model, JSON codec, type defaults. |
+| `BoardConfigStore.kt` | Versioned config persistence, portable board document. |
 
-The following widget types are available, each with its own renderer and config schema:
+## Widget catalog
 
-### Driving Widgets
+| Id | Title | Default unit | Notes |
+|---|---|---|---|
+| `speed` | Speed | `km/h` (respects unit toggle) | Warns at 140, critical at 160 |
+| `rpm` | Engine speed | `rpm` | Warns at 5000, critical at 6500 |
+| `coolant` | Coolant temp | `°C` | Warns at 100, critical at 110 |
+| `intake` | Intake air temp | `°C` | |
+| `fuel` | Fuel level | `% fuel` | Warns below 15% |
+| `throttle` | Throttle | `% throttle` | |
+| `load` | Engine load | `% load` | |
+| `voltage` | Battery | `volts` | Warns below 11.5 V |
+| `gear` | Gear estimate | `gear` | Shows `P/N` when 0 |
+| `maf` | Air flow | `g/s air` | |
+| `timing` | Timing advance | `°BTDC` | |
+| `map` | Live map | — | Always spans the full row |
+| `clock` | Clock | — | Time + date |
+| `gps` | GPS position | — | Latitude/longitude + status |
+| `trip_distance` | Trip distance | `km trip` | One decimal by default |
+| `trip_duration` | Trip duration | `duration` | |
+| `connection` | Connection | — | Adapter state icon + label |
+| `speed_graph` | Speed graph | — | Rolling history |
+| `rpm_graph` | RPM graph | — | Rolling history |
 
-| Type | ID | Title | Data | Config |
-|------|-----|-------|------|--------|
-| Speed | `speed` | Speed | `speedKmh`, `speedUnit` | units, warning threshold |
-| RPM | `rpm` | Engine speed | `rpm` | redline warning |
-| Coolant | `coolant` | Coolant temp | `coolantTempC` | overheating threshold |
-| Intake Air | `intake` | Intake air temp | `intakeTempC` | |
-| Boost | (custom) | Boost/vacuum | `boostKpa` | units, warning |
-| Throttle | `throttle` | Throttle % | `throttlePct` | |
-| Load | `load` | Engine load | `engineLoadPct` | |
-| Battery | `voltage` | Battery voltage | `batteryVoltage` | low-voltage warning |
-| Gear | `gear` | Gear estimate | `estimatedGear` | P/R/N display |
+Adding a widget type requires an enum entry, a renderer branch, a picker entry, and (optionally)
+a default config. Unknown persisted ids are dropped without losing the rest of the board.
 
-### Trip Computation Widgets
+## Configuration
 
-| Type | ID | Title | Data | Config |
-|------|-----|-------|------|--------|
-| Trip Distance | `trip_distance` | Trip distance | `tripDistanceKm` | reset button |
-| Trip Duration | `trip_duration` | Trip duration | `tripDurationSeconds` | |
-| Average Speed | `avg_speed` | Average speed | `avgSpeedKmh` | |
-| Fuel Economy | (custom) | Fuel economy | `fuelEconomyL100` | |
+`WidgetConfig` fields (all optional, normalized before use):
 
-### Status Widgets
+| Field | Range / rule |
+|---|---|
+| `titleOverride` | ≤ 24 chars; replaces the catalog title |
+| `unitOverride` | ≤ 12 chars; replaces the unit label |
+| `minValue` / `maxValue` | finite floats; normalized so min ≤ max |
+| `warnThreshold` / `criticalThreshold` | clamped into `[min, max]`; warn < critical |
+| `decimals` | 0–2 (defaults: voltage/MAF/timing/trip distance = 1) |
+| `span` | 1 or 2 grid columns (map is forced to full width) |
+| `refreshMs` | 100–5000ms; picker choices 100/250/500/1000/2000/5000 |
+| `visible` | hidden widgets render only in edit mode |
+| `style` | `auto`/`digital`/`bar`/`arc`/`minimal` |
 
-| Type | ID | Title | Data | Config |
-|------|-----|-------|------|--------|
-| Connection | `connection` | Connection status | `connectionLabel`, `connectionOk` | |
-| DTC Status | (custom) | DTC/status | `dtcCount`, `hasCritical` | |
-| Protocol | (custom) | Protocol/adapter status | `protocol`, `adapterName` | |
-| GPS Position | `gps` | GPS position | `currentLat`, `currentLon`, `gpsStatus` | |
+Thresholds color the reading: `≥ warn` amber, `≥ critical` red, with the widget's built-in
+defaults as fallback. Low-fuel and low-voltage warnings stay direction-aware.
 
-### Media & Clock
+## Limits and responsive layout
 
-| Type | ID | Title | Data | Config |
-|------|-----|-------|------|--------|
-| Clock | `clock` | Clock | system time | format (12/24h) |
-| Media | `media` | Now-playing placeholder | `appName`, `trackName` | |
-| Date | (custom) | Date | system date | format |
+- 6 boards maximum, 12 widgets per board (`BoardLimits`). Boards cannot be emptied of pages below 1.
+- Grid uses adaptive 150dp columns; widgets span 1–2 columns (clamped to the current line span).
+- Board minimum sizes come from the active theme (`ThemeLayout.widgetMinWidth/Height`).
+- Empty boards explain how to add widgets; a widget that has no data shows `--`, never crashes.
+- Rendering is pure Compose state; the OBD polling pipeline is untouched.
 
-### Text & Action
+## Persistence and migration
 
-| Type | ID | Title | Data | Config |
-|------|-----|-------|------|--------|
-| Text/Note | `text_note` | Text note | `body` | multiline, color role |
-| Shortcut/Action | `shortcut` | Shortcut/action | pending intent | label, icon |
+`SharedPreferences("sportage_obd_boards")`:
 
-### Default Board Layout
+| Key | Format |
+|---|---|
+| `board_layout` | Legacy token string, e.g. `speed|rpm;;map|clock` |
+| `board_widget_configs_v2` | `{"version":2,"boards":[[{...config...}]]}` |
 
-The default layout (used when no layout is persisted) is:
+- Legacy layouts keep working; configs are created from per-type defaults, preserving order.
+- Missing/corrupt config documents log and fall back to defaults.
+- The theme's `widgetPresets` seed the board the first time a fresh install has no saved layout.
+- The board screen aligns config boards to widget counts after add/remove/reorder, so the two
+  never drift apart.
+
+## Editing
+
+Edit mode exposes, per widget: configure (pencil), duplicate (copy), reorder (arrows), remove (×).
+The header adds undo (last 20 changes), copy layout, paste layout, and a reset to the active
+theme's default board. The picker groups types by Driving / Engine / Location / Trip / Status and
+marks types already on the current board.
+
+## Export / import
+
+Layout export produces a portable document (also used by `docs/samples/sample-widget-layout.json`):
 
 ```json
 {
+  "version": 2,
   "boards": [
-    ["speed", "rpm", "coolant", "voltage", "map", "clock"]
+    {
+      "widgets": [
+        { "type": "speed", "config": { "title": "KMH", "span": 2, "warn": 130, "decimals": 0 } }
+      ]
+    }
   ]
 }
 ```
 
-## Widget Configuration Schema
+`BoardDocument.import` enforces the version, the board/widget limits, known widget ids, and
+normalizes every config. Unknown types are skipped; a document with no usable widgets is rejected.
+The same document round-trips through `BoardDocument.export`.
 
-Each widget type supports a configuration schema stored per-widget. Common fields:
+## Graceful degradation
 
-```json
-{
-  "title": "Speed",
-  "units": "km/h",
-  "min": 0,
-  "max": 300,
-  "warningThreshold": 140,
-  "criticalThreshold": 180,
-  "displayStyle": "value-bar-digital", // value, bar, digital
-  "size": "large", // small, medium, large
-  "refreshRate": "1s", // how often to poll OBD
-  "dataSource": "RPM", // PID or widget type
-  "visibility": "always", // always, when-connected, when-error
-  "labelFormat": "%.0f", // decimal format
-  "decimals": 0,
-  "colorRole": "primary" // overrides text/accent color
-}
-```
-
-### Per-Widget Config Fields by Type
-
-- **Speed**: `units` ("km/h" or "mph"), `warningThreshold` (speed in km/h)
-- **RPM**: `redline` (RPM threshold), `displayStyle` ("value" or "bar")
-- **Coolant**: `overheatingThreshold` (°C, default 105)
-- **Voltage**: `lowVoltage` (V, default 11.5)
-- **Connection**: none (read-only status)
-- **Clock**: `format` ("HH:mm" or "HH:mm:ss", 12/24h)
-- **Text/Note**: `multiline` (boolean), `initialText`, `textColorRole`
-- **Trip Distance**: `showUnit` ("km" or "mi")
-
-## Board Layout Persistence
-
-Layouts are persisted as compact token strings via `BoardLayout`:
-
-```kotlin
-// Save layout
-BoardLayout.save(prefs, layout)
-
-// Load layout
-val layout = BoardLayout.load(prefs)
-```
-
-The format is semi-colon separated boards, pipe separated widgets:
-
-```
-speed|rpm;;coolant|voltage|map|clock
-```
-
-This avoids JSON dependency for the board codec and stays testable on the JVM.
-
-## Theme-Defined Default Presets
-
-Each built-in theme defines its own default widget layout:
-
-| Theme | Default Layout |
-|-------|---------------|
-| minimal-daily | speed, rpm, coolant, voltage, map, clock |
-| cyber-neon | rpm, speed, boost, coolant, oil_temp, intake |
-| classic-analog | coolant, oil_temp, intake, voltage, gear, connection |
-| offroad-rugged | speed, rpm, coolant, oil_temp, boost, fuel |
-| night-lowglare | speed, coolant, voltage, connection, trip_distance, clock |
-
-## Widget Picker
-
-The widget picker (`WidgetPicker`) displays categorized entries with:
-
-- Category filters (Driving, Engine, Location, Trip, Status)
-- Preview of widget type with icon
-- Checked state for widgets already on the board
-- Disable state for widgets that would exceed `MAX_WIDGETS_PER_BOARD` (12)
-
-## Resizing and Reordering
-
-### Constraints
-
-- Boards: maximum 6 boards per layout (`BoardLimits.MAX_BOARDS`)
-- Widgets per board: maximum 12 widgets (`BoardLimits.MAX_WIDGETS_PER_BOARD`)
-- Minimum widget size: 96dp height, variable width
-- Grid adaptation: `LazyVerticalGrid` with `GridCells.Adaptive(minSize = 150.dp)`
-
-### Actions
-
-| Action | Description |
-|--------|-------------|
-| Add widget | From picker; placed at end of current board |
-| Remove widget | Delete from board; layout updates |
-| Resize | Drag widget edges within grid constraints |
-| Reorder | Drag-and-drop within same board |
-| Duplicate | Copy widget to same or different board |
-| Remove board | If more than 1 board exists |
-
-### Move Widget
-
-```kotlin
-fun moveWidget(boardIndex: Int, widgetIndex: Int, delta: Int) {
-    val board = layout.boards.getOrNull(boardIndex) ?: return
-    val target = widgetIndex + delta
-    if (target < 0 || target >= board.size) return
-    val swapped = board.toMutableList().apply {
-        val w = removeAt(widgetIndex); add(target, w)
-    }
-    persist(BoardLayout(layout.boards.mapIndexed { i, b ->
-        if (i == boardIndex) swapped else b
-    }))
-}
-```
-
-## Graceful Degradation
-
-When OBD data is unavailable:
-
-- Show placeholder text (e.g., "--")
-- Show last-known value with stale indicator
-- Show error state (red warning) for critical readings
-- Never crash; rendering is isolated from OBD I/O
-
-All widgets use `StateFlow`/`LiveData` from the view model, and rendering is triggered by state changes, not direct OBD calls.
+- No OBD link: values show `--`, connection widget shows the real adapter state.
+- Invalid config values are clamped by `normalized()`; invalid documents are rejected wholesale.
+- Hidden widgets remain editable (they appear in edit mode) so they can be restored.
+- Widget rendering never blocks the OBD data loop and never allocates during draw beyond the
+  existing history paths.
 
 ## Accessibility
 
-- All widgets have content descriptions for TalkBack
-- Minimum touch target: 76dp
-- High-contrast mode respect in off-road and night themes
-- Focus order is logical within and between boards
-- RTL mirroring where practical
+- Every edit control has a content description (`Configure Speed`, `Remove widget`, …); the picker
+  rows expose readable labels and test tags.
+- Edit controls are 28–44dp icons inside cards; the driving surface itself uses `DriveDimens`
+  minimums.
+- Threshold warnings use both color and the numeric reading, so color-blind drivers keep the value.
+- RTL: layouts use `Arrangement`/`Alignment` rather than absolute left/right padding.
+
+## Tests
+
+`android/app/src/test/java/com/sportage/obd/WidgetConfigTest.kt` covers normalization, validation,
+config JSON round-trip, board document round-trip/limits/rejection, legacy migration, theme preset
+resolution, and alignment of configs with widget mutations. `BoardsTest` keeps the legacy layout
+codec covered.

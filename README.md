@@ -6,7 +6,7 @@ cockpit for the same vehicle — built around a Kia Sportage (QL) 2.0 MPI AWD on
 The repo ships two separate front ends over the same idea: talk to a real ELM327 adapter, decode
 Mode 01 PIDs, and show the result on a screen designed to be glanced at while driving.
 
-[![CI Pipeline](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android.yml/badge.svg)](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android.yml)
+[![CI Pipeline](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android-build.yml/badge.svg)](https://github.com/farazsocialh-jpg/sportageobd/actions/workflows/android-build.yml)
 ![Platform](https://img.shields.io/badge/Android-9%2B%20(API%2028--35)-brightgreen)
 ![Web](https://img.shields.io/badge/Web-React%2019%20%2B%20Vite%208-61dafb)
 
@@ -55,6 +55,24 @@ cockpit instead of a normal home screen.
   never traps the driver.
 - **Live map surface** — GPS position and speed, with deep links into Waze (`waze://`, `geo:`,
   `waze.com`).
+
+**Theming and widgets**
+
+- **Live themes** — the Settings → Theme card switches between complete built-in themes
+  (`Minimal Daily`, `Cyber Neon`, `Classic Analog`, `Off-Road Rugged`, `Night Low-Glare`) plus the
+  original color presets. A theme changes colors, typography, shapes, density, motion, background,
+  gauge style and the default widget layout; switching is instant and persists.
+- **Overrides** — accent color, density and gauge style can be layered on any theme and reset in
+  one tap. System font scaling and reduce-motion are respected.
+- **Import / export** — copy the active theme as strict JSON, edit it, and import it back. Invalid
+  or unsafe documents (URLs, unknown fields, bad colors, low contrast) are rejected with reasons.
+- **Widget boards** — swipeable pages you fill from a grouped picker. Each widget supports a custom
+  title/unit, min/max, warning/critical thresholds, decimals, column span, refresh rate, display
+  style and visibility; edit mode adds configure, duplicate, reorder, remove, undo, reset and
+  layout export/import. Layouts and configuration persist across restarts.
+
+See [docs/THEMING.md](docs/THEMING.md) and [docs/WIDGETS.md](docs/WIDGETS.md), with samples in
+`docs/samples/`.
 
 **Permissions requested at first launch:** `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN` (Android 12+; the
 older `BLUETOOTH`/`BLUETOOTH_ADMIN` pair is declared with `maxSdkVersion="30"`), fine/coarse
@@ -179,11 +197,10 @@ npm run build    # production bundle in dist/
 
 ### CI
 
-- `.github/workflows/android.yml` — lint, unit tests, debug and release APK builds on pushes and pull
-  requests to `main`/`master`, plus manual dispatch.
-- `.github/workflows/build-apk.yml` — debug APK build for artifact download.
+- `.github/workflows/android-build.yml` — unit tests, lint, debug and release APK builds on pushes
+  and pull requests to `main`/`master`, plus manual dispatch and tag releases.
 
-Both workflows are branch-filtered: work on a feature branch only runs CI once it is pushed to
+The workflow is branch-filtered: work on a feature branch only runs CI once it is pushed to
 `main`/`master` or opened as a pull request against them.
 
 ---

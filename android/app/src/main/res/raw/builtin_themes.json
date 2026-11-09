@@ -1,527 +1,525 @@
 {
   "themes": [
     {
+      "version": "2.0",
       "id": "minimal-daily",
-      "name": "Minimal / Clean Daily Driver",
-      "mode": "system",
-      "description": "Clean, uncluttered cockpit focused on essential readings. Optimized for daily commuting with subtle contrasts.",
-      "previewThumbnail": "res/minimal_daily.png",
+      "name": "Minimal Daily",
+      "description": "Light, uncluttered daily-driver cockpit. Soft surfaces, compact numerals and minimal motion.",
+      "mode": "light",
       "tokens": {
         "color": {
-          "background": "#0A0E14",
-          "surface": "#111820",
-          "surfaceVariant": "#181F2A",
-          "primary": "#F8F9FA",
-          "secondary": "#6B7280",
-          "accent": "#10B981",
-          "warning": "#F59E0B",
-          "danger": "#EF4444",
-          "success": "#22C55E",
-          "textPrimary": "#F8F9FA",
-          "textSecondary": "#9CA3AF",
-          "outline": "#374151",
-          "gaugeTrack": "#1F2937",
-          "gaugeFill": "#F8F9FA"
+          "background": "#F4F6F8",
+          "surface": "#FFFFFFFF",
+          "surfaceVariant": "#E7ECF0",
+          "primary": "#1B2430",
+          "secondary": "#52606D",
+          "accent": "#0F766E",
+          "warning": "#B45309",
+          "danger": "#BE123C",
+          "success": "#15803D",
+          "textPrimary": "#141A21",
+          "textSecondary": "#52606D",
+          "outline": "#CBD5DB",
+          "gaugeTrack": "#E2E8EC",
+          "gaugeFill": "#0F766E",
+          "chart": [
+            "#0F766E",
+            "#3B82F6",
+            "#B45309"
+          ]
         },
         "typography": {
-          "fontFamily": "system",
-          "sizes": {
-            "displayLarge": 40,
-            "displayMedium": 32,
-            "headlineLarge": 24,
-            "titleLarge": 20,
-            "titleMedium": 16,
-            "bodyLarge": 16,
-            "bodyMedium": 14,
-            "labelLarge": 14,
-            "labelMedium": 12
-          },
-          "weights": {
-            "thin": 100,
-            "extraLight": 200,
-            "light": 300,
-            "regular": 400,
-            "medium": 500,
-            "semiBold": 600,
-            "bold": 700,
-            "extraBold": 800,
-            "black": 900
-          },
-          "letterSpacing": 0.02,
-          "numericFont": "monospace"
+          "fontFamily": "sans",
+          "numericFont": "sans",
+          "displayLarge": 38,
+          "displayMedium": 30,
+          "headlineLarge": 23,
+          "titleLarge": 20,
+          "titleMedium": 18,
+          "bodyLarge": 16,
+          "bodyMedium": 14,
+          "labelLarge": 14,
+          "labelMedium": 12,
+          "weightRegular": 400,
+          "weightMedium": 500,
+          "weightBold": 600,
+          "letterSpacing": 0.005
         },
         "shape": {
-          "cornerRadius": 8,
+          "cornerRadius": 14,
+          "cardCornerRadius": 20,
           "borderWidth": 1,
-          "gaugeStroke": 2
+          "gaugeStroke": 6
         },
         "spacing": {
-          "compact": 16,
-          "comfortable": 24,
-          "spacious": 32
-        },
-        "elevation": {
-          "shadow": "0 1px 2px rgba(0,0,0,0.3)"
+          "density": "spacious",
+          "itemGap": 18,
+          "cardPadding": 20,
+          "safeMargin": 20
         },
         "motion": {
-          "durationFast": 150,
-          "durationNormal": 250,
-          "durationSlow": 400,
+          "fast": 100,
+          "normal": 180,
+          "slow": 260,
           "easing": "ease-out"
         },
+        "elevation": {
+          "cardElevation": 3,
+          "glowAlpha": 0
+        },
         "iconography": {
-          "iconSet": "material-icons",
-          "strokeWidth": 2,
-          "style": "filled"
+          "style": "outlined",
+          "strokeWidth": 1.5
         },
         "background": {
           "style": "solid",
-          "gradientColors": null,
-          "imageResource": null,
-          "safeAreaScrim": "rgba(0,0,0,0.4)"
-        },
-        "gauge": {
-          "style": "radial",
-          "needleStyle": "arrow",
-          "tickStyle": "short",
-          "warningZones": [
-            {"min": 0, "max": 3000, "color": "#EF4444"},
-            {"min": 3000, "max": 6500, "color": "#F59E0B"}
-          ],
-          "stylePreset": "minimal"
-        },
-        "layout": {
-          "preset": "minimal",
-          "launcherGrid": {"rows": 2, "cols": 3, "cellWidth": 120, "cellHeight": 100},
-          "clusterSlot": {"widthRatio": 0.8, "heightRatio": 0.6},
-          "safeMargins": {"top": 12, "bottom": 12, "left": 12, "right": 12}
-        }
-      },
-      "overrides": {},
-      "defaultWidgetLayout": {
-        "boards": [
-          ["speed", "rpm", "coolant", "voltage", "map", "clock"]
-        ]
-      }
-    },
-    {
-      "id": "cyber-neon",
-      "name": "Cyber / Neon Performance Cockpit",
-      "mode": "dark",
-      "description": "High-contrast neon aesthetic inspired by performance car dashboards. Bold cyan accents on dark background.",
-      "previewThumbnail": "res/cyber_neon.png",
-      "tokens": {
-        "color": {
-          "background": "#0A0A12",
-          "surface": "#12121A",
-          "surfaceVariant": "#1A2332",
-          "primary": "#00FFAA",
-          "secondary": "#00D4FF",
-          "accent": "#FF073A",
-          "warning": "#FFAA1F",
-          "danger": "#FF3366",
-          "success": "#33FF66",
-          "textPrimary": "#00FFAA",
-          "textSecondary": "#88CCDD",
-          "outline": "#00FFAA",
-          "gaugeTrack": "#00AA99",
-          "gaugeFill": "#1A1A24"
-        },
-        "typography": {
-          "fontFamily": "inter",
-          "sizes": {
-            "displayLarge": 48,
-            "displayMedium": 36,
-            "headlineLarge": 28,
-            "titleLarge": 24,
-            "titleMedium": 18,
-            "bodyLarge": 18,
-            "bodyMedium": 14,
-            "labelLarge": 16,
-            "labelMedium": 13
-          },
-          "weights": {
-            "thin": 100,
-            "extraLight": 200,
-            "light": 300,
-            "regular": 400,
-            "medium": 500,
-            "semiBold": 600,
-            "bold": 700,
-            "extraBold": 800,
-            "black": 900
-          },
-          "letterSpacing": 0.04,
-          "numericFont": "digital-7"
-        },
-        "shape": {
-          "cornerRadius": 12,
-          "borderWidth": 2,
-          "gaugeStroke": 3
-        },
-        "spacing": {
-          "compact": 20,
-          "comfortable": 32,
-          "spacious": 44
-        },
-        "elevation": {
-          "shadow": "0 0 20px rgba(0, 255, 170, 0.3), 0 4px 8px rgba(0,0,0,0.6)"
-        },
-        "motion": {
-          "durationFast": 200,
-          "durationNormal": 350,
-          "durationSlow": 500,
-          "easing": "cubic-bezier(0.4, 0, 0.2, 1)"
-        },
-        "iconography": {
-          "iconSet": "material-outlined",
-          "strokeWidth": 3,
-          "style": "rounded"
-        },
-        "background": {
-          "style": "gradient",
-          "gradientColors": ["#0A0A12", "#12121A"],
-          "imageResource": null,
-          "safeAreaScrim": "rgba(0, 255, 170, 0.1)"
-        },
-        "gauge": {
-          "style": "radial",
-          "needleStyle": "arrow",
-          "tickStyle": "numbered",
-          "warningZones": [
-            {"min": 0, "max": 3000, "color": "#FFAA1F"},
-            {"min": 3000, "max": 6500, "color": "#FF3366"}
-          ],
-          "stylePreset": "performance"
-        },
-        "layout": {
-          "preset": "performance",
-          "launcherGrid": {"rows": 3, "cols": 4, "cellWidth": 90, "cellHeight": 80},
-          "clusterSlot": {"widthRatio": 0.9, "heightRatio": 0.7},
-          "safeMargins": {"top": 8, "bottom": 8, "left": 8, "right": 8}
-        }
-      },
-      "overrides": {
-        "accent": "#00FFAA"
-      },
-      "defaultWidgetLayout": {
-        "boards": [
-          ["rpm", "speed", "boost", "coolant", "oil_temp", "intake"]
-        ]
-      }
-    },
-    {
-      "id": "classic-analog",
-      "name": "Classic / Analog-Inspired Cluster",
-      "mode": "dark",
-      "description": "Timeless analog-inspired design with warm tones. Resembles traditional automotive instrumentation.",
-      "previewThumbnail": "res/classic_analog.png",
-      "tokens": {
-        "color": {
-          "background": "#1B1B1B",
-          "surface": "#252525",
-          "surfaceVariant": "#2D2D38",
-          "primary": "#E8D5B0",
-          "secondary": "#D8C08A",
-          "accent": "#C8A96B",
-          "warning": "#C4A672",
-          "danger": "#A84B43",
-          "success": "#7B3F2A",
-          "textPrimary": "#E8D5B0",
-          "textSecondary": "#A8967C",
-          "outline": "#5A4F3A",
-          "gaugeTrack": "#3D3328",
-          "gaugeFill": "#252525"
-        },
-        "typography": {
-          "fontFamily": "system",
-          "sizes": {
-            "displayLarge": 36,
-            "displayMedium": 28,
-            "headlineLarge": 24,
-            "titleLarge": 20,
-            "titleMedium": 16,
-            "bodyLarge": 15,
-            "bodyMedium": 13,
-            "labelLarge": 14,
-            "labelMedium": 12
-          },
-          "weights": {
-            "thin": 100,
-            "extraLight": 200,
-            "light": 300,
-            "regular": 400,
-            "medium": 500,
-            "semiBold": 600,
-            "bold": 700,
-            "extraBold": 800,
-            "black": 900
-          },
-          "letterSpacing": 0.03,
-          "numericFont": "system"
-        },
-        "shape": {
-          "cornerRadius": 16,
-          "borderWidth": 2,
-          "gaugeStroke": 3
-        },
-        "spacing": {
-          "compact": 24,
-          "comfortable": 32,
-          "spacious": 40
-        },
-        "elevation": {
-          "shadow": "0 2px 4px rgba(0,0,0,0.5)"
-        },
-        "motion": {
-          "durationFast": 200,
-          "durationNormal": 300,
-          "durationSlow": 450,
-          "easing": "ease-in-out"
-        },
-        "iconography": {
-          "iconSet": "material-icons",
-          "strokeWidth": 2,
-          "style": "outlined"
-        },
-        "background": {
-          "style": "solid",
-          "gradientColors": null,
-          "imageResource": null,
-          "safeAreaScrim": "rgba(0,0,0,0.5)"
-        },
-        "gauge": {
-          "style": "arc",
-          "needleStyle": "triangle",
-          "tickStyle": "long",
-          "warningZones": [
-            {"min": 0, "max": 3000, "color": "#C4A672"},
-            {"min": 3000, "max": 6500, "color": "#A84B43"}
-          ],
-          "stylePreset": "analog"
-        },
-        "layout": {
-          "preset": "analog",
-          "launcherGrid": {"rows": 2, "cols": 3, "cellWidth": 130, "cellHeight": 110},
-          "clusterSlot": {"widthRatio": 0.75, "heightRatio": 0.65},
-          "safeMargins": {"top": 16, "bottom": 16, "left": 16, "right": 16}
-        }
-      },
-      "overrides": {},
-      "defaultWidgetLayout": {
-        "boards": [
-          ["coolant", "oil_temp", "intake", "voltage", "gear", "connection"]
-        ]
-      }
-    },
-    {
-      "id": "offroad-rugged",
-      "name": "Off-Road / Rugged High-Contrast Utility",
-      "mode": "dark",
-      "description": "High-visibility rugged design for off-road use. Maximum contrast, large elements, desert camouflage accents.",
-      "previewThumbnail": "res/offroad_rugged.png",
-      "tokens": {
-        "color": {
-          "background": "#0F0F0F",
-          "surface": "#1A1A1A",
-          "surfaceVariant": "#252525",
-          "primary": "#FFD31A",
-          "secondary": "#FFED6A",
-          "accent": "#FF9F1C",
-          "warning": "#FFD31A",
-          "danger": "#FF4500",
-          "success": "#32CD32",
-          "textPrimary": "#FFD31A",
-          "textSecondary": "#E8E8E8",
-          "outline": "#FF9F1C",
-          "gaugeTrack": "#1A1A1A",
-          "gaugeFill": "#252525"
-        },
-        "typography": {
-          "fontFamily": "system",
-          "sizes": {
-            "displayLarge": 44,
-            "displayMedium": 36,
-            "headlineLarge": 28,
-            "titleLarge": 24,
-            "titleMedium": 20,
-            "bodyLarge": 20,
-            "bodyMedium": 16,
-            "labelLarge": 18,
-            "labelMedium": 14
-          },
-          "weights": {
-            "thin": 100,
-            "extraLight": 200,
-            "light": 300,
-            "regular": 400,
-            "medium": 500,
-            "semiBold": 600,
-            "bold": 700,
-            "extraBold": 800,
-            "black": 900
-          },
-          "letterSpacing": 0.05,
-          "numericFont": "monospace"
-        },
-        "shape": {
-          "cornerRadius": 6,
-          "borderWidth": 3,
-          "gaugeStroke": 4
-        },
-        "spacing": {
-          "compact": 24,
-          "comfortable": 36,
-          "spacious": 48
-        },
-        "elevation": {
-          "shadow": "0 3px 8px rgba(0,0,0,0.7), 0 0 15px rgba(255, 69, 0, 0.4)"
-        },
-        "motion": {
-          "durationFast": 100,
-          "durationNormal": 200,
-          "durationSlow": 300,
-          "easing": "linear"
-        },
-        "iconography": {
-          "iconSet": "material-icons",
-          "strokeWidth": 4,
-          "style": "filled"
-        },
-        "background": {
-          "style": "solid",
-          "gradientColors": null,
-          "imageResource": null,
-          "safeAreaScrim": "rgba(255, 69, 0, 0.2)"
-        },
-        "gauge": {
-          "style": "bar",
-          "needleStyle": "minimal",
-          "tickStyle": "none",
-          "warningZones": [
-            {"min": 0, "max": 3000, "color": "#FF4500"},
-            {"min": 3000, "max": 6500, "color": "#FFD31A"}
-          ],
-          "stylePreset": "offroad"
-        },
-        "layout": {
-          "preset": "offroad",
-          "launcherGrid": {"rows": 4, "cols": 5, "cellWidth": 80, "cellHeight": 70},
-          "clusterSlot": {"widthRatio": 1.0, "heightRatio": 0.8},
-          "safeMargins": {"top": 20, "bottom": 20, "left": 20, "right": 20}
-        }
-      },
-      "overrides": {
-        "accent": "#FF9F1C"
-      },
-      "defaultWidgetLayout": {
-        "boards": [
-          ["speed", "rpm", "coolant", "oil_temp", "boost", "fuel"]
-        ]
-      }
-    },
-    {
-      "id": "night-lowglare",
-      "name": "Night / Low-Glare Long-Distance",
-      "mode": "dark",
-      "description": "Low-glare theme for night driving. Muted colors reduced blue light, optimized for extended use after dark.",
-      "previewThumbnail": "res/night_lowglare.png",
-      "tokens": {
-        "color": {
-          "background": "#050508",
-          "surface": "#0A0A0F",
-          "surfaceVariant": "#101015",
-          "primary": "#8B5A3B",
-          "secondary": "#6B4A2E",
-          "accent": "#D4A853",
-          "warning": "#C49A2A",
-          "danger": "#5B3A21",
-          "success": "#4A3B2A",
-          "textPrimary": "#D4A853",
-          "textSecondary": "#A88A4A",
-          "outline": "#6B5A42",
-          "gaugeTrack": "#0A0A0F",
-          "gaugeFill": "#15151A"
-        },
-        "typography": {
-          "fontFamily": "system",
-          "sizes": {
-            "displayLarge": 38,
-            "displayMedium": 30,
-            "headlineLarge": 24,
-            "titleLarge": 20,
-            "titleMedium": 16,
-            "bodyLarge": 15,
-            "bodyMedium": 13,
-            "labelLarge": 14,
-            "labelMedium": 12
-          },
-          "weights": {
-            "thin": 100,
-            "extraLight": 200,
-            "light": 300,
-            "regular": 400,
-            "medium": 500,
-            "semiBold": 600,
-            "bold": 700,
-            "extraBold": 800,
-            "black": 900
-          },
-          "letterSpacing": 0.03,
-          "numericFont": "system"
-        },
-        "shape": {
-          "cornerRadius": 10,
-          "borderWidth": 1,
-          "gaugeStroke": 2
-        },
-        "spacing": {
-          "compact": 18,
-          "comfortable": 26,
-          "spacious": 34
-        },
-        "elevation": {
-          "shadow": "0 1px 3px rgba(0,0,0,0.4)"
-        },
-        "motion": {
-          "durationFast": 200,
-          "durationNormal": 350,
-          "durationSlow": 500,
-          "easing": "ease-in"
-        },
-        "iconography": {
-          "iconSet": "material-icons",
-          "strokeWidth": 2,
-          "style": "rounded"
-        },
-        "background": {
-          "style": "solid",
-          "gradientColors": null,
-          "imageResource": null,
-          "safeAreaScrim": "rgba(0,0,0,0.6)"
+          "base": "#F4F6F8",
+          "accent": "#0F766E",
+          "gradientAngle": 0,
+          "pattern": "none"
         },
         "gauge": {
           "style": "digital",
-          "needleStyle": "minimal",
-          "tickStyle": "none",
-          "warningZones": [],
-          "stylePreset": "night"
+          "needle": "line",
+          "tickCount": 12,
+          "warnFraction": 0.75,
+          "criticalFraction": 0.9
         },
         "layout": {
-          "preset": "night",
-          "launcherGrid": {"rows": 3, "cols": 3, "cellWidth": 110, "cellHeight": 95},
-          "clusterSlot": {"widthRatio": 0.85, "heightRatio": 0.7},
-          "safeMargins": {"top": 16, "bottom": 16, "left": 16, "right": 16}
+          "launcherRows": 2,
+          "launcherCols": 3,
+          "widgetMinWidth": 160,
+          "widgetMinHeight": 104
         }
       },
-      "overrides": {
-        "accent": "#D4A853"
-      },
-      "defaultWidgetLayout": {
-        "boards": [
-          ["speed", "coolant", "voltage", "connection", "trip_distance", "clock"]
+      "widgetPresets": [
+        [
+          "speed",
+          "clock",
+          "fuel",
+          "voltage",
+          "map",
+          "connection"
         ]
-      }
+      ]
+    },
+    {
+      "version": "2.0",
+      "id": "cyber-neon",
+      "name": "Cyber Neon",
+      "description": "High-contrast performance cockpit with neon accents, monospace numerals and fast glowing motion.",
+      "mode": "dark",
+      "tokens": {
+        "color": {
+          "background": "#05070C",
+          "surface": "#0C1220",
+          "surfaceVariant": "#16233A",
+          "primary": "#E8FBFF",
+          "secondary": "#FF4FD8",
+          "accent": "#22D3EE",
+          "warning": "#FFC14D",
+          "danger": "#FF4D6D",
+          "success": "#4DFFB8",
+          "textPrimary": "#E8FBFF",
+          "textSecondary": "#8FA9C4",
+          "outline": "#2A3F5C",
+          "gaugeTrack": "#12203A",
+          "gaugeFill": "#22D3EE",
+          "chart": [
+            "#22D3EE",
+            "#FF4FD8",
+            "#4DFFB8"
+          ]
+        },
+        "typography": {
+          "fontFamily": "sans",
+          "numericFont": "monospace",
+          "displayLarge": 44,
+          "displayMedium": 34,
+          "headlineLarge": 25,
+          "titleLarge": 22,
+          "titleMedium": 18,
+          "bodyLarge": 16,
+          "bodyMedium": 14,
+          "labelLarge": 14,
+          "labelMedium": 12,
+          "weightRegular": 400,
+          "weightMedium": 600,
+          "weightBold": 800,
+          "letterSpacing": 0.04
+        },
+        "shape": {
+          "cornerRadius": 4,
+          "cardCornerRadius": 8,
+          "borderWidth": 1,
+          "gaugeStroke": 10
+        },
+        "spacing": {
+          "density": "compact",
+          "itemGap": 8,
+          "cardPadding": 10,
+          "safeMargin": 12
+        },
+        "motion": {
+          "fast": 80,
+          "normal": 140,
+          "slow": 220,
+          "easing": "linear"
+        },
+        "elevation": {
+          "cardElevation": 0,
+          "glowAlpha": 0.55
+        },
+        "iconography": {
+          "style": "outlined",
+          "strokeWidth": 1
+        },
+        "background": {
+          "style": "gradient",
+          "base": "#05070C",
+          "accent": "#0E2A3A",
+          "gradientAngle": 135,
+          "pattern": "grid"
+        },
+        "gauge": {
+          "style": "arc",
+          "needle": "line",
+          "tickCount": 32,
+          "warnFraction": 0.72,
+          "criticalFraction": 0.88
+        },
+        "layout": {
+          "launcherRows": 3,
+          "launcherCols": 4,
+          "widgetMinWidth": 132,
+          "widgetMinHeight": 88
+        }
+      },
+      "widgetPresets": [
+        [
+          "rpm",
+          "speed",
+          "rpm_graph",
+          "speed_graph",
+          "coolant",
+          "voltage",
+          "gear"
+        ]
+      ]
+    },
+    {
+      "version": "2.0",
+      "id": "classic-analog",
+      "name": "Classic Analog",
+      "description": "Warm, analog-inspired cluster: serif labels, radial dials and unhurried motion.",
+      "mode": "dark",
+      "tokens": {
+        "color": {
+          "background": "#17130F",
+          "surface": "#221C16",
+          "surfaceVariant": "#322920",
+          "primary": "#F3E7D4",
+          "secondary": "#C9A46A",
+          "accent": "#E0B36A",
+          "warning": "#D98A3D",
+          "danger": "#C4513E",
+          "success": "#8FA76A",
+          "textPrimary": "#F5EAD8",
+          "textSecondary": "#C4B49A",
+          "outline": "#5A4A38",
+          "gaugeTrack": "#3A2F24",
+          "gaugeFill": "#E0B36A",
+          "chart": [
+            "#E0B36A",
+            "#C4513E",
+            "#8FA76A"
+          ]
+        },
+        "typography": {
+          "fontFamily": "serif",
+          "numericFont": "monospace",
+          "displayLarge": 36,
+          "displayMedium": 28,
+          "headlineLarge": 22,
+          "titleLarge": 20,
+          "titleMedium": 18,
+          "bodyLarge": 16,
+          "bodyMedium": 14,
+          "labelLarge": 14,
+          "labelMedium": 12,
+          "weightRegular": 400,
+          "weightMedium": 500,
+          "weightBold": 700,
+          "letterSpacing": 0.03
+        },
+        "shape": {
+          "cornerRadius": 18,
+          "cardCornerRadius": 28,
+          "borderWidth": 2,
+          "gaugeStroke": 4
+        },
+        "spacing": {
+          "density": "comfortable",
+          "itemGap": 14,
+          "cardPadding": 18,
+          "safeMargin": 16
+        },
+        "motion": {
+          "fast": 240,
+          "normal": 420,
+          "slow": 700,
+          "easing": "ease-in-out"
+        },
+        "elevation": {
+          "cardElevation": 6,
+          "glowAlpha": 0.18
+        },
+        "iconography": {
+          "style": "filled",
+          "strokeWidth": 2.5
+        },
+        "background": {
+          "style": "pattern",
+          "base": "#17130F",
+          "accent": "#2A2119",
+          "gradientAngle": 0,
+          "pattern": "leather"
+        },
+        "gauge": {
+          "style": "radial",
+          "needle": "tapered",
+          "tickCount": 60,
+          "warnFraction": 0.75,
+          "criticalFraction": 0.9
+        },
+        "layout": {
+          "launcherRows": 2,
+          "launcherCols": 3,
+          "widgetMinWidth": 170,
+          "widgetMinHeight": 120
+        }
+      },
+      "widgetPresets": [
+        [
+          "rpm",
+          "speed",
+          "coolant",
+          "fuel",
+          "voltage",
+          "clock"
+        ]
+      ]
+    },
+    {
+      "version": "2.0",
+      "id": "offroad-rugged",
+      "name": "Off-Road Rugged",
+      "description": "Maximum-legibility utility theme: thick borders, big bold numerals and a topographic background.",
+      "mode": "dark",
+      "tokens": {
+        "color": {
+          "background": "#101408",
+          "surface": "#1B2110",
+          "surfaceVariant": "#2A331A",
+          "primary": "#F4FFE6",
+          "secondary": "#B6D26A",
+          "accent": "#A8E05F",
+          "warning": "#FFB020",
+          "danger": "#FF5340",
+          "success": "#7BE07B",
+          "textPrimary": "#FBFFF2",
+          "textSecondary": "#BECC9C",
+          "outline": "#4C5A30",
+          "gaugeTrack": "#2A331A",
+          "gaugeFill": "#A8E05F",
+          "chart": [
+            "#A8E05F",
+            "#FFB020",
+            "#7BE07B"
+          ]
+        },
+        "typography": {
+          "fontFamily": "sans",
+          "numericFont": "monospace",
+          "displayLarge": 46,
+          "displayMedium": 36,
+          "headlineLarge": 26,
+          "titleLarge": 23,
+          "titleMedium": 18,
+          "bodyLarge": 16,
+          "bodyMedium": 14,
+          "labelLarge": 14,
+          "labelMedium": 12,
+          "weightRegular": 500,
+          "weightMedium": 700,
+          "weightBold": 900,
+          "letterSpacing": 0.02
+        },
+        "shape": {
+          "cornerRadius": 2,
+          "cardCornerRadius": 6,
+          "borderWidth": 2,
+          "gaugeStroke": 8
+        },
+        "spacing": {
+          "density": "spacious",
+          "itemGap": 16,
+          "cardPadding": 16,
+          "safeMargin": 24
+        },
+        "motion": {
+          "fast": 90,
+          "normal": 150,
+          "slow": 240,
+          "easing": "ease"
+        },
+        "elevation": {
+          "cardElevation": 0,
+          "glowAlpha": 0.1
+        },
+        "iconography": {
+          "style": "filled",
+          "strokeWidth": 3
+        },
+        "background": {
+          "style": "pattern",
+          "base": "#101408",
+          "accent": "#243014",
+          "gradientAngle": 0,
+          "pattern": "topo"
+        },
+        "gauge": {
+          "style": "bar",
+          "needle": "dot",
+          "tickCount": 16,
+          "warnFraction": 0.68,
+          "criticalFraction": 0.85
+        },
+        "layout": {
+          "launcherRows": 2,
+          "launcherCols": 2,
+          "widgetMinWidth": 180,
+          "widgetMinHeight": 120
+        }
+      },
+      "widgetPresets": [
+        [
+          "speed",
+          "rpm",
+          "coolant",
+          "voltage",
+          "gps",
+          "map"
+        ],
+        [
+          "trip_distance",
+          "trip_duration",
+          "connection"
+        ]
+      ]
+    },
+    {
+      "version": "2.0",
+      "id": "night-lowglare",
+      "name": "Night Low-Glare",
+      "description": "Dim, warm long-distance theme that protects night vision with low-glare amber tones.",
+      "mode": "dark",
+      "tokens": {
+        "color": {
+          "background": "#070607",
+          "surface": "#100D0C",
+          "surfaceVariant": "#1C1715",
+          "primary": "#E8C9A0",
+          "secondary": "#B98A5A",
+          "accent": "#C98A3F",
+          "warning": "#D6952F",
+          "danger": "#C25B3A",
+          "success": "#9B9B5A",
+          "textPrimary": "#D9B98F",
+          "textSecondary": "#9C8265",
+          "outline": "#3A3028",
+          "gaugeTrack": "#241D19",
+          "gaugeFill": "#C98A3F",
+          "chart": [
+            "#C98A3F",
+            "#C25B3A",
+            "#9B9B5A"
+          ]
+        },
+        "typography": {
+          "fontFamily": "sans",
+          "numericFont": "monospace",
+          "displayLarge": 40,
+          "displayMedium": 32,
+          "headlineLarge": 24,
+          "titleLarge": 21,
+          "titleMedium": 18,
+          "bodyLarge": 16,
+          "bodyMedium": 14,
+          "labelLarge": 14,
+          "labelMedium": 12,
+          "weightRegular": 400,
+          "weightMedium": 500,
+          "weightBold": 700,
+          "letterSpacing": 0.02
+        },
+        "shape": {
+          "cornerRadius": 10,
+          "cardCornerRadius": 14,
+          "borderWidth": 1,
+          "gaugeStroke": 3
+        },
+        "spacing": {
+          "density": "compact",
+          "itemGap": 10,
+          "cardPadding": 12,
+          "safeMargin": 14
+        },
+        "motion": {
+          "fast": 200,
+          "normal": 320,
+          "slow": 480,
+          "easing": "ease-in-out"
+        },
+        "elevation": {
+          "cardElevation": 0,
+          "glowAlpha": 0.05
+        },
+        "iconography": {
+          "style": "outlined",
+          "strokeWidth": 1.5
+        },
+        "background": {
+          "style": "solid",
+          "base": "#070607",
+          "accent": "#1C1715",
+          "gradientAngle": 0,
+          "pattern": "none"
+        },
+        "gauge": {
+          "style": "minimal",
+          "needle": "line",
+          "tickCount": 8,
+          "warnFraction": 0.8,
+          "criticalFraction": 0.92
+        },
+        "layout": {
+          "launcherRows": 2,
+          "launcherCols": 3,
+          "widgetMinWidth": 160,
+          "widgetMinHeight": 96
+        }
+      },
+      "widgetPresets": [
+        [
+          "speed",
+          "rpm",
+          "clock",
+          "fuel",
+          "connection",
+          "voltage"
+        ]
+      ]
     }
   ]
 }

@@ -1,226 +1,145 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SportageOBD Theme Schema",
+  "title": "SportageOBD Theme Schema v2",
   "type": "object",
-  "description": "Versioned theme configuration for SportageOBD cockpit. All UI reads from resolved theme tokens.",
-  "required": ["tokens", "layout", "gaugeStyle", "meta"],
+  "required": ["version", "id", "name", "tokens"],
+  "additionalProperties": false,
   "properties": {
-    "version": {
-      "type": "string",
-      "enum": ["1.0", "1.1", "2.0"],
-      "default": "1.0",
-      "description": "Schema version for backward-compatible migrations."
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["light", "dark", "system"],
-      "default": "dark",
-      "description": "Color mode: light, dark, or follow system."
+    "version": { "type": "string", "enum": ["1.0", "1.1", "2.0"] },
+    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,40}$" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 60 },
+    "description": { "type": "string", "maxLength": 240 },
+    "mode": { "type": "string", "enum": ["light", "dark", "system"] },
+    "extends": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,40}$" },
+    "widgetPresets": {
+      "type": "array",
+      "maxItems": 6,
+      "items": {
+        "type": "array",
+        "maxItems": 12,
+        "items": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{1,40}$" }
+      }
     },
     "tokens": {
       "type": "object",
-      "required": ["color", "typography", "shape", "spacing", "elevation", "motion", "iconography", "background", "gauge", "layout"],
+      "additionalProperties": false,
       "properties": {
         "color": {
           "type": "object",
-          "required": ["background", "surface", "surfaceVariant", "primary", "secondary", "accent", "warning", "danger", "success", "textPrimary", "textSecondary", "outline", "gaugeTrack", "gaugeFill", "chart1", "chart2", "chart3"],
+          "additionalProperties": false,
           "properties": {
-            "background": {"type": "string", "format": "color"},
-            "surface": {"type": "string", "format": "color"},
-            "surfaceVariant": {"type": "string", "format": "color"},
-            "primary": {"type": "string", "format": "color"},
-            "secondary": {"type": "string", "format": "color"},
-            "accent": {"type": "string", "format": "color"},
-            "warning": {"type": "string", "format": "color"},
-            "danger": {"type": "string", "format": "color"},
-            "success": {"type": "string", "format": "color"},
-            "textPrimary": {"type": "string", "format": "color"},
-            "textSecondary": {"type": "string", "format": "color"},
-            "outline": {"type": "string", "format": "color"},
-            "gaugeTrack": {"type": "string", "format": "color"},
-            "gaugeFill": {"type": "string", "format": "color"},
-            "chart1": {"type": "string", "format": "color"},
-            "chart2": {"type": "string", "format": "color"},
-            "chart3": {"type": "string", "format": "color"}
+            "background": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "surface": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "surfaceVariant": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "primary": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "secondary": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "accent": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "warning": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "danger": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "success": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "textPrimary": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "textSecondary": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "outline": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "gaugeTrack": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "gaugeFill": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "chart": {
+              "type": "array", "minItems": 1, "maxItems": 8,
+              "items": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" }
+            }
           }
         },
         "typography": {
           "type": "object",
-          "required": ["fontFamily", "sizes", "weights", "letterSpacing", "numericFont"],
+          "additionalProperties": false,
           "properties": {
-            "fontFamily": {"type": "string", "enum": ["system", "monospace", "roboto", "inter"]},
-            "sizes": {
-              "type": "object",
-              "required": ["displayLarge", "displayMedium", "headlineLarge", "titleLarge", "titleMedium", "bodyLarge", "bodyMedium", "labelLarge", "labelMedium"],
-              "properties": {
-                "displayLarge": {"type": "number", "minimum": 12},
-                "displayMedium": {"type": "number", "minimum": 12},
-                "headlineLarge": {"type": "number", "minimum": 12},
-                "titleLarge": {"type": "number", "minimum": 12},
-                "titleMedium": {"type": "number", "minimum": 12},
-                "bodyLarge": {"type": "number", "minimum": 12},
-                "bodyMedium": {"type": "number", "minimum": 12},
-                "labelLarge": {"type": "number", "minimum": 12},
-                "labelMedium": {"type": "number", "minimum": 12}
-              }
-            },
-            "weights": {
-              "type": "object",
-              "required": ["thin", "extraLight", "light", "regular", "medium", "semiBold", "bold", "extraBold", "black"],
-              "properties": {
-                "thin": {"type": "integer", "minimum": 100, "maximum": 900},
-                "extraLight": {"type": "integer", "minimum": 100, "maximum": 900},
-                "light": {"type": "integer", "minimum": 100, "maximum": 900},
-                "regular": {"type": "integer", "minimum": 100, "maximum": 900},
-                "medium": {"type": "integer", "minimum": 100, "maximum": 900},
-                "semiBold": {"type": "integer", "minimum": 100, "maximum": 900},
-                "bold": {"type": "integer", "minimum": 100, "maximum": 900},
-                "extraBold": {"type": "integer", "minimum": 100, "maximum": 900},
-                "black": {"type": "integer", "minimum": 100, "maximum": 900}
-              }
-            },
-            "letterSpacing": {"type": "number"},
-            "numericFont": {"type": "string", "enum": ["system", "monospace", "digital-7"]}
+            "fontFamily": { "type": "string", "enum": ["sans", "serif", "monospace", "cursive", "system"] },
+            "numericFont": { "type": "string", "enum": ["sans", "serif", "monospace", "cursive", "system"] },
+            "displayLarge": { "type": "number", "minimum": 8, "maximum": 96 },
+            "displayMedium": { "type": "number", "minimum": 8, "maximum": 96 },
+            "headlineLarge": { "type": "number", "minimum": 8, "maximum": 96 },
+            "titleLarge": { "type": "number", "minimum": 8, "maximum": 96 },
+            "titleMedium": { "type": "number", "minimum": 8, "maximum": 96 },
+            "bodyLarge": { "type": "number", "minimum": 8, "maximum": 96 },
+            "bodyMedium": { "type": "number", "minimum": 8, "maximum": 96 },
+            "labelLarge": { "type": "number", "minimum": 8, "maximum": 96 },
+            "labelMedium": { "type": "number", "minimum": 8, "maximum": 96 },
+            "weightRegular": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "weightMedium": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "weightBold": { "type": "integer", "minimum": 100, "maximum": 900 },
+            "letterSpacing": { "type": "number", "minimum": -0.1, "maximum": 0.2 }
           }
         },
         "shape": {
-          "type": "object",
-          "required": ["cornerRadius", "borderWidth", "gaugeStroke"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "cornerRadius": {"type": "number", "minimum": 0},
-            "borderWidth": {"type": "number", "minimum": 0, "maximum": 20},
-            "gaugeStroke": {"type": "number", "minimum": 1, "maximum": 20}
+            "cornerRadius": { "type": "number", "minimum": 0, "maximum": 48 },
+            "cardCornerRadius": { "type": "number", "minimum": 0, "maximum": 48 },
+            "borderWidth": { "type": "number", "minimum": 0, "maximum": 8 },
+            "gaugeStroke": { "type": "number", "minimum": 0.5, "maximum": 16 }
           }
         },
         "spacing": {
-          "type": "object",
-          "required": ["compact", "comfortable", "spacious"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "compact": {"type": "number", "minimum": 0, "maximum": 50},
-            "comfortable": {"type": "number", "minimum": 0, "maximum": 50},
-            "spacious": {"type": "number", "minimum": 0, "maximum": 50}
+            "density": { "type": "string", "enum": ["compact", "comfortable", "spacious"] },
+            "itemGap": { "type": "number", "minimum": 0, "maximum": 96 },
+            "cardPadding": { "type": "number", "minimum": 0, "maximum": 96 },
+            "safeMargin": { "type": "number", "minimum": 0, "maximum": 96 }
+          }
+        },
+        "motion": {
+          "type": "object", "additionalProperties": false,
+          "properties": {
+            "fast": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "normal": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "slow": { "type": "integer", "minimum": 0, "maximum": 2000 },
+            "easing": { "type": "string", "enum": ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "spring"] }
           }
         },
         "elevation": {
-          "type": "object",
-          "required": "shadow"
-        },
-        "motion": {
-          "type": "object",
-          "required": ["durationFast", "durationNormal", "durationSlow", "easing"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "durationFast": {"type": "integer", "minimum": 50, "maximum": 1000},
-            "durationNormal": {"type": "integer", "minimum": 100, "maximum": 2000},
-            "durationSlow": {"type": "integer", "minimum": 200, "maximum": 5000},
-            "easing": {"type": "string", "enum": ["linear", "ease", "ease-in", "ease-out", "ease-in-out", "cubic-bezier"]}
+            "cardElevation": { "type": "number", "minimum": 0, "maximum": 24 },
+            "glowAlpha": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
         "iconography": {
-          "type": "object",
-          "required": ["iconSet", "strokeWidth", "style"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "iconSet": {"type": "string", "enum": ["material-icons", "material-outlined", "custom"]},
-            "strokeWidth": {"type": "number", "minimum": 0, "maximum": 20},
-            "style": {"type": "string", "enum": ["filled", "outlined", "rounded", "twotone"]}
+            "style": { "type": "string", "enum": ["filled", "outlined"] },
+            "strokeWidth": { "type": "number", "minimum": 1, "maximum": 8 }
           }
         },
         "background": {
-          "type": "object",
-          "required": ["style", "gradientColors", "imageResource", "safeAreaScrim"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "style": {"type": "string", "enum": ["solid", "gradient", "image", "pattern"]},
-            "gradientColors": {
-              "type": "array",
-              "items": {"type": "string", "format": "color"},
-              "minItems": 2,
-              "maxItems": 3
-            },
-            "imageResource": {"type": "string"},
-            "safeAreaScrim": {"type": "string", "format": "color"}
+            "style": { "type": "string", "enum": ["solid", "gradient", "pattern"] },
+            "base": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "accent": { "type": "string", "pattern": "^#([0-9a-fA-F]{6}|[0-9a-fA-F]{8})$" },
+            "gradientAngle": { "type": "integer", "minimum": 0, "maximum": 360 },
+            "pattern": { "type": "string", "pattern": "^[a-z0-9-]{1,24}$" }
           }
         },
         "gauge": {
-          "type": "object",
-          "required": ["style", "needleStyle", "tickStyle", "warningZones", "stylePreset"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "style": {"type": "string", "enum": ["radial", "bar", "digital", "arc", "minimal"]},
-            "needleStyle": {"type": "string", "enum": ["triangle", "arrow", "point", "minimal"]},
-            "tickStyle": {"type": "string", "enum": ["none", "short", "long", "numbered"]},
-            "warningZones": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["min", "max", "color"],
-                "properties": {
-                  "min": {"type": "number"},
-                  "max": {"type": "number"},
-                  "color": {"type": "string", "format": "color"}
-                }
-              },
-              "minItems": 0,
-              "maxItems": 6
-            },
-            "stylePreset": {"type": "string", "enum": ["performance", "analog", "minimal", "offroad", "night"]}
+            "style": { "type": "string", "enum": ["radial", "bar", "digital", "arc", "minimal"] },
+            "needle": { "type": "string", "enum": ["tapered", "line", "dot"] },
+            "tickCount": { "type": "integer", "minimum": 0, "maximum": 60 },
+            "warnFraction": { "type": "number", "minimum": 0, "maximum": 1 },
+            "criticalFraction": { "type": "number", "minimum": 0, "maximum": 1 }
           }
         },
         "layout": {
-          "type": "object",
-          "required": ["preset", "launcherGrid", "clusterSlot", "safeMargins"],
+          "type": "object", "additionalProperties": false,
           "properties": {
-            "preset": {"type": "string", "enum": ["minimal", "performance", "analog", "offroad", "night"]},
-            "launcherGrid": {
-              "type": "object",
-              "required": ["rows", "cols", "cellWidth", "cellHeight"],
-              "properties": {
-                "rows": {"type": "integer", "minimum": 1, "maximum": 20},
-                "cols": {"type": "integer", "minimum": 1, "maximum": 20},
-                "cellWidth": {"type": "integer", "minimum": 50},
-                "cellHeight": {"type": "integer", "minimum": 50}
-              }
-            },
-            "clusterSlot": {
-              "type": "object",
-              "required": ["widthRatio", "heightRatio"],
-              "properties": {
-                "widthRatio": {"type": "number", "minimum": 0.1, "maximum": 1.0},
-                "heightRatio": {"type": "number", "minimum": 0.1, "maximum": 1.0}
-              }
-            },
-            "safeMargins": {
-              "type": "object",
-              "required": ["top", "bottom", "left", "right"],
-              "properties": {
-                "top": {"type": "integer", "minimum": 0},
-                "bottom": {"type": "integer", "minimum": 0},
-                "left": {"type": "integer", "minimum": 0},
-                "right": {"type": "integer", "minimum": 0}
-              }
-            }
+            "launcherRows": { "type": "integer", "minimum": 1, "maximum": 8 },
+            "launcherCols": { "type": "integer", "minimum": 1, "maximum": 8 },
+            "widgetMinWidth": { "type": "integer", "minimum": 96, "maximum": 400 },
+            "widgetMinHeight": { "type": "integer", "minimum": 64, "maximum": 320 }
           }
         }
       }
-    },
-    "overrides": {
-      "type": "object",
-      "description": "Per-theme or per-user overrides on top of base tokens.",
-      "properties": {
-        "accent": {"type": "string", "format": "color"},
-        "background": {"type": "string", "format": "color"},
-        "gaugeStyle": {"type": "string", "enum": ["radial", "bar", "digital", "arc", "minimal"]},
-        "density": {"type": "string", "enum": ["compact", "comfortable", "spacious"]},
-        "fontScale": {"type": "number", "minimum": 0.85, "maximum": 1.5},
-        "widgetLayout": {"type": "object"}
-      }
-    },
-    "preview": {
-      "type": "object",
-      "description": "Thumbnail and description for theme gallery.",
-      "required": ["thumbnail", "description"],
-      "properties": {
-        "thumbnail": {"type": "string", "format": "uri"},
-        "description": {"type": "string"}
-      }
     }
-  },
-  "additionalProperties": false
+  }
 }

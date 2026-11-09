@@ -79,6 +79,16 @@ data class BoardLayout(val boards: List<List<BoardWidgetType>>) {
                 board.joinToString(WIDGET_SEPARATOR) { it.id }
             }
 
+        /** Builds a layout from a theme's widget preset (unknown ids are dropped). */
+        fun fromPreset(preset: List<List<String>>?): BoardLayout? {
+            if (preset == null) return null
+            val boards = preset
+                .take(BoardLimits.MAX_BOARDS)
+                .map { ids -> ids.mapNotNull { BoardWidgetType.byId(it) }.take(BoardLimits.MAX_WIDGETS_PER_BOARD) }
+                .filter { it.isNotEmpty() }
+            return if (boards.isEmpty()) null else BoardLayout(boards)
+        }
+
         fun load(prefs: SharedPreferences): BoardLayout = fromJson(prefs.getString("board_layout", null))
 
         fun save(prefs: SharedPreferences, layout: BoardLayout) {
@@ -116,10 +126,14 @@ data class BoardData(
 interface BoardStore {
     fun load(): BoardLayout
     fun save(layout: BoardLayout)
+
+    /** False when nothing has been persisted yet, so a theme preset may seed the board. */
+    fun hasSaved(): Boolean = true
 }
 
 class PrefsBoardStore(context: Context) : BoardStore {
     private val prefs = context.getSharedPreferences("sportage_obd_boards", Context.MODE_PRIVATE)
     override fun load(): BoardLayout = BoardLayout.load(prefs)
     override fun save(layout: BoardLayout) = BoardLayout.save(prefs, layout)
+    override fun hasSaved(): Boolean = prefs.contains("board_layout")
 }

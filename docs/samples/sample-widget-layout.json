@@ -1,6 +1,82 @@
 {
+  "version": 2,
   "boards": [
-    ["speed", "rpm", "coolant", "voltage", "map", "clock"],
-    ["boost", "fuel", "intake", "load", "gear", "connection"]
+    {
+      "widgets": [
+        {
+          "type": "speed",
+          "config": {
+            "title": "SPEED",
+            "span": 2,
+            "warn": 130,
+            "critical": 160,
+            "decimals": 0,
+            "refreshMs": 250,
+            "visible": true,
+            "style": "auto"
+          }
+        },
+        {
+          "type": "rpm",
+          "config": {
+            "span": 1,
+            "warn": 5000,
+            "critical": 6500,
+            "refreshMs": 250,
+            "visible": true,
+            "style": "digital"
+          }
+        },
+        {
+          "type": "coolant",
+          "config": {
+            "unit": "\u00b0C",
+            "warn": 100,
+            "critical": 110,
+            "decimals": 0,
+            "refreshMs": 1000,
+            "visible": true,
+            "style": "auto"
+          }
+        },
+        {
+          "type": "voltage",
+          "config": {
+            "decimals": 1,
+            "refreshMs": 1000,
+            "visible": true,
+            "style": "auto"
+          }
+        },
+        {
+          "type": "map",
+          "config": {
+            "span": 2,
+            "refreshMs": 500,
+            "visible": true,
+            "style": "auto"
+          }
+        }
+      ]
+    },
+    {
+      "widgets": [
+        {
+          "type": "trip_distance",
+          "config": {
+            "unit": "km",
+            "decimals": 1
+          }
+        },
+        {
+          "type": "trip_duration",
+          "config": {}
+        },
+        {
+          "type": "connection",
+          "config": {}
+        }
+      ]
+    }
   ]
 }
