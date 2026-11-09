@@ -936,6 +936,9 @@ fun DarkBackground(): Color = LocalCockpitTheme.current.colors.background
 fun DarkSurface(): Color = LocalCockpitTheme.current.colors.surface
 
 @Composable
+fun DarkSurfaceElevated(): Color = LocalCockpitTheme.current.colors.surface
+
+@Composable
 fun DeepShade(): Color = LocalCockpitTheme.current.colors.background
 
 @Composable
