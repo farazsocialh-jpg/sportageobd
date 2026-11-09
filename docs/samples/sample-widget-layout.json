@@ -1,0 +1,6 @@
+{
+  "boards": [
+    ["speed", "rpm", "coolant", "voltage", "map", "clock"],
+    ["boost", "fuel", "intake", "load", "gear", "connection"]
+  ]
+}

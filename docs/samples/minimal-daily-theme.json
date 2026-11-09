@@ -1,0 +1,102 @@
+{
+  "id": "minimal-daily",
+  "name": "Minimal Daily Driver",
+  "mode": "system",
+  "description": "Clean, uncluttered cockpit focused on essential readings.",
+  "tokens": {
+    "color": {
+      "background": "#0A0E14",
+      "surface": "#111820",
+      "surfaceVariant": "#181F2A",
+      "primary": "#F8F9FA",
+      "secondary": "#6B7280",
+      "accent": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444",
+      "success": "#22C55E",
+      "textPrimary": "#F8F9FA",
+      "textSecondary": "#9CA3AF",
+      "outline": "#374151",
+      "gaugeTrack": "#1F2937",
+      "gaugeFill": "#F8F9FA",
+      "chart1": "#60A5FA",
+      "chart2": "#818CF8",
+      "chart3": "#A5F3FC"
+    },
+    "typography": {
+      "fontFamily": "system",
+      "sizes": {
+        "displayLarge": 40,
+        "displayMedium": 32,
+        "headlineLarge": 24,
+        "titleLarge": 20,
+        "titleMedium": 16,
+        "bodyLarge": 16,
+        "bodyMedium": 14,
+        "labelLarge": 14,
+        "labelMedium": 12
+      },
+      "weights": {
+        "thin": 100,
+        "extraLight": 200,
+        "light": 300,
+        "regular": 400,
+        "medium": 500,
+        "semiBold": 600,
+        "bold": 700,
+        "extraBold": 800,
+        "black": 900
+      },
+      "letterSpacing": 0.02,
+      "numericFont": "monospace"
+    },
+    "shape": {
+      "cornerRadius": 8,
+      "borderWidth": 1,
+      "gaugeStroke": 2
+    },
+    "spacing": {
+      "compact": 16,
+      "comfortable": 24,
+      "spacious": 32
+    },
+    "elevation": {
+      "shadow": "0 1px 2px rgba(0,0,0,0.3)"
+    },
+    "motion": {
+      "durationFast": 150,
+      "durationNormal": 250,
+      "durationSlow": 400,
+      "easing": "ease-out"
+    },
+    "iconography": {
+      "iconSet": "material-icons",
+      "strokeWidth": 2,
+      "style": "filled"
+    },
+    "background": {
+      "style": "solid",
+      "gradientColors": null,
+      "imageResource": null,
+      "safeAreaScrim": "rgba(0,0,0,0.4)"
+    },
+    "gauge": {
+      "style": "radial",
+      "needleStyle": "arrow",
+      "tickStyle": "short",
+      "warningZones": [
+        {"min": 0, "max": 3000, "color": "#EF4444"},
+        {"min": 3000, "max": 6500, "color": "#F59E0B"}
+      ],
+      "stylePreset": "minimal"
+    },
+    "layout": {
+      "preset": "minimal",
+      "launcherGrid": {"rows": 2, "cols": 3, "cellWidth": 120, "cellHeight": 100},
+      "clusterSlot": {"widthRatio": 0.8, "heightRatio": 0.6},
+      "safeMargins": {"top": 12, "bottom": 12, "left": 12, "right": 12}
+    }
+  },
+  "overrides": {},
+  "previewThumbnail": "minimal_daily"
+}
