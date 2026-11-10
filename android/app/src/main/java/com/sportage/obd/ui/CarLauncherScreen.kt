@@ -198,6 +198,11 @@ fun CarLauncherScreen(
     var showQuickActionDock by remember {
         mutableStateOf(uiPrefs?.getBoolean("showQuickActionDock", true) ?: true)
     }
+    // Overspeed limit in km/h; 0 disables the alert. Shared by the map footer and the
+    // stealth night panel.
+    var speedAlertLimitKmh by remember {
+        mutableStateOf(uiPrefs?.getInt("speedAlertLimitKmh", 100) ?: 100)
+    }
     var localFontScale by remember(fontScale) { mutableStateOf(fontScale) }
     var localAppearanceMode by remember(appearanceMode) { mutableStateOf(appearanceMode) }
     var localKeepScreenAwake by remember(keepScreenAwake) { mutableStateOf(keepScreenAwake) }
@@ -223,6 +228,19 @@ fun CarLauncherScreen(
         speedUnit = next
         uiPrefs?.edit()?.putString("speedUnit", next)?.apply()
     }
+
+    val onCycleSpeedLimit: () -> Unit = {
+        val next = when (speedAlertLimitKmh) {
+            0 -> 80
+            80 -> 100
+            100 -> 120
+            120 -> 140
+            else -> 0
+        }
+        speedAlertLimitKmh = next
+        uiPrefs?.edit()?.putInt("speedAlertLimitKmh", next)?.apply()
+    }
+    val displaySpeedLimit = speedLimitForUnit(speedAlertLimitKmh, speedUnit)
 
     val displaySpeed = if (speed != null) {
         if (speedUnit == "mph") (speed * 0.621371).toInt() else speed
@@ -451,7 +469,9 @@ fun CarLauncherScreen(
                                     isDemoMode = isDemoMode,
                                     onOpenNavigation = { openNavigation() },
                                     mapArrangement = mapArrangement,
-                                    showMiniGaugesOnMap = showMiniGaugesOnMap
+                                    showMiniGaugesOnMap = showMiniGaugesOnMap,
+                                    speedAlertThreshold = displaySpeedLimit,
+                                    onCycleSpeedAlert = onCycleSpeedLimit
                                 )
                             }
                             // LIVE DATA SECTION
@@ -658,7 +678,9 @@ fun CarLauncherScreen(
                                 isDemoMode = isDemoMode,
                                 onOpenNavigation = { openNavigation() },
                                 mapArrangement = mapArrangement,
-                                showMiniGaugesOnMap = showMiniGaugesOnMap
+                                showMiniGaugesOnMap = showMiniGaugesOnMap,
+                                speedAlertThreshold = displaySpeedLimit,
+                                onCycleSpeedAlert = onCycleSpeedLimit
                             )
                         }
                         1 -> GaugesAndGraphsPage(
@@ -786,6 +808,8 @@ fun CarLauncherScreen(
                             onSetDashboardLayoutId = onSetDashboardLayoutId,
                             onResetPreferences = {
                                 speedUnit = "km/h"
+                                speedAlertLimitKmh = 100
+                                uiPrefs?.edit()?.remove("speedAlertLimitKmh")?.apply()
                                 mapArrangement = "Balanced (50/50)"
                                 showMiniGaugesOnMap = false
                                 showQuickActionDock = true
@@ -849,7 +873,7 @@ fun CarLauncherScreen(
                 speed = displaySpeed,
                 speedUnit = speedUnit,
                 coolantC = coolant,
-                speedAlertThreshold = 0,
+                speedAlertThreshold = displaySpeedLimit,
                 onExit = { isStealthNightMode = false }
             )
         }
@@ -896,6 +920,13 @@ fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
 }
 
 // =========================================================================
+// HELPER: SPEED LIMIT UNIT CONVERSION
+// =========================================================================
+/** The overspeed limit is stored in km/h; convert it to the active display unit. */
+fun speedLimitForUnit(limitKmh: Int, speedUnit: String): Int =
+    if (speedUnit == "mph") (limitKmh * 0.621371f).toInt() else limitKmh
+
+// =========================================================================
 // HELPER: TOP COCKPIT STATUS STRIP
 // =========================================================================
 @Composable
@@ -925,7 +956,9 @@ fun PermanentHomeSplitView(
     onOpenNavigation: () -> Unit,
     gpsStatus: String? = null,
     mapArrangement: String = "Balanced (50/50)",
-    showMiniGaugesOnMap: Boolean = false
+    showMiniGaugesOnMap: Boolean = false,
+    speedAlertThreshold: Int = 100,
+    onCycleSpeedAlert: () -> Unit = {}
 ) {
     val arrangementRatio = when (mapArrangement) {
         "Map Dominant (65/35)" -> 0.65f
@@ -976,7 +1009,9 @@ fun PermanentHomeSplitView(
                         speedUnit = speedUnit,
                         onOpenNavigation = onOpenNavigation,
                         gpsStatus = gpsStatus,
-                        showMiniGaugesOnMap = showMiniGaugesOnMap
+                        showMiniGaugesOnMap = showMiniGaugesOnMap,
+                        speedAlertThreshold = speedAlertThreshold,
+                        onCycleSpeedAlert = onCycleSpeedAlert
                     )
                 }
 
@@ -1018,7 +1053,9 @@ fun PermanentHomeSplitView(
                         speedUnit = speedUnit,
                         onOpenNavigation = onOpenNavigation,
                         gpsStatus = gpsStatus,
-                        showMiniGaugesOnMap = showMiniGaugesOnMap
+                        showMiniGaugesOnMap = showMiniGaugesOnMap,
+                        speedAlertThreshold = speedAlertThreshold,
+                        onCycleSpeedAlert = onCycleSpeedAlert
                     )
                 }
 
@@ -1065,7 +1102,9 @@ fun PermanentHomeSplitView(
                     speedUnit = speedUnit,
                     onOpenNavigation = onOpenNavigation,
                     gpsStatus = gpsStatus,
-                    showMiniGaugesOnMap = showMiniGaugesOnMap
+                    showMiniGaugesOnMap = showMiniGaugesOnMap,
+                    speedAlertThreshold = speedAlertThreshold,
+                    onCycleSpeedAlert = onCycleSpeedAlert
                 )
             }
 
@@ -1220,9 +1259,10 @@ fun LiveMapSurface(
     gpsStatus: String? = null,
     currentBearing: Float = 0f,
     rpm: Int? = null,
-    showMiniGaugesOnMap: Boolean = false
+    showMiniGaugesOnMap: Boolean = false,
+    speedAlertThreshold: Int = 100,
+    onCycleSpeedAlert: () -> Unit = {}
 ) {
-    var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
     Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp), modifier = Modifier.testTag("home_map_card").fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -1269,11 +1309,7 @@ fun LiveMapSurface(
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically
             ) {
                 TextButton(
-                    onClick = {
-                        speedAlertThreshold = when (speedAlertThreshold) {
-                            80 -> 100; 100 -> 120; 120 -> 140; 140 -> 0; else -> 80
-                        }
-                    }, modifier = Modifier.heightIn(min = 48.dp),
+                    onClick = onCycleSpeedAlert, modifier = Modifier.heightIn(min = 48.dp),
                     colors = ButtonDefaults.textButtonColors(contentColor = if (overspeed) CriticalRed() else SecondaryText())
                 ) {
                     Icon(if (overspeed) Icons.Default.Warning else Icons.Default.NotificationsNone, null, Modifier.size(16.dp))
