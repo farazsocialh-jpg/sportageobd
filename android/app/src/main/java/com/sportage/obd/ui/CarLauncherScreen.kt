@@ -206,7 +206,7 @@ fun CarLauncherScreen(
 
     val onFindMyCar: () -> Unit = {
         val store = com.sportage.obd.map.LastParkedLocationStore(context)
-        val intent = store.buildDirectionsIntent()
+        val intent = store.lastParkedLocation.value?.let { store.buildDirectionsIntent(it) }
         if (intent != null) {
             try {
                 context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
@@ -849,9 +849,8 @@ fun CarLauncherScreen(
                 speed = displaySpeed,
                 speedUnit = speedUnit,
                 coolantC = coolant,
-                coolantThresholdC = 105f,
-                speedLimitDeltaKmh = null,
-                onDismiss = { isStealthNightMode = false }
+                speedAlertThreshold = 0,
+                onExit = { isStealthNightMode = false }
             )
         }
     }
@@ -1331,6 +1330,8 @@ fun GaugesAndGraphsPage(
         PanelReading("Instant economy", liveTelemetry?.fuelEconomyL100?.let { "%.1f".format(it) } ?: "--", "L/100 km"),
         PanelReading("Fuel used", liveTelemetry?.fuelUsedLiters?.let { "%.2f".format(it) } ?: "--", "liters")
     )
+    val crankResult = viewModel?.batteryCrankResult?.collectAsState()?.value
+    val trimResult = viewModel?.trimDiagnosis?.collectAsState()?.value
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val columns = if (maxWidth >= 720.dp) 4 else 2
         androidx.compose.foundation.lazy.grid.LazyVerticalGrid(
@@ -1427,8 +1428,6 @@ fun GaugesAndGraphsPage(
                     }
                 }
             }
-            val crankResult = viewModel?.batteryCrankResult?.collectAsState()?.value
-            val trimResult = viewModel?.trimDiagnosis?.collectAsState()?.value
             if (crankResult != null || trimResult != null) {
                 item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1440,14 +1439,13 @@ fun GaugesAndGraphsPage(
                             ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Battery Health Analyzer", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
-                                    val healthColor = when (crankResult.health) {
-                                        com.sportage.obd.service.BatteryHealthStatus.HEALTHY -> ElectricCyan()
-                                        com.sportage.obd.service.BatteryHealthStatus.WEAK -> WarningAmber()
-                                        com.sportage.obd.service.BatteryHealthStatus.CRITICAL_REPLACE -> CriticalRed()
-                                        else -> SecondaryText()
+                                    val healthColor = when (crankResult.status) {
+                                        com.sportage.obd.service.BatteryCrankStatus.HEALTHY_BATTERY -> ElectricCyan()
+                                        com.sportage.obd.service.BatteryCrankStatus.WEAK_BATTERY -> WarningAmber()
+                                        com.sportage.obd.service.BatteryCrankStatus.CRITICAL_REPLACE -> CriticalRed()
                                     }
                                     Text(
-                                        crankResult.health.name.replace('_', ' '),
+                                        crankResult.status.label,
                                         color = healthColor,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold
@@ -1468,12 +1466,12 @@ fun GaugesAndGraphsPage(
                             ) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Predictive Fuel Trim", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
-                                    val trimColor = when (trimResult.condition) {
-                                        com.sportage.obd.service.FuelTrimCondition.NORMAL -> ElectricCyan()
+                                    val trimColor = when (trimResult.severity) {
+                                        com.sportage.obd.service.TrimSeverity.NOMINAL -> ElectricCyan()
                                         else -> WarningAmber()
                                     }
                                     Text(
-                                        trimResult.condition.name.replace('_', ' '),
+                                        trimResult.severity.name,
                                         color = trimColor,
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = FontWeight.Bold

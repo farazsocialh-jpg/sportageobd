@@ -198,6 +198,8 @@ fun GForceFrictionCircle(
                     modifier = Modifier.size(circleSize),
                     contentAlignment = Alignment.Center
                 ) {
+                    // Resolve theme colors outside the draw scope: composables cannot run there.
+                    val trailColor = ElectricCyan()
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val center = Offset(size.width / 2f, size.height / 2f)
                         val maxRadius = (size.width / 2f) - 12.dp.toPx()
@@ -243,7 +245,7 @@ fun GForceFrictionCircle(
                             val ptY = center.y - (pt.lonG / maxScaleG * maxRadius).coerceIn(-maxRadius, maxRadius)
 
                             drawCircle(
-                                color = ElectricCyan().copy(alpha = alpha),
+                                color = trailColor.copy(alpha = alpha),
                                 radius = trailRadius,
                                 center = Offset(ptX, ptY)
                             )
@@ -258,7 +260,7 @@ fun GForceFrictionCircle(
                         drawCircle(
                             brush = Brush.radialGradient(
                                 colors = listOf(
-                                    ElectricCyan().copy(alpha = 0.60f),
+                                    trailColor.copy(alpha = 0.60f),
                                     Color.Transparent
                                 ),
                                 center = focusOffset,
