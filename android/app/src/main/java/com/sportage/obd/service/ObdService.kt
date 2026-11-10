@@ -200,6 +200,18 @@ class ObdService : Service() {
         _postDriveSummary.value = null
     }
 
+    val batteryHealthAnalyzer = BatteryHealthAnalyzer()
+    val batteryCrankResult: StateFlow<BatteryCrankResult?> = batteryHealthAnalyzer.latestResult
+
+    val predictiveFuelTrimAnalyzer = PredictiveFuelTrimAnalyzer()
+    val trimDiagnosis: StateFlow<TrimDiagnosis?> = predictiveFuelTrimAnalyzer.diagnosis
+
+    val speedVolumeController by lazy { com.sportage.obd.media.SpeedDependentVolumeController(this) }
+    val volumeGovernorState: StateFlow<com.sportage.obd.media.VolumeGovernorState> get() = speedVolumeController.state
+
+    val lastParkedLocationStore by lazy { com.sportage.obd.map.LastParkedLocationStore(this) }
+    val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> get() = lastParkedLocationStore.lastParkedLocation
+
     val activeAlerts: StateFlow<List<ActiveAlert>>
         get() = alertEngine?.activeAlerts ?: MutableStateFlow<List<ActiveAlert>>(emptyList())
 
@@ -1139,6 +1151,17 @@ class ObdService : Service() {
                     )
 
                     _telemetry.update { newTelemetry.copy(sensors = it.sensors, vehicleInfo = it.vehicleInfo) }
+                    batteryHealthAnalyzer.onTelemetrySample(newTelemetry.rpm, newTelemetry.batteryVoltage, now)
+                    predictiveFuelTrimAnalyzer.onTelemetrySample(
+                        newTelemetry.shortTermFuelTrimPct,
+                        newTelemetry.longTermFuelTrimPct,
+                        newTelemetry.rpm,
+                        newTelemetry.speedKmh,
+                        newTelemetry.engineLoadPct,
+                        now
+                    )
+                    speedVolumeController.onSpeedUpdate(newTelemetry.speedKmh, now)
+
                     alertEngine?.evaluate(newTelemetry)
                     val criticalAlert = alertEngine?.activeAlerts?.value?.firstOrNull { it.severity == AlertSeverity.CRITICAL }
                     if (criticalAlert != null && now - lastAlertNotificationAtMs >= 60_000L) {
@@ -1371,5 +1394,6 @@ class ObdService : Service() {
         transport.disconnect()
         csvLogger?.stop()
         alertEngine?.close()
+        runCatching { speedVolumeController.release() }
     }
 }

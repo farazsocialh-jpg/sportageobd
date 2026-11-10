@@ -202,6 +202,21 @@ fun CarLauncherScreen(
     var localAppearanceMode by remember(appearanceMode) { mutableStateOf(appearanceMode) }
     var localKeepScreenAwake by remember(keepScreenAwake) { mutableStateOf(keepScreenAwake) }
     val postDriveSummary = viewModel?.postDriveSummary?.collectAsState()?.value
+    var isStealthNightMode by remember { mutableStateOf(false) }
+
+    val onFindMyCar: () -> Unit = {
+        val store = com.sportage.obd.map.LastParkedLocationStore(context)
+        val intent = store.buildDirectionsIntent()
+        if (intent != null) {
+            try {
+                context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: Exception) {
+                Toast.makeText(context, "No navigation app found to direct to parked vehicle.", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(context, "No parked location saved yet.", Toast.LENGTH_SHORT).show()
+        }
+    }
 
     fun toggleSpeedUnit() {
         val next = if (speedUnit == "km/h") "mph" else "km/h"
@@ -591,7 +606,9 @@ fun CarLauncherScreen(
                             onLogging = {
                                 if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
                                 else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
-                            }
+                            },
+                            onToggleStealthNight = { isStealthNightMode = !isStealthNightMode },
+                            onFindMyCar = onFindMyCar
                         )
                     }
                 }
@@ -791,7 +808,9 @@ fun CarLauncherScreen(
                         onLogging = {
                             if (viewModel?.isCsvLogging?.value == true) viewModel.stopCsvLogging()
                             else if (viewModel?.startCsvLogging() != true) Toast.makeText(context, "Connect an OBD adapter before recording.", Toast.LENGTH_SHORT).show()
-                        }
+                        },
+                        onToggleStealthNight = { isStealthNightMode = !isStealthNightMode },
+                        onFindMyCar = onFindMyCar
                     )
                 }
                 CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
@@ -822,6 +841,17 @@ fun CarLauncherScreen(
                     onResetTrip()
                     viewModel?.dismissPostDriveSummary()
                 }
+            )
+        }
+
+        if (isStealthNightMode) {
+            StealthNightPanel(
+                speed = displaySpeed,
+                speedUnit = speedUnit,
+                coolantC = coolant,
+                coolantThresholdC = 105f,
+                speedLimitDeltaKmh = null,
+                onDismiss = { isStealthNightMode = false }
             )
         }
     }
@@ -1313,6 +1343,12 @@ fun GaugesAndGraphsPage(
                 Text("Gauges", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
             }
             item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                SequentialShiftLightBar(
+                    rpm = rpm ?: 0,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                )
+            }
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                 Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp)) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Text("Engine history · 60 seconds", color = PrimaryText(), style = MaterialTheme.typography.titleMedium)
@@ -1372,6 +1408,88 @@ fun GaugesAndGraphsPage(
                 }
             }
             items(metrics.size) { index -> MetricTile(metrics[index]) }
+            item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("G-Force Friction Circle", color = PrimaryText(), style = MaterialTheme.typography.titleMedium)
+                            Text("Chassis Kinematics", color = ElectricCyan(), style = MaterialTheme.typography.labelSmall)
+                        }
+                        GForceFrictionCircle(modifier = Modifier.size(240.dp))
+                    }
+                }
+            }
+            val crankResult = viewModel?.batteryCrankResult?.collectAsState()?.value
+            val trimResult = viewModel?.trimDiagnosis?.collectAsState()?.value
+            if (crankResult != null || trimResult != null) {
+                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (crankResult != null) {
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                color = DarkSurface(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Battery Health Analyzer", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
+                                    val healthColor = when (crankResult.health) {
+                                        com.sportage.obd.service.BatteryHealthStatus.HEALTHY -> ElectricCyan()
+                                        com.sportage.obd.service.BatteryHealthStatus.WEAK -> WarningAmber()
+                                        com.sportage.obd.service.BatteryHealthStatus.CRITICAL_REPLACE -> CriticalRed()
+                                        else -> SecondaryText()
+                                    }
+                                    Text(
+                                        crankResult.health.name.replace('_', ' '),
+                                        color = healthColor,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        "Min crank: ${if (crankResult.minCrankVoltage > 0f) "%.2f V".format(crankResult.minCrankVoltage) else "--"} (${crankResult.crankDurationMs} ms)",
+                                        color = PrimaryText(),
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                        if (trimResult != null) {
+                            Surface(
+                                modifier = Modifier.weight(1f),
+                                color = DarkSurface(),
+                                shape = RoundedCornerShape(14.dp)
+                            ) {
+                                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("Predictive Fuel Trim", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
+                                    val trimColor = when (trimResult.condition) {
+                                        com.sportage.obd.service.FuelTrimCondition.NORMAL -> ElectricCyan()
+                                        else -> WarningAmber()
+                                    }
+                                    Text(
+                                        trimResult.condition.name.replace('_', ' '),
+                                        color = trimColor,
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        trimResult.detail,
+                                        color = PrimaryText(),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        maxLines = 2
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

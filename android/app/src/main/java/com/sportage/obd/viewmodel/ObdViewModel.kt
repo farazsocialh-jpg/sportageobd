@@ -94,6 +94,26 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
         repository.clearPostDriveSummary()
     }
 
+    val batteryCrankResult: StateFlow<com.sportage.obd.service.BatteryCrankResult?> = repository.batteryCrankResult
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val trimDiagnosis: StateFlow<com.sportage.obd.service.TrimDiagnosis?> = repository.trimDiagnosis
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val volumeGovernorState: StateFlow<com.sportage.obd.media.VolumeGovernorState> = repository.volumeGovernorState
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), com.sportage.obd.media.VolumeGovernorState())
+
+    val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> = repository.lastParkedLocation
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun setSpeedVolumeEnabled(enabled: Boolean) {
+        repository.setSpeedVolumeEnabled(enabled)
+    }
+
+    fun saveParkedLocation(lat: Double, lon: Double, bearing: Float = 0f) {
+        repository.saveParkedLocation(lat, lon, bearing)
+    }
+
     private val _isScanningDtc = MutableStateFlow(false)
     val isScanningDtc: StateFlow<Boolean> = _isScanningDtc.asStateFlow()
 

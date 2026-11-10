@@ -119,6 +119,26 @@ class ObdRepository(private val context: Context) {
         obdService?.clearPostDriveSummary()
     }
 
+    private val _batteryCrankResult = MutableStateFlow<com.sportage.obd.service.BatteryCrankResult?>(null)
+    val batteryCrankResult: StateFlow<com.sportage.obd.service.BatteryCrankResult?> = _batteryCrankResult.asStateFlow()
+
+    private val _trimDiagnosis = MutableStateFlow<com.sportage.obd.service.TrimDiagnosis?>(null)
+    val trimDiagnosis: StateFlow<com.sportage.obd.service.TrimDiagnosis?> = _trimDiagnosis.asStateFlow()
+
+    private val _volumeGovernorState = MutableStateFlow(com.sportage.obd.media.VolumeGovernorState())
+    val volumeGovernorState: StateFlow<com.sportage.obd.media.VolumeGovernorState> = _volumeGovernorState.asStateFlow()
+
+    private val _lastParkedLocation = MutableStateFlow<com.sportage.obd.map.ParkedLocation?>(null)
+    val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> = _lastParkedLocation.asStateFlow()
+
+    fun setSpeedVolumeEnabled(enabled: Boolean) {
+        obdService?.speedVolumeController?.setEnabled(enabled)
+    }
+
+    fun saveParkedLocation(lat: Double, lon: Double, bearing: Float = 0f) {
+        obdService?.lastParkedLocationStore?.saveParkedLocation(lat, lon, bearing)
+    }
+
     private var demoJob: Job? = null
     private var serviceCollectorJob: Job? = null
 
@@ -264,6 +284,26 @@ class ObdRepository(private val context: Context) {
                 launch {
                     s.postDriveSummary.collect {
                         _postDriveSummary.value = it
+                    }
+                }
+                launch {
+                    s.batteryCrankResult.collect {
+                        _batteryCrankResult.value = it
+                    }
+                }
+                launch {
+                    s.trimDiagnosis.collect {
+                        _trimDiagnosis.value = it
+                    }
+                }
+                launch {
+                    s.volumeGovernorState.collect {
+                        _volumeGovernorState.value = it
+                    }
+                }
+                launch {
+                    s.lastParkedLocation.collect {
+                        _lastParkedLocation.value = it
                     }
                 }
             }

@@ -66,7 +66,9 @@ fun QuickActionDock(
     onBluetooth: () -> Unit,
     logging: Boolean,
     canLog: Boolean,
-    onLogging: () -> Unit
+    onLogging: () -> Unit,
+    onToggleStealthNight: (() -> Unit)? = null,
+    onFindMyCar: (() -> Unit)? = null
 ) {
     var menu by remember { mutableStateOf(false) }
 
@@ -169,6 +171,24 @@ fun QuickActionDock(
                                 onLogging()
                             }
                         )
+                        if (onToggleStealthNight != null) {
+                            DropdownMenuItem(
+                                text = { Text("Stealth Night Mode") },
+                                onClick = {
+                                    menu = false
+                                    onToggleStealthNight()
+                                }
+                            )
+                        }
+                        if (onFindMyCar != null) {
+                            DropdownMenuItem(
+                                text = { Text("Find My Sportage") },
+                                onClick = {
+                                    menu = false
+                                    onFindMyCar()
+                                }
+                            )
+                        }
                     }
                 }
             }
