@@ -1527,7 +1527,7 @@ fun GaugesAndGraphsPage(
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                     Text("Battery Health Analyzer", color = SecondaryText(), style = MaterialTheme.typography.labelMedium)
                                     val healthColor = when (crankResult.status) {
-                                        com.sportage.obd.service.BatteryCrankStatus.HEALTHY_BATTERY -> ElectricCyan()
+                                        com.sportage.obd.service.BatteryCrankStatus.HEALTHY -> ElectricCyan()
                                         com.sportage.obd.service.BatteryCrankStatus.WEAK_BATTERY -> WarningAmber()
                                         com.sportage.obd.service.BatteryCrankStatus.CRITICAL_REPLACE -> CriticalRed()
                                     }
