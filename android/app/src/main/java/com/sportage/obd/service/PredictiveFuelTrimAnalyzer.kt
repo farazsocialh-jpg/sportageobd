@@ -27,21 +27,21 @@ data class TrimDiagnosis(
     val engineRpm: Int,
     val engineLoadPercent: Float,
     val timestamp: Long = System.currentTimeMillis()
-)
+) {
+    val advisory: String get() = detail
+}
 
 /**
- * Predictive Fuel Trim & Vacuum Leak Detector for Kia Sportage (Nu 2.0L MPI).
+ * Predictive Fuel Trim & Vacuum Leak Detector for Kia Sportage (Nu 2.0L MPI Gasoline).
  *
- * Evaluates ECU Mode 01 PID 0106 (Short-Term Fuel Trim Bank 1) and PID 0107 (Long-Term Fuel Trim Bank 1)
- * across driving operational envelopes (idle, cruising, high-load acceleration).
- *
- * Diagnostic Heuristics:
- * 1. Total positive trim > +12% at idle (RPM < 950, speed = 0) normalizing at 2,500 RPM:
- *    -> "Probable intake vacuum leak or degraded PCV valve"
- * 2. Total positive trim > +15% under high engine load (> 75%):
- *    -> "Fuel starvation: Check fuel filter or MAF sensor"
- * 3. Total negative trim < -12%:
- *    -> "Rich condition: Leaking injector or EVAP purge valve stuck open"
+ * Implements Module 4:
+ * Tracks total fuel trim (STFT + LTFT) across engine operating states:
+ * 1. High positive trim (> +12%) at idle that drops toward normal at 2,500 RPM ->
+ *    Trigger advisory: "Probable intake vacuum leak or degraded PCV valve"
+ * 2. High positive trim (> +15%) under load ->
+ *    Trigger advisory: "Fuel starvation: Check fuel filter or MAF sensor"
+ * 3. Total negative trim (< -12%) ->
+ *    Trigger advisory: "Rich condition: Leaking injector or EVAP purge valve stuck open"
  */
 class PredictiveFuelTrimAnalyzer {
 
@@ -53,18 +53,19 @@ class PredictiveFuelTrimAnalyzer {
     private var smoothedLtft = 0f
     private var sampleCount = 0
 
-    // Idle vs Cruising historical memory
+    // Historical counters for idle vs cruising state correlation
     private var idleTrimPositiveCount = 0
     private var cruisingTrimNormalizedCount = 0
 
     /**
      * Ingests fuel trim and engine telemetry samples.
      *
-     * @param stft Short-Term Fuel Trim % (e.g. +3.5% or -2.0%).
-     * @param ltft Long-Term Fuel Trim % (e.g. +5.0% or -1.5%).
+     * @param stft Short-Term Fuel Trim % (PID 0106).
+     * @param ltft Long-Term Fuel Trim % (PID 0107).
      * @param rpm Current engine speed.
      * @param speedKmh Current vehicle speed.
      * @param engineLoad Engine calculated load % (0 - 100%).
+     * @param nowMs Monotonic or wall-clock timestamp in milliseconds.
      */
     fun onTelemetrySample(
         stft: Float?,
@@ -86,11 +87,11 @@ class PredictiveFuelTrimAnalyzer {
 
         val totalTrim = smoothedStft + smoothedLtft
 
-        val isIdle = currentRpm in 600..950 && currentSpeed == 0
-        val isCruising = currentRpm in 2000..2800 && currentSpeed in 40..110
+        val isIdle = currentRpm in 600..950 && currentSpeed <= 1
+        val isCruising = currentRpm in 2200..2800 && currentSpeed in 40..120
         val isHighLoad = currentLoad >= 75f || currentRpm >= 4500
 
-        // Track idle vs cruise divergence for vacuum leak detection
+        // Correlation tracking: vacuum leaks are prominent at idle and diminish under cruise
         if (isIdle) {
             if (totalTrim > 12.0f) {
                 idleTrimPositiveCount++
@@ -105,14 +106,13 @@ class PredictiveFuelTrimAnalyzer {
             }
         }
 
-        // Diagnostic Evaluation Rules
         val diagnosisResult: TrimDiagnosis = when {
-            // Rule 1: Intake Vacuum Leak or Degraded PCV
-            idleTrimPositiveCount >= 4 && (cruisingTrimNormalizedCount >= 2 || totalTrim < 7.0f) -> {
+            // Rule 1: High positive trim (> +12%) at idle that drops toward normal at 2,500 RPM
+            idleTrimPositiveCount >= 3 && (cruisingTrimNormalizedCount >= 1 || totalTrim < 7.0f) -> {
                 TrimDiagnosis(
                     severity = TrimSeverity.WARNING,
                     title = "Probable Vacuum Leak / PCV Fault",
-                    detail = "Total trim (+${"%.1f".format(totalTrim)}%) is excessively lean at idle but normalizes at higher RPM. Inspect intake manifold gasket, brake booster vacuum hose, and PCV valve.",
+                    detail = "Probable intake vacuum leak or degraded PCV valve",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,
@@ -122,12 +122,12 @@ class PredictiveFuelTrimAnalyzer {
                 )
             }
 
-            // Rule 2: Fuel Starvation under Load
+            // Rule 2: High positive trim (> +15%) under load
             isHighLoad && totalTrim > 15.0f -> {
                 TrimDiagnosis(
                     severity = TrimSeverity.CRITICAL,
                     title = "Fuel Starvation Under Load",
-                    detail = "Total trim (+${"%.1f".format(totalTrim)}%) spiked above +15% under acceleration. Potential fuel filter restriction, weak fuel pump, or contaminated MAF/MAP sensor.",
+                    detail = "Fuel starvation: Check fuel filter or MAF sensor",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,
@@ -137,12 +137,12 @@ class PredictiveFuelTrimAnalyzer {
                 )
             }
 
-            // Rule 3: Rich Condition
+            // Rule 3: Total negative trim (< -12%)
             totalTrim < -12.0f -> {
                 TrimDiagnosis(
                     severity = TrimSeverity.WARNING,
                     title = "Rich Mixture Condition",
-                    detail = "Total fuel trim is negative (${"%.1f".format(totalTrim)}%). ECU is cutting fuel. Check for leaking fuel injector, excessive fuel pressure, or EVAP purge valve stuck open.",
+                    detail = "Rich condition: Leaking injector or EVAP purge valve stuck open",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,
@@ -152,12 +152,12 @@ class PredictiveFuelTrimAnalyzer {
                 )
             }
 
-            // Normal Closed-Loop Trim
+            // Normal stoichiometric closed-loop operation
             totalTrim in -7.0f..7.0f -> {
                 TrimDiagnosis(
                     severity = TrimSeverity.NOMINAL,
                     title = "Fuel Trims Nominal",
-                    detail = "Closed-loop stoichiometric control is balanced (STFT: ${"%.1f".format(smoothedStft)}%, LTFT: ${"%.1f".format(smoothedLtft)}%, Total: ${"%.1f".format(totalTrim)}%).",
+                    detail = "Closed-loop stoichiometric fuel control is balanced (STFT: ${"%.1f".format(smoothedStft)}%, LTFT: ${"%.1f".format(smoothedLtft)}%, Total: ${"%.1f".format(totalTrim)}%).",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,
@@ -167,12 +167,12 @@ class PredictiveFuelTrimAnalyzer {
                 )
             }
 
-            // Mild deviation
+            // Mild lean bias
             totalTrim > 7.0f -> {
                 TrimDiagnosis(
                     severity = TrimSeverity.ADVISORY,
                     title = "Mild Lean Bias",
-                    detail = "Total trim is slightly elevated (+${"%.1f".format(totalTrim)}%). Continues to monitor adaptive trim envelope.",
+                    detail = "Total fuel trim is slightly elevated (+${"%.1f".format(totalTrim)}%). Monitoring adaptive trim envelope.",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,
@@ -186,7 +186,7 @@ class PredictiveFuelTrimAnalyzer {
                 TrimDiagnosis(
                     severity = TrimSeverity.ADVISORY,
                     title = "Mild Rich Bias",
-                    detail = "Total trim is slightly negative (${"%.1f".format(totalTrim)}%). Continues to monitor adaptive trim envelope.",
+                    detail = "Total fuel trim is slightly negative (${"%.1f".format(totalTrim)}%). Monitoring adaptive trim envelope.",
                     totalTrimPercent = totalTrim,
                     stftPercent = smoothedStft,
                     ltftPercent = smoothedLtft,

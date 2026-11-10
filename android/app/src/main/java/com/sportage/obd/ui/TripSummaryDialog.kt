@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,7 +20,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkBorder
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.RestartAlt
@@ -33,15 +31,10 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,14 +42,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.sportage.obd.ui.theme.DarkBackground
 import com.sportage.obd.ui.theme.DarkSurface
 import com.sportage.obd.ui.theme.DarkSurfaceElevated
 import com.sportage.obd.ui.theme.ElectricCyan
@@ -89,19 +79,19 @@ data class PostDriveTripSummary(
 /**
  * Automotive Post-Drive Trip Summary Dialog.
  *
- * Triggered automatically when engine-off is detected (RPM == 0 and battery voltage < 12.8V
+ * Implements Module 5:
+ * Automatically displayed when engine-off is detected (RPM == 0 and battery voltage < 12.8V
  * for > 5 seconds while in DRIVING state) or manually by the driver.
  *
- * Provides complete glanceable telemetry:
- * - Distance & Duration
- * - Average and Instantaneous Fuel Economy (L/100 km & km/L)
- * - Total trip fuel cost in QAR (via FuelSettings.fuelPriceQarPerLiter)
- * - Peak RPM, Peak Coolant Temperature
- * - Driving Smoothness Score (0 - 100)
+ * Provides glanceable telemetry:
+ * - Total distance (km) and drive duration
+ * - Average and instantaneous fuel consumption (L/100 km and km/L)
+ * - Total trip fuel cost in QAR (calculated using FuelSettings.fuelPriceQarPerLiter)
+ * - Peak RPM, peak coolant temperature, and drive smoothness score
  *
  * Strict Automotive UX Constraints:
  * - Minimum 64dp touch targets for cockpit usability
- * - High-contrast automotive typography with tabular figures (`fontFeatureSettings = "tnum"`)
+ * - High-contrast automotive typography with tabular figures (fontFeatureSettings = "tnum")
  */
 @Composable
 fun TripSummaryDialog(
@@ -212,7 +202,7 @@ fun TripSummaryDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Row 1: Distance & Duration
+                    // Row 1: Total Distance & Drive Duration
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -240,7 +230,7 @@ fun TripSummaryDialog(
                         )
                     }
 
-                    // Row 2: Fuel Consumption & Fuel Cost
+                    // Row 2: Average & Instantaneous Fuel Economy (L/100 km and km/L) and Total Fuel Cost (QAR)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -264,7 +254,7 @@ fun TripSummaryDialog(
                         )
                     }
 
-                    // Row 3: Powertrain Peaks (Peak RPM & Peak Coolant)
+                    // Row 3: Peak RPM & Peak Coolant Temperature
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -289,7 +279,7 @@ fun TripSummaryDialog(
 
                 Spacer(Modifier.height(16.dp))
 
-                // Driving Smoothness & Efficiency Rating
+                // Driving Smoothness Score (0 - 100)
                 Surface(
                     color = DarkSurface(),
                     shape = RoundedCornerShape(16.dp),
@@ -334,7 +324,7 @@ fun TripSummaryDialog(
                         ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxWidth(summary.smoothnessScore / 100f)
+                                    .fillMaxWidth((summary.smoothnessScore / 100f).coerceIn(0f, 1f))
                                     .height(8.dp)
                                     .clip(RoundedCornerShape(4.dp))
                                     .background(
@@ -365,7 +355,7 @@ fun TripSummaryDialog(
 
                 Spacer(Modifier.height(20.dp))
 
-                // Automotive Action Buttons (64dp touch targets)
+                // Automotive Action Buttons (64dp minimum touch targets)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)

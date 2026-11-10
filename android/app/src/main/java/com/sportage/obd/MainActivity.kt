@@ -307,7 +307,18 @@ class MainActivity : ComponentActivity(), LocationListener {
                             logTerminal("INFO", "LINK ACTIVE: ${state.deviceName} \u00b7 ${state.protocol}")
                         is ConnectionState.Error -> logTerminal("ERR", "Adapter error: ${state.message}")
                         is ConnectionState.Connecting -> logTerminal("INFO", "Opening RFCOMM socket to ${state.address ?: "adapter"}...")
-                        ConnectionState.Disconnected -> logTerminal("INFO", "Adapter link closed.")
+                        ConnectionState.Disconnected -> {
+                            logTerminal("INFO", "Adapter link closed.")
+                            viewModel.saveParkedLocation(currentLat, currentLon, currentBearing)
+                        }
+                    }
+                }
+            }
+
+            LaunchedEffect(Unit) {
+                viewModel.postDriveSummary.collect { summary ->
+                    if (summary != null) {
+                        viewModel.saveParkedLocation(currentLat, currentLon, currentBearing)
                     }
                 }
             }

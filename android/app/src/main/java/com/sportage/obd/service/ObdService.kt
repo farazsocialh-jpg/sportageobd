@@ -987,46 +987,68 @@ class ObdService : Service() {
                     val success = response.isNotBlank() &&
                         !response.contains("ERROR", ignoreCase = true) &&
                         !response.contains("NO DATA", ignoreCase = true) &&
-                        !response.contains("UNABLE TO CONNECT", ignoreCase = true)
+                        !response.contains("UNABLE TO CONNECT", ignoreCase = true) &&
+                        !response.contains("?")
 
-                    scheduler.recordResponseTime(execution.command, reqElapsed, success)
+                    scheduler.recordResponseTime(execution.command, reqElapsed, success, response)
                     currentHz = scheduler.getEffectiveHz()
 
-                    when (execution.command) {
-                        "010C" -> {
-                            val decoded = PidDecoders.decodeRpm(response)
-                            if (decoded != null) {
-                                rpm = decoded
-                                if (decoded > peakRpmThisTrip) peakRpmThisTrip = decoded
-                            }
+                    if (execution.isBatched && execution.command == PriorityPidScheduler.BATCHED_TIER_1_CMD) {
+                        val batched = scheduler.decodeBatchedTier1(response)
+                        if (batched.rpm != null) {
+                            rpm = batched.rpm
+                            if (batched.rpm > peakRpmThisTrip) peakRpmThisTrip = batched.rpm
                         }
-                        "010D" -> {
-                            val decoded = PidDecoders.decodeSpeed(response)
-                            if (decoded != null) {
-                                speed = decoded
-                                if (decoded > 5) hasBeenDrivingThisTrip = true
-                            }
+                        if (batched.speedKmh != null) {
+                            speed = batched.speedKmh
+                            if (batched.speedKmh > 5) hasBeenDrivingThisTrip = true
                         }
-                        "0111" -> throttle = PidDecoders.decodeThrottle(response) ?: throttle
-                        "0104" -> load = PidDecoders.decodeLoad(response) ?: load
-                        "0105" -> {
-                            val decoded = PidDecoders.decodeCoolantTemp(response)
-                            if (decoded != null) {
-                                coolant = decoded
-                                if (decoded > peakCoolantThisTrip) peakCoolantThisTrip = decoded
-                            }
+                        if (batched.throttlePct != null) throttle = batched.throttlePct
+                        if (batched.engineLoadPct != null) load = batched.engineLoadPct
+                    } else if (execution.isBatched && execution.command == PriorityPidScheduler.BATCHED_TIER_2_CMD) {
+                        val batched = scheduler.decodeBatchedTier2(response)
+                        if (batched.coolantTempC != null) {
+                            coolant = batched.coolantTempC
+                            if (batched.coolantTempC > peakCoolantThisTrip) peakCoolantThisTrip = batched.coolantTempC
                         }
-                        "010F" -> intake = PidDecoders.decodeIntakeTemp(response) ?: intake
-                        "ATRV" -> voltage = PidDecoders.decodeBatteryVoltage(response) ?: voltage
-                        "0110" -> maf = PidDecoders.decodeMaf(response) ?: maf
-                        "0106" -> stft = PidDecoders.decodeShortTermFuelTrim(response) ?: stft
-                        "0107" -> ltft = PidDecoders.decodeLongTermFuelTrim(response) ?: ltft
-                        "010E" -> timing = PidDecoders.decodeTimingAdvance(response) ?: timing
-                        "01A4" -> actualGear = PidDecoders.decodeTransmissionGear(response) ?: actualGear
-                        "012F" -> fuel = PidDecoders.decodeFuelLevel(response) ?: fuel
-                        "0101" -> {
-                            val parsed = PidDecoders.decodeReadiness(response)
-                            if (parsed != null) _readiness.value = parsed
+                        if (batched.intakeTempC != null) intake = batched.intakeTempC
+                    } else {
+                        when (execution.command) {
+                            "010C" -> {
+                                val decoded = PidDecoders.decodeRpm(response)
+                                if (decoded != null) {
+                                    rpm = decoded
+                                    if (decoded > peakRpmThisTrip) peakRpmThisTrip = decoded
+                                }
+                            }
+                            "010D" -> {
+                                val decoded = PidDecoders.decodeSpeed(response)
+                                if (decoded != null) {
+                                    speed = decoded
+                                    if (decoded > 5) hasBeenDrivingThisTrip = true
+                                }
+                            }
+                            "0111" -> throttle = PidDecoders.decodeThrottle(response) ?: throttle
+                            "0104" -> load = PidDecoders.decodeLoad(response) ?: load
+                            "0105" -> {
+                                val decoded = PidDecoders.decodeCoolantTemp(response)
+                                if (decoded != null) {
+                                    coolant = decoded
+                                    if (decoded > peakCoolantThisTrip) peakCoolantThisTrip = decoded
+                                }
+                            }
+                            "010F" -> intake = PidDecoders.decodeIntakeTemp(response) ?: intake
+                            "ATRV" -> voltage = PidDecoders.decodeBatteryVoltage(response) ?: voltage
+                            "0110" -> maf = PidDecoders.decodeMaf(response) ?: maf
+                            "0106" -> stft = PidDecoders.decodeShortTermFuelTrim(response) ?: stft
+                            "0107" -> ltft = PidDecoders.decodeLongTermFuelTrim(response) ?: ltft
+                            "010E" -> timing = PidDecoders.decodeTimingAdvance(response) ?: timing
+                            "01A4" -> actualGear = PidDecoders.decodeTransmissionGear(response) ?: actualGear
+                            "012F" -> fuel = PidDecoders.decodeFuelLevel(response) ?: fuel
+                            "0101" -> {
+                                val parsed = PidDecoders.decodeReadiness(response)
+                                if (parsed != null) _readiness.value = parsed
+                            }
                         }
                     }
 

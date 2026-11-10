@@ -6,6 +6,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -17,9 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,7 +26,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
@@ -40,9 +38,10 @@ import com.sportage.obd.ui.theme.PrimaryText
 import com.sportage.obd.ui.theme.SecondaryText
 
 /**
- * GT / F1 Sequential Shift Light Bar for Kia Sportage (Nu 2.0L MPI).
+ * GT / F1 Sequential Shift Light Bar for Kia Sportage (Nu 2.0L MPI Gasoline).
  *
- * Implements a top-mounted 12-segment LED arc calibrated for the Nu 2.0L MPI powerband:
+ * Implements Module 3:
+ * Embeds a 12-segment GT LED shift light bar along the cockpit:
  * - Segments 1–4 (1,500 – 3,500 RPM): Smooth Green LEDs (Low-mid torque build)
  * - Segments 5–8 (3,500 – 5,000 RPM): Vivid Amber LEDs (Peak torque 4,000 RPM plateau)
  * - Segments 9–11 (5,000 – 6,100 RPM): Intense Red LEDs (Peak 154 hp @ 6,200 RPM approach)
@@ -73,7 +72,7 @@ fun SequentialShiftLightBar(
     Surface(
         color = DarkSurface(),
         shape = RoundedCornerShape(12.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF1E293B)),
+        border = BorderStroke(1.dp, Color(0xFF1E293B)),
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 8.dp, vertical = 4.dp)
@@ -94,17 +93,21 @@ fun SequentialShiftLightBar(
             ) {
                 for (segmentIndex in 1..12) {
                     val segmentThresholdRpm = when (segmentIndex) {
+                        // Segments 1–4: 1,500 – 3,500 RPM
                         1 -> 1500
-                        2 -> 2000
-                        3 -> 2600
-                        4 -> 3200
-                        5 -> 3700
-                        6 -> 4200
-                        7 -> 4600
+                        2 -> 2167
+                        3 -> 2833
+                        4 -> 3500
+                        // Segments 5–8: 3,500 – 5,000 RPM
+                        5 -> 3875
+                        6 -> 4250
+                        7 -> 4625
                         8 -> 5000
-                        9 -> 5400
-                        10 -> 5800
+                        // Segments 9–11: 5,000 – 6,100 RPM
+                        9 -> 5367
+                        10 -> 5733
                         11 -> 6100
+                        // Segment 12: 6,200+ RPM Redline
                         12 -> 6200
                         else -> 6200
                     }
@@ -112,10 +115,10 @@ fun SequentialShiftLightBar(
                     val isActive = currentRpm >= segmentThresholdRpm
 
                     val segmentColor = when (segmentIndex) {
-                        in 1..4 -> Color(0xFF00E676) // Green
-                        in 5..8 -> Color(0xFFFFB300) // Amber
-                        in 9..11 -> Color(0xFFFF1744) // Red
-                        12 -> if (isRedline && flashAlpha > 0.55f) Color(0xFFFFFFFF) else Color(0xFFFF1744) // Flashing
+                        in 1..4 -> Color(0xFF00E676) // Smooth Green
+                        in 5..8 -> Color(0xFFFFB300) // Vivid Amber
+                        in 9..11 -> Color(0xFFFF1744) // Intense Red
+                        12 -> if (isRedline && flashAlpha > 0.55f) Color(0xFFFFFFFF) else Color(0xFFFF1744) // Pulsing Crimson/White
                         else -> Color(0xFF00E676)
                     }
 

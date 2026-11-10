@@ -23,12 +23,13 @@ data class ParkedLocation(
 /**
  * "Find My Sportage" Last-Parked GPS Anchor Persistence Store.
  *
- * Automatically captures GPS coordinates when:
- * 1. Engine shuts down (RPM drops to 0 and battery voltage drops).
- * 2. OBD Bluetooth adapter disconnects while previously driving.
+ * Implements Module 5:
+ * Automatically captures and persists vehicle GPS coordinates and heading when:
+ * 1. Engine shuts down (RPM drops to 0 and battery voltage drops below 12.8V for > 5 seconds).
+ * 2. OBD Bluetooth adapter link disconnects while the vehicle was previously driving.
  *
- * Persists location to secure local preferences and builds direct intent deep links
- * for Google Maps / Waze pedestrian and driving return navigation.
+ * Provides quick-action navigation shortcuts that launch Google Maps or Waze
+ * with direct turn-by-turn directions back to the parked Sportage.
  */
 class LastParkedLocationStore(
     private val context: Context
@@ -70,7 +71,7 @@ class LastParkedLocationStore(
     }
 
     /**
-     * Saves the vehicle's current position as the last parked location.
+     * Saves the vehicle's current position and heading as the last parked location anchor.
      */
     fun saveParkedLocation(
         lat: Double,
@@ -112,12 +113,17 @@ class LastParkedLocationStore(
      * Builds an Android Intent to launch Google Maps or Waze with direct directions
      * to the parked Sportage.
      *
-     * @param parked The parked coordinates.
+     * @param parked The parked coordinates. Defaults to the currently stored parking location.
      * @param preferWaze If true, attempts to launch Waze deep link; otherwise Google Maps.
+     * @return Intent ready for startActivity, or null if no parking location is stored.
      */
-    fun buildDirectionsIntent(parked: ParkedLocation, preferWaze: Boolean = false): Intent {
-        val lat = parked.latitude
-        val lon = parked.longitude
+    fun buildDirectionsIntent(
+        parked: ParkedLocation? = _lastParkedLocation.value,
+        preferWaze: Boolean = false
+    ): Intent? {
+        val loc = parked ?: return null
+        val lat = loc.latitude
+        val lon = loc.longitude
 
         if (preferWaze) {
             val wazeUri = Uri.parse("waze://?ll=$lat,$lon&navigate=yes")
@@ -136,7 +142,6 @@ class LastParkedLocationStore(
         val gmapsIntent = Intent(Intent.ACTION_VIEW, gmapsUri).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
-
         if (gmapsIntent.resolveActivity(context.packageManager) != null) {
             return gmapsIntent
         }

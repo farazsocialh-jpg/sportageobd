@@ -1,12 +1,10 @@
 package com.sportage.obd.ui
 
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
@@ -50,11 +48,12 @@ fun rememberAnimatedNeedleAngle(
 /**
  * Native Canvas drawing routines for OEM-grade cockpit instrument needles.
  *
- * Implements:
- * 1. Stepper-motor animated rotation.
- * 2. Simulated top-left light source drop shadows offset radially by angle.
- * 3. Tapered 3D blade geometry with metallic hub cap.
- * 4. Curved anti-reflective glass glare arc across the upper 45% of the dial surface.
+ * Implements Module 3:
+ * 1. Stepper-motor animated rotation with critically damped spring (dampingRatio = 0.78f, stiffness = 180f).
+ * 2. Dynamic needle drop-shadows offset radially relative to a simulated top-left cockpit light source:
+ *    dx = cos(angle) * 4.dp, dy = sin(angle) * 4.dp.
+ * 3. Tapered 3D blade geometry with multi-ring metallic hub cap and lit/shaded dual facets.
+ * 4. Curved anti-reflective glass glare arc across the upper 40% of the dial face.
  */
 object CockpitNeedleRenderer {
 
@@ -66,7 +65,7 @@ object CockpitNeedleRenderer {
      * @param needleLength Length from center to pointer tip.
      * @param needleColor Primary blade color (e.g. Electric Cyan, Sport Crimson, Amber).
      * @param hubRadius Radius of the center mechanical pivot cap.
-     * @param shadowOffset Radial offset distance for simulated lighting.
+     * @param shadowOffset Radial offset distance for simulated lighting (default 4.dp).
      */
     fun DrawScope.drawNeedle(
         center: Offset,
@@ -79,7 +78,7 @@ object CockpitNeedleRenderer {
         val angleRad = Math.toRadians(angle.toDouble())
         val shadowDistance = shadowOffset.toPx()
 
-        // 1. Dynamic Drop Shadow: Offset radially based on simulated top-left cockpit illumination
+        // 1. Dynamic Drop Shadow: Offset radially relative to simulated top-left cockpit light source
         val shadowDx = (cos(angleRad) * shadowDistance).toFloat()
         val shadowDy = (sin(angleRad) * shadowDistance).toFloat()
         val shadowCenter = Offset(center.x + shadowDx, center.y + shadowDy)
@@ -172,7 +171,7 @@ object CockpitNeedleRenderer {
     }
 
     /**
-     * Draws a curved, semi-transparent anti-reflective glass glare arc across the upper 45%
+     * Draws a curved, semi-transparent anti-reflective glass glare arc across the upper 40%
      * of the dial surface, replicating real curved automotive gauge cluster lenses.
      */
     fun DrawScope.drawGlassGlareArc(
@@ -181,7 +180,7 @@ object CockpitNeedleRenderer {
     ) {
         val glassPath = Path().apply {
             val topPeak = center.y - radius * 0.96f
-            val midDrop = center.y - radius * 0.05f
+            val midDrop = center.y - radius * 0.20f // Upper 40% of the dial face
             val arcEdgeX = radius * 0.88f
 
             // Upper curved crescent boundary
@@ -192,7 +191,7 @@ object CockpitNeedleRenderer {
                 center.x + arcEdgeX, center.y - radius * 0.35f
             )
 
-            // Lower curved specular boundary (upper 45% of dial)
+            // Lower curved specular boundary spanning upper 40%
             cubicTo(
                 center.x + radius * 0.45f, midDrop,
                 center.x - radius * 0.45f, midDrop,
@@ -205,12 +204,12 @@ object CockpitNeedleRenderer {
             path = glassPath,
             brush = Brush.verticalGradient(
                 colors = listOf(
-                    Color.White.copy(alpha = 0.14f),
-                    Color.White.copy(alpha = 0.04f),
+                    Color.White.copy(alpha = 0.15f),
+                    Color.White.copy(alpha = 0.05f),
                     Color.Transparent
                 ),
                 startY = center.y - radius,
-                endY = center.y
+                endY = center.y - radius * 0.20f
             )
         )
     }
@@ -283,7 +282,7 @@ fun OrganicNeedleGauge(
                     shadowOffset = 4.dp
                 )
 
-                // Anti-reflective curved glass glare arc
+                // Anti-reflective curved glass glare arc across upper 40%
                 drawGlassGlareArc(
                     center = center,
                     radius = dialRadius
