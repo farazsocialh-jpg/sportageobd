@@ -18,11 +18,11 @@ class PriorityPidSchedulerTest {
         // First queries start with Tier 1
         val cmd1 = scheduler.nextCommand(1000L, supported)
         assertEquals(PollingTier.TIER_1_HIGH, cmd1.tier)
-        assertEquals("010C", cmd1.command)
+        assertEquals("01 0C 0D 11 04", cmd1.command)
 
         val cmd2 = scheduler.nextCommand(1050L, supported)
         assertEquals(PollingTier.TIER_1_HIGH, cmd2.tier)
-        assertEquals("010D", cmd2.command)
+        assertEquals("01 0C 0D 11 04", cmd2.command)
     }
 
     @Test
@@ -37,7 +37,7 @@ class PriorityPidSchedulerTest {
         // After 2 Tier 1 commands, next due Tier 2 command is interleaved
         val auxCmd = scheduler.nextCommand(1100L, supported)
         assertEquals(PollingTier.TIER_2_MEDIUM, auxCmd.tier)
-        assertEquals("0105", auxCmd.command)
+        assertEquals("ATRV", auxCmd.command)
     }
 
     @Test
@@ -86,7 +86,7 @@ class PriorityPidSchedulerTest {
 
     @Test
     fun scheduler_skips_unsupported_pids() {
-        val scheduler = PriorityPidScheduler()
+        val scheduler = PriorityPidScheduler(enableBatchedTier1 = false, enableBatchedTier2 = false)
         // Only RPM, Speed, and Coolant are supported by this ECU
         val supported = setOf("0C", "0D", "05")
 
@@ -99,7 +99,7 @@ class PriorityPidSchedulerTest {
 
         // Tier 2 should only pick 05 because 0F, 10, etc. are not supported
         val q3 = scheduler.nextCommand(1100L, supported)
-        assertEquals("0105", q3.command)
+        assertEquals("ATRV", q3.command)
     }
 
     @Test
