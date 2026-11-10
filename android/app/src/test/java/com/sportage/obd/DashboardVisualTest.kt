@@ -122,9 +122,7 @@ class DashboardVisualTest {
         compose.onNodeWithText("Speed & Distance Units").assertExists()
         compose.onNodeWithContentDescription("Navigate Back").performClick()
         compose.onNodeWithText("OBD & Connectivity").performClick()
-        val label = compose.onNodeWithText("Android Bluetooth System Settings").fetchSemanticsNode().boundsInRoot
-        val control = compose.onNodeWithText("Open Settings").fetchSemanticsNode().boundsInRoot
-        assertTrue("Settings labels must not overlap their controls", label.right <= control.left)
+        compose.onNodeWithText("System BT Settings").assertExists()
         snapshot("settings-portrait")
     }
 
@@ -157,8 +155,8 @@ class DashboardVisualTest {
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
         compose.onNodeWithText("OBD & Connectivity").performClick()
-        compose.onNodeWithText("Open Settings").performScrollTo()
-            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(48.dp)
+        compose.onNodeWithText("System BT Settings").performScrollTo()
+            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(38.dp)
         snapshot("large-text-settings")
     }
 

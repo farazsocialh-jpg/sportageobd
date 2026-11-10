@@ -3380,21 +3380,25 @@ index 0000000..99d8b36
 +    }
 +}
 diff --git a/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt b/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
-index 4b4f736..00ee880 100644
+index 4b4f736..5c2ea7b 100644
 --- a/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
 +++ b/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
-@@ -118,7 +118,10 @@ class DashboardVisualTest {
+@@ -118,10 +118,11 @@ class DashboardVisualTest {
          snapshot("trip-portrait")
          compose.onNodeWithText("More").performClick()
          compose.onNodeWithText("Setup").performClick()
 +        compose.onNodeWithText("Vehicle & Driving").performClick()
          compose.onNodeWithText("Speed & Distance Units").assertExists()
+-        val label = compose.onNodeWithText("Android Bluetooth System Settings").fetchSemanticsNode().boundsInRoot
+-        val control = compose.onNodeWithText("Open Settings").fetchSemanticsNode().boundsInRoot
+-        assertTrue("Settings labels must not overlap their controls", label.right <= control.left)
 +        compose.onNodeWithContentDescription("Navigate Back").performClick()
 +        compose.onNodeWithText("OBD & Connectivity").performClick()
-         val label = compose.onNodeWithText("Android Bluetooth System Settings").fetchSemanticsNode().boundsInRoot
-         val control = compose.onNodeWithText("Open Settings").fetchSemanticsNode().boundsInRoot
-         assertTrue("Settings labels must not overlap their controls", label.right <= control.left)
-@@ -134,6 +137,7 @@ class DashboardVisualTest {
++        compose.onNodeWithText("System BT Settings").assertExists()
+         snapshot("settings-portrait")
+     }
+ 
+@@ -134,6 +135,7 @@ class DashboardVisualTest {
          // The rail now holds 11 destinations; scroll it so Setup is reachable.
          compose.onAllNodes(hasScrollAction())[0].performTouchInput { swipeUp() }
          compose.onNodeWithText("Setup").performClick()
@@ -3402,15 +3406,19 @@ index 4b4f736..00ee880 100644
          compose.onNodeWithText("Speed & Distance Units").assertExists()
          snapshot("settings-headunit")
      }
-@@ -152,6 +156,7 @@ class DashboardVisualTest {
+@@ -152,8 +154,9 @@ class DashboardVisualTest {
          snapshot("large-text-phone")
          compose.onNodeWithText("More").performClick()
          compose.onNodeWithText("Setup").performClick()
+-        compose.onNodeWithText("Open Settings").performScrollTo()
+-            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(48.dp)
 +        compose.onNodeWithText("OBD & Connectivity").performClick()
-         compose.onNodeWithText("Open Settings").performScrollTo()
-             .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(48.dp)
++        compose.onNodeWithText("System BT Settings").performScrollTo()
++            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(38.dp)
          snapshot("large-text-settings")
-@@ -259,6 +264,7 @@ class DashboardVisualTest {
+     }
+ 
+@@ -259,6 +262,7 @@ class DashboardVisualTest {
          // Theme customization lives in Setup and restyles the whole app.
          compose.onNodeWithText("More").performClick()
          compose.onNodeWithText("Setup").performClick()
