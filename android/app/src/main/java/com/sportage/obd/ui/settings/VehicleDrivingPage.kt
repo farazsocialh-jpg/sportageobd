@@ -235,7 +235,7 @@ fun VehicleDrivingPage(
 
         SettingsSwitchItem(
             title = "Auto-Switch to Gauges at Highway Speed",
-            description = "Automatically transitions from media/settings back to HUD speedometer when speed > 60 km/h",
+            description = "Automatically transitions from media/settings back to Cockpit Gauges when speed > 60 km/h",
             checked = autoSwitchToGaugesAtSpeed,
             onCheckedChange = { enabled ->
                 autoSwitchToGaugesAtSpeed = enabled

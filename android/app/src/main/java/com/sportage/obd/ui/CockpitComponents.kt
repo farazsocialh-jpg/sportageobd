@@ -219,9 +219,17 @@ fun CockpitTelemetryPane(
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CockpitDial(
-                        speed = speed, speedUnit = speedUnit, rpm = rpm, onToggleSpeedUnit = onToggleSpeedUnit,
-                        modifier = Modifier.weight(1.25f).fillMaxWidth()
+                    CockpitDialRevamped(
+                        speed = speed,
+                        speedUnit = speedUnit,
+                        rpm = rpm,
+                        coolant = coolant,
+                        throttle = throttle,
+                        gear = gear,
+                        transmissionGear = transmissionGear,
+                        connectionState = connectionState,
+                        onToggleSpeedUnit = onToggleSpeedUnit,
+                        modifier = Modifier.weight(1.3f).fillMaxWidth()
                     )
                     Column(
                         Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -371,7 +379,7 @@ private fun CockpitDial(
             }
 
             GaugeStyle.MINIMAL -> {
-                // Minimalist HUD layout
+                // Minimalist Digital Cluster layout
                 Column(
                     Modifier.fillMaxWidth().height(dialHeight),
                     horizontalAlignment = Alignment.CenterHorizontally,

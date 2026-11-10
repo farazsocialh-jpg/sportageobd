@@ -36,6 +36,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalConfiguration
@@ -200,6 +201,7 @@ fun CarLauncherScreen(
     var localFontScale by remember(fontScale) { mutableStateOf(fontScale) }
     var localAppearanceMode by remember(appearanceMode) { mutableStateOf(appearanceMode) }
     var localKeepScreenAwake by remember(keepScreenAwake) { mutableStateOf(keepScreenAwake) }
+    val postDriveSummary = viewModel?.postDriveSummary?.collectAsState()?.value
 
     fun toggleSpeedUnit() {
         val next = if (speedUnit == "km/h") "mph" else "km/h"
@@ -795,6 +797,33 @@ fun CarLauncherScreen(
                 CockpitNavigation(activePage, onNavigatePage, onOpenAppDrawer, rail = false)
             }
         }
+
+        // Post-Drive Trip Summary Popup (Triggered when engine-off is detected)
+        postDriveSummary?.let { summary ->
+            TripSummaryDialog(
+                summary = summary,
+                onDismiss = { viewModel?.dismissPostDriveSummary() },
+                onSaveToLog = {
+                    com.sportage.obd.fuel.TripHistoryStore(context).addTrip(
+                        com.sportage.obd.fuel.TripRecord(
+                            dateMs = summary.dateMs,
+                            distanceKm = summary.distanceKm,
+                            durationSeconds = summary.durationSeconds,
+                            fuelLiters = summary.fuelUsedLiters,
+                            avgL100 = summary.avgL100,
+                            maxSpeedKmh = summary.maxSpeedKmh,
+                            avgSpeedKmh = summary.avgSpeedKmh
+                        )
+                    )
+                    viewModel?.dismissPostDriveSummary()
+                    Toast.makeText(context, "Trip saved to log", Toast.LENGTH_SHORT).show()
+                },
+                onResetTrip = {
+                    onResetTrip()
+                    viewModel?.dismissPostDriveSummary()
+                }
+            )
+        }
     }
 }
 
@@ -876,54 +905,120 @@ fun PermanentHomeSplitView(
     }
 
     if (isLandscape) {
-        val mapWeight = arrangementRatio ?: if (aspectRatio >= 2.0f) 0.64f else 0.58f
-        val obdWeight = 1.0f - mapWeight
+        if (aspectRatio >= 2.05f) {
+            // 21:9 Ultrawide Head Units (1920x720 / 1280x480): Triple-pane layout (Dials | Offline Map | Modular Widgets)
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Pane 1 (Left 32%): Dials & Primary Telemetry
+                Box(modifier = Modifier.weight(0.32f).fillMaxHeight()) {
+                    CockpitTelemetryPane(
+                        speed = speed,
+                        speedUnit = speedUnit,
+                        onToggleSpeedUnit = onToggleSpeedUnit,
+                        rpm = rpm,
+                        coolant = coolant,
+                        voltage = voltage,
+                        load = load,
+                        throttle = throttle,
+                        intake = intake,
+                        fuel = fuel,
+                        transmissionGear = transmissionGear,
+                        gear = gear,
+                        weatherTempC = weatherTempC,
+                        weatherText = weatherText,
+                        connectionState = connectionState,
+                        measuredHz = measuredHz,
+                        isDemoMode = isDemoMode
+                    )
+                }
 
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(modifier = Modifier.weight(mapWeight).fillMaxHeight()) {
-                LiveMapSurface(
-                    currentLat = currentLat,
-                    currentLon = currentLon,
-                    currentBearing = currentBearing,
-                    speed = speed,
-                    rpm = rpm,
-                    speedUnit = speedUnit,
-                    onOpenNavigation = onOpenNavigation,
-                    gpsStatus = gpsStatus,
-                    showMiniGaugesOnMap = showMiniGaugesOnMap
-                )
+                // Pane 2 (Center 43%): Live / Offline Map
+                Box(modifier = Modifier.weight(0.43f).fillMaxHeight()) {
+                    LiveMapSurface(
+                        currentLat = currentLat,
+                        currentLon = currentLon,
+                        currentBearing = currentBearing,
+                        speed = speed,
+                        rpm = rpm,
+                        speedUnit = speedUnit,
+                        onOpenNavigation = onOpenNavigation,
+                        gpsStatus = gpsStatus,
+                        showMiniGaugesOnMap = showMiniGaugesOnMap
+                    )
+                }
+
+                // Pane 3 (Right 25%): Modular Widgets & Powertrain Status
+                Box(modifier = Modifier.weight(0.25f).fillMaxHeight()) {
+                    UltrawideModularWidgetsPane(
+                        coolant = coolant,
+                        voltage = voltage,
+                        load = load,
+                        throttle = throttle,
+                        intake = intake,
+                        fuel = fuel,
+                        gear = gear,
+                        transmissionGear = transmissionGear,
+                        weatherTempC = weatherTempC,
+                        weatherText = weatherText
+                    )
+                }
             }
+        } else {
+            // 16:9 / 16:10 Landscape (Tablet/Head Unit): Split Cockpit (45% dials / 55% live map + media)
+            val defaultMapWeight = 0.55f
+            val mapWeight = arrangementRatio ?: defaultMapWeight
+            val obdWeight = 1.0f - mapWeight
 
-            Box(modifier = Modifier.weight(obdWeight).fillMaxHeight()) {
-                CockpitTelemetryPane(
-                    speed = speed,
-                    speedUnit = speedUnit,
-                    onToggleSpeedUnit = onToggleSpeedUnit,
-                    rpm = rpm,
-                    coolant = coolant,
-                    voltage = voltage,
-                    load = load,
-                    throttle = throttle,
-                    intake = intake,
-                    fuel = fuel,
-                    transmissionGear = transmissionGear,
-                    gear = gear,
-                    weatherTempC = weatherTempC,
-                    weatherText = weatherText,
-                    connectionState = connectionState,
-                    measuredHz = measuredHz,
-                    isDemoMode = isDemoMode
-                )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Box(modifier = Modifier.weight(mapWeight).fillMaxHeight()) {
+                    LiveMapSurface(
+                        currentLat = currentLat,
+                        currentLon = currentLon,
+                        currentBearing = currentBearing,
+                        speed = speed,
+                        rpm = rpm,
+                        speedUnit = speedUnit,
+                        onOpenNavigation = onOpenNavigation,
+                        gpsStatus = gpsStatus,
+                        showMiniGaugesOnMap = showMiniGaugesOnMap
+                    )
+                }
+
+                Box(modifier = Modifier.weight(obdWeight).fillMaxHeight()) {
+                    CockpitTelemetryPane(
+                        speed = speed,
+                        speedUnit = speedUnit,
+                        onToggleSpeedUnit = onToggleSpeedUnit,
+                        rpm = rpm,
+                        coolant = coolant,
+                        voltage = voltage,
+                        load = load,
+                        throttle = throttle,
+                        intake = intake,
+                        fuel = fuel,
+                        transmissionGear = transmissionGear,
+                        gear = gear,
+                        weatherTempC = weatherTempC,
+                        weatherText = weatherText,
+                        connectionState = connectionState,
+                        measuredHz = measuredHz,
+                        isDemoMode = isDemoMode
+                    )
+                }
             }
         }
     } else {
-        // Portrait: prioritize map height, retaining extra telemetry room at enlarged font scales.
-        val defaultPortraitWeight = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) 0.52f else 0.56f
+        // Portrait Mode (Phone Dash Mount): Vertical Cockpit stacked view
+        val defaultPortraitWeight = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) 0.50f else 0.54f
         val portraitMapWeight = arrangementRatio ?: defaultPortraitWeight
         Column(
             modifier = Modifier
@@ -965,6 +1060,122 @@ fun PermanentHomeSplitView(
                     measuredHz = measuredHz,
                     isDemoMode = isDemoMode
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Modular Widgets Pane designed for 21:9 Ultrawide Automotive displays (1920x720 / 1280x480).
+ */
+@Composable
+fun UltrawideModularWidgetsPane(
+    coolant: Int?,
+    voltage: Float?,
+    load: Float?,
+    throttle: Float?,
+    intake: Int?,
+    fuel: Int?,
+    gear: Int,
+    transmissionGear: Int?,
+    weatherTempC: String?,
+    weatherText: String?
+) {
+    Surface(
+        color = DarkSurface(),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.fillMaxSize()
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Text(
+                text = "Vehicle Dynamics",
+                style = MaterialTheme.typography.titleMedium,
+                color = PrimaryText()
+            )
+
+            // Transmission Gear Widget
+            Surface(
+                color = DarkSurfaceElevated(),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Transmission", color = SecondaryText(), fontSize = 12.sp)
+                    Text(
+                        text = gearLabel(transmissionGear, gear),
+                        color = ElectricCyan(),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+
+            // Thermal & Electrical Grid
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CockpitReading(
+                    label = "Coolant",
+                    value = coolant?.let { "$it°C" } ?: "--",
+                    modifier = Modifier.weight(1f),
+                    color = if ((coolant ?: 0) > 105) CriticalRed() else PrimaryText()
+                )
+                CockpitReading(
+                    label = "Battery",
+                    value = voltage?.let { "%.1f V".format(it) } ?: "--",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CockpitReading(
+                    label = "Engine load",
+                    value = load?.let { "%.0f%%".format(it) } ?: "--",
+                    modifier = Modifier.weight(1f)
+                )
+                CockpitReading(
+                    label = "Throttle",
+                    value = throttle?.let { "%.0f%%".format(it) } ?: "--",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CockpitReading(
+                    label = "Intake air",
+                    value = intake?.let { "$it°C" } ?: "--",
+                    modifier = Modifier.weight(1f)
+                )
+                CockpitReading(
+                    label = "Fuel level",
+                    value = fuel?.let { "$it%" } ?: "--",
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            if (weatherTempC != null) {
+                Surface(
+                    color = DarkSurfaceElevated(),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(weatherText ?: "Weather", color = SecondaryText(), fontSize = 12.sp)
+                        Text(weatherTempC, color = PrimaryText(), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
@@ -1015,7 +1226,7 @@ fun LiveMapSurface(
                             .padding(8.dp)
                     ) {
                         Text(
-                            text = "HUD ${speed ?: "--"} · ${rpm ?: "--"}",
+                            text = "${speed ?: "--"} $speedUnit · ${rpm ?: "--"} RPM",
                             color = ElectricCyan(),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,

@@ -60,7 +60,7 @@ import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
 
 /**
  * Dashboard Customisation Settings Subpage:
- * - Dashboard primary layout (Cockpit + Map, Full Cluster, Custom Board, Split HUD)
+ * - Dashboard primary layout (Cockpit + Map, Full Cluster, Custom Board, Split Cockpit)
  * - Map and cockpit spatial arrangement (Balanced, Map Dominant, Gauges Dominant)
  * - Widget selection (toggle widgets from the BoardWidgetType catalog)
  * - Widget positioning (reorder slot arrangement)

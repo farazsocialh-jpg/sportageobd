@@ -87,6 +87,13 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
     val isCsvLogging: StateFlow<Boolean> = repository.isCsvLogging
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
+    val postDriveSummary: StateFlow<com.sportage.obd.ui.PostDriveTripSummary?> = repository.postDriveSummary
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    fun dismissPostDriveSummary() {
+        repository.clearPostDriveSummary()
+    }
+
     private val _isScanningDtc = MutableStateFlow(false)
     val isScanningDtc: StateFlow<Boolean> = _isScanningDtc.asStateFlow()
 

@@ -193,6 +193,13 @@ class ObdService : Service() {
     private val _isCsvLogging = MutableStateFlow(false)
     val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
 
+    private val _postDriveSummary = MutableStateFlow<com.sportage.obd.ui.PostDriveTripSummary?>(null)
+    val postDriveSummary: StateFlow<com.sportage.obd.ui.PostDriveTripSummary?> = _postDriveSummary.asStateFlow()
+
+    fun clearPostDriveSummary() {
+        _postDriveSummary.value = null
+    }
+
     val activeAlerts: StateFlow<List<ActiveAlert>>
         get() = alertEngine?.activeAlerts ?: MutableStateFlow<List<ActiveAlert>>(emptyList())
 
@@ -923,16 +930,33 @@ class ObdService : Service() {
     private fun startPollingLoop() {
         pollingJob?.cancel()
         pollingJob = serviceScope.launch {
-            // Independent cycle counter for the auxiliary PID rotation. Deliberately
-            // separate from packetCount: packetCount is reset every second by the
-            // Hz calculation below, which previously caused the aux PID rotation
-            // (packetCount / 2) % 6 to restart from coolant on every reset and, on
-            // slower adapters, never reach the later PIDs (fuel, throttle, load,
-            // voltage).
-            var auxPidCycle = 0
-            var extraCycle = 0
-            var nextExtraAt = 0L
-            val unavailable = mutableMapOf<String, Int>()
+            val scheduler = PriorityPidScheduler()
+            val supported = _supportedPids.value
+            scheduler.updateExtraPids(com.sportage.obd.obd.SensorCatalog.extraPids(supported))
+
+            var coolant = _telemetry.value.coolantTempC
+            var intake = _telemetry.value.intakeTempC
+            var fuel = _telemetry.value.fuelLevelPct
+            var throttle = _telemetry.value.throttlePct
+            var load = _telemetry.value.engineLoadPct
+            var voltage = _telemetry.value.batteryVoltage
+            var maf = _telemetry.value.mafGs
+            var stft = _telemetry.value.shortTermFuelTrimPct
+            var ltft = _telemetry.value.longTermFuelTrimPct
+            var timing = _telemetry.value.timingAdvanceDeg
+            var actualGear = _telemetry.value.transmissionGear
+            var speed = _telemetry.value.speedKmh
+            var rpm = _telemetry.value.rpm
+
+            // Engine-off detection tracking:
+            // Triggered automatically when RPM drops to 0 and battery voltage drops below 12.8V for > 5 seconds while in DRIVING state
+            var hasBeenDrivingThisTrip = false
+            var engineOffConditionStartedAt = 0L
+            var engineOffSummaryTriggered = false
+            var peakRpmThisTrip = 0
+            var peakCoolantThisTrip = 0
+            val tripStartTimeMs = System.currentTimeMillis()
+
             lastFuelSampleAtMs = System.currentTimeMillis()
 
             while (isActive && activeDevice != null) {
@@ -942,113 +966,62 @@ class ObdService : Service() {
                 }
 
                 try {
-                    // 1. Engine RPM (PID 010C) - high priority
-                    val rpmResp = sampleCommand("010C")
-                    val rpm = PidDecoders.decodeRpm(rpmResp)
-
-                    // 2. Vehicle Speed (PID 010D) - high priority
-                    val spdResp = sampleCommand("010D")
-                    val speed = PidDecoders.decodeSpeed(spdResp)
-
-                    // Measure sampling frequency
-                    packetCount += 2
                     val now = System.currentTimeMillis()
-                    if (now - lastHzCalculationTime >= 1000) {
-                        currentHz = (packetCount * 1000f) / (now - lastHzCalculationTime)
-                        packetCount = 0
-                        lastHzCalculationTime = now
+                    val execution = scheduler.nextCommand(now, _supportedPids.value)
+
+                    val reqStart = android.os.SystemClock.elapsedRealtime()
+                    val response = sampleCommand(execution.command)
+                    val reqElapsed = android.os.SystemClock.elapsedRealtime() - reqStart
+                    val success = response.isNotBlank() &&
+                        !response.contains("ERROR", ignoreCase = true) &&
+                        !response.contains("NO DATA", ignoreCase = true) &&
+                        !response.contains("UNABLE TO CONNECT", ignoreCase = true)
+
+                    scheduler.recordResponseTime(execution.command, reqElapsed, success)
+                    currentHz = scheduler.getEffectiveHz()
+
+                    when (execution.command) {
+                        "010C" -> {
+                            val decoded = PidDecoders.decodeRpm(response)
+                            if (decoded != null) {
+                                rpm = decoded
+                                if (decoded > peakRpmThisTrip) peakRpmThisTrip = decoded
+                            }
+                        }
+                        "010D" -> {
+                            val decoded = PidDecoders.decodeSpeed(response)
+                            if (decoded != null) {
+                                speed = decoded
+                                if (decoded > 5) hasBeenDrivingThisTrip = true
+                            }
+                        }
+                        "0111" -> throttle = PidDecoders.decodeThrottle(response) ?: throttle
+                        "0104" -> load = PidDecoders.decodeLoad(response) ?: load
+                        "0105" -> {
+                            val decoded = PidDecoders.decodeCoolantTemp(response)
+                            if (decoded != null) {
+                                coolant = decoded
+                                if (decoded > peakCoolantThisTrip) peakCoolantThisTrip = decoded
+                            }
+                        }
+                        "010F" -> intake = PidDecoders.decodeIntakeTemp(response) ?: intake
+                        "ATRV" -> voltage = PidDecoders.decodeBatteryVoltage(response) ?: voltage
+                        "0110" -> maf = PidDecoders.decodeMaf(response) ?: maf
+                        "0106" -> stft = PidDecoders.decodeShortTermFuelTrim(response) ?: stft
+                        "0107" -> ltft = PidDecoders.decodeLongTermFuelTrim(response) ?: ltft
+                        "010E" -> timing = PidDecoders.decodeTimingAdvance(response) ?: timing
+                        "01A4" -> actualGear = PidDecoders.decodeTransmissionGear(response) ?: actualGear
+                        "012F" -> fuel = PidDecoders.decodeFuelLevel(response) ?: fuel
+                        "0101" -> {
+                            val parsed = PidDecoders.decodeReadiness(response)
+                            if (parsed != null) _readiness.value = parsed
+                        }
                     }
 
                     // Estimate gear based on speed and RPM for Kia Sportage 6-speed automatic
                     val gear = estimateGear(speed ?: 0, rpm ?: 0)
 
-                    // Lower-frequency secondary PIDs (rotation independent of
-                    // the Hz sample counter; only polls PIDs the ECU supports)
-                    var coolant = _telemetry.value.coolantTempC
-                    var intake = _telemetry.value.intakeTempC
-                    var fuel = _telemetry.value.fuelLevelPct
-                    var throttle = _telemetry.value.throttlePct
-                    var load = _telemetry.value.engineLoadPct
-                    var voltage = _telemetry.value.batteryVoltage
-                    var maf = _telemetry.value.mafGs
-                    var stft = _telemetry.value.shortTermFuelTrimPct
-                    var ltft = _telemetry.value.longTermFuelTrimPct
-                    var timing = _telemetry.value.timingAdvanceDeg
-                    var actualGear = _telemetry.value.transmissionGear
-
-                    val supported = _supportedPids.value
-
-                    fun pidSupported(pid: String) = supported.isEmpty() || supported.contains(pid)
-
-                    when (auxPidCycle % 10) {
-                        0 -> if (pidSupported("05")) {
-                            val resp = sampleCommand("0105")
-                            coolant = PidDecoders.decodeCoolantTemp(resp) ?: coolant
-                        }
-                        1 -> if (pidSupported("0F")) {
-                            val resp = sampleCommand("010F")
-                            intake = PidDecoders.decodeIntakeTemp(resp) ?: intake
-                        }
-                        2 -> if (pidSupported("2F")) {
-                            val resp = sampleCommand("012F")
-                            fuel = PidDecoders.decodeFuelLevel(resp) ?: fuel
-                        }
-                        3 -> if (pidSupported("11")) {
-                            val resp = sampleCommand("0111")
-                            throttle = PidDecoders.decodeThrottle(resp) ?: throttle
-                        }
-                        4 -> if (pidSupported("04")) {
-                            val resp = sampleCommand("0104")
-                            load = PidDecoders.decodeLoad(resp) ?: load
-                        }
-                        5 -> {
-                            val resp = sampleCommand("ATRV")
-                            voltage = PidDecoders.decodeBatteryVoltage(resp) ?: voltage
-                        }
-                        6 -> if (pidSupported("10")) {
-                            val resp = sampleCommand("0110")
-                            maf = PidDecoders.decodeMaf(resp) ?: maf
-                        }
-                        7 -> if (pidSupported("06")) {
-                            val resp = sampleCommand("0106")
-                            stft = PidDecoders.decodeShortTermFuelTrim(resp) ?: stft
-                        }
-                        8 -> if (pidSupported("07")) {
-                            val resp = sampleCommand("0107")
-                            ltft = PidDecoders.decodeLongTermFuelTrim(resp) ?: ltft
-                        }
-                        9 -> if (pidSupported("0E")) {
-                            val resp = sampleCommand("010E")
-                            timing = PidDecoders.decodeTimingAdvance(resp) ?: timing
-                        }
-                    }
-                    // Transmission gear (PID A4) whenever the ECU advertises it. This is
-                    // the only way to tell P / N / R / D apart at standstill.
-                    if (pidSupported("A4")) {
-                        val resp = sampleCommand("01A4")
-                        actualGear = PidDecoders.decodeTransmissionGear(resp) ?: actualGear
-                    }
-                    auxPidCycle = (auxPidCycle + 1) % 10
-
-                    // One extra request per 750 ms at most. Core readings retain priority.
-                    if (android.os.SystemClock.elapsedRealtime() >= nextExtraAt) {
-                        val extras = com.sportage.obd.obd.SensorCatalog.extraPids(supported)
-                            .filter { (unavailable[it] ?: 0) < 3 }
-                        if (extras.isNotEmpty()) {
-                            val pid = extras[extraCycle.mod(extras.size)]
-                            extraCycle = (extraCycle + 1).mod(extras.size)
-                            val response = sampleCommand("01$pid")
-                            if (com.sportage.obd.obd.SensorCatalog.decode(pid, response) == null)
-                                unavailable[pid] = (unavailable[pid] ?: 0) + 1
-                            else unavailable.remove(pid)
-                        }
-                        nextExtraAt = android.os.SystemClock.elapsedRealtime() + 750L
-                    }
-
-                    // Fuel rate: prefer the ECU's direct PID 5E reading; fall back to the
-                    // MAF estimate (stoich AFR 14.7, gasoline ~0.745 g/ml). Calculated
-                    // figures are scaled by the tank-to-tank calibration factor and are
-                    // always labeled as estimates - never as ECU measurements.
+                    // Fuel calculations
                     val sensorsNow = _telemetry.value.sensors
                     val ecuRateLh = sensorsNow["5E"]?.values
                         ?.firstOrNull { it.unit == "L/h" }?.value?.toFloat()
@@ -1081,6 +1054,53 @@ class ObdService : Service() {
                         }
                     }
                     lastFuelSampleAtMs = now
+
+                    // Engine-Off Detection:
+                    // Triggered automatically when RPM drops to 0 and battery voltage drops below 12.8V for > 5 seconds while in DRIVING state
+                    if (hasBeenDrivingThisTrip) {
+                        val currentRpm = rpm ?: 0
+                        val currentVolt = voltage ?: 14.0f
+                        if (currentRpm == 0 && currentVolt < 12.8f) {
+                            if (engineOffConditionStartedAt == 0L) {
+                                engineOffConditionStartedAt = now
+                            } else if (now - engineOffConditionStartedAt >= 5000L && !engineOffSummaryTriggered) {
+                                engineOffSummaryTriggered = true
+                                val totalDistance = cityDistanceKm + highwayDistanceKm
+                                val driveDurationSec = ((now - tripStartTimeMs) / 1000L).coerceAtLeast(10L)
+                                val fuelPriceQar = runCatching {
+                                    getSharedPreferences("sportage_fuel_settings", Context.MODE_PRIVATE)
+                                        .getFloat("fuel_price_qar_per_liter", 2.05f).toDouble()
+                                }.getOrDefault(2.05)
+                                val avgL100 = if (totalDistance > 0.1f && fuelUsedLiters > 0.01f) {
+                                    fuelUsedLiters / totalDistance * 100.0
+                                } else null
+                                val kmPerL = if (avgL100 != null && avgL100 > 0.0) 100.0 / avgL100 else null
+                                val avgSpeed = if (totalDistance > 0.1f) (totalDistance / (driveDurationSec / 3600f)).toInt() else 0
+
+                                val revPenalty = ((peakRpmThisTrip - 3500).coerceAtLeast(0) / 150)
+                                val smoothness = (95 - revPenalty).coerceIn(60, 98)
+
+                                val summary = com.sportage.obd.ui.PostDriveTripSummary(
+                                    distanceKm = totalDistance.toDouble(),
+                                    durationSeconds = driveDurationSec,
+                                    avgSpeedKmh = avgSpeed,
+                                    maxSpeedKmh = speed ?: 0,
+                                    fuelUsedLiters = fuelUsedLiters.toDouble(),
+                                    avgL100 = avgL100,
+                                    instantaneousL100 = economy?.toDouble(),
+                                    kmPerLiter = kmPerL,
+                                    totalFuelCostQar = fuelUsedLiters.toDouble() * fuelPriceQar,
+                                    peakRpm = peakRpmThisTrip,
+                                    peakCoolantC = peakCoolantThisTrip,
+                                    smoothnessScore = smoothness,
+                                    dateMs = now
+                                )
+                                _postDriveSummary.value = summary
+                            }
+                        } else {
+                            engineOffConditionStartedAt = 0L
+                        }
+                    }
 
                     val newTelemetry = ObdTelemetry(
                         speedKmh = speed,
@@ -1132,11 +1152,8 @@ class ObdService : Service() {
                         updateNotification("OBD recording stopped: storage unavailable")
                     }
 
-                    val loopDelayMs = when (uiPrefs().getString("pollingRate", "Fast CAN (20-25 Hz)")) {
-                        "Standard (10-15 Hz)" -> 75L
-                        "Battery Saver (4-6 Hz)" -> 200L
-                        else -> 30L
-                    }
+                    // Adaptive Delay computed by PriorityPidScheduler to avoid UART buffer overflow
+                    val loopDelayMs = scheduler.getAdaptiveDelayMs()
                     delay(loopDelayMs)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e

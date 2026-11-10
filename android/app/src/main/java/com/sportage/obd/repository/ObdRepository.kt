@@ -111,6 +111,14 @@ class ObdRepository(private val context: Context) {
     private val _isCsvLogging = MutableStateFlow(false)
     val isCsvLogging: StateFlow<Boolean> = _isCsvLogging.asStateFlow()
 
+    private val _postDriveSummary = MutableStateFlow<com.sportage.obd.ui.PostDriveTripSummary?>(null)
+    val postDriveSummary: StateFlow<com.sportage.obd.ui.PostDriveTripSummary?> = _postDriveSummary.asStateFlow()
+
+    fun clearPostDriveSummary() {
+        _postDriveSummary.value = null
+        obdService?.clearPostDriveSummary()
+    }
+
     private var demoJob: Job? = null
     private var serviceCollectorJob: Job? = null
 
@@ -251,6 +259,11 @@ class ObdRepository(private val context: Context) {
                         if (!_isDemoMode.value) {
                             _isCsvLogging.value = it
                         }
+                    }
+                }
+                launch {
+                    s.postDriveSummary.collect {
+                        _postDriveSummary.value = it
                     }
                 }
             }
