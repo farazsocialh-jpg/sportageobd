@@ -173,13 +173,33 @@ fun CockpitTelemetryPane(
             delay(10_000)
         }
     }
+    val tokens = LocalCockpitTokens.current
+    val density = tokens.spec.spacing.density
+    val gaugeStyle = tokens.spec.gauge.style
+
     Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxSize()) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = maxHeight < 550.dp
+            val panePadding = when (density) {
+                ThemeDensity.COMPACT -> 8.dp
+                ThemeDensity.SPACIOUS -> 20.dp
+                else -> if (compact) 12.dp else 16.dp
+            }
+            val paneSpacing = when (density) {
+                ThemeDensity.COMPACT -> 4.dp
+                ThemeDensity.SPACIOUS -> 12.dp
+                else -> 8.dp
+            }
+            val rowSpacing = when (density) {
+                ThemeDensity.COMPACT -> 8.dp
+                ThemeDensity.SPACIOUS -> 20.dp
+                else -> 16.dp
+            }
+
             Column(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).heightIn(min = maxHeight)
-                    .padding(if (compact) 12.dp else 16.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                    .padding(panePadding),
+                verticalArrangement = Arrangement.spacedBy(paneSpacing)
             ) {
                 Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -199,7 +219,6 @@ fun CockpitTelemetryPane(
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    // Combined dial: outer arc = speed, inner arc = engine speed.
                     CockpitDial(
                         speed = speed, speedUnit = speedUnit, rpm = rpm, onToggleSpeedUnit = onToggleSpeedUnit,
                         modifier = Modifier.weight(1.25f).fillMaxWidth()
@@ -222,16 +241,16 @@ fun CockpitTelemetryPane(
                     }
                 }
                 HorizontalDivider(color = DarkSurfaceElevated(), modifier = Modifier.padding(vertical = 4.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(rowSpacing)) {
                     CockpitReading("Coolant", coolant?.let { "$it°C" } ?: "--", Modifier.weight(1f),
                         if ((coolant ?: 0) > 105) CriticalRed() else PrimaryText())
                     CockpitReading("Battery", voltage?.let { "%.1f V".format(it) } ?: "--", Modifier.weight(1f))
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(rowSpacing)) {
                     CockpitReading("Engine load", load?.let { "%.0f%%".format(it) } ?: "--", Modifier.weight(1f))
                     CockpitReading("Throttle", throttle?.let { "%.0f%%".format(it) } ?: "--", Modifier.weight(1f))
                 }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(rowSpacing)) {
                     CockpitReading("Intake air", intake?.let { "$it°C" } ?: "--", Modifier.weight(1f))
                     CockpitReading("Fuel level", fuel?.let { "$it%" } ?: "--", Modifier.weight(1f))
                 }
@@ -241,61 +260,235 @@ fun CockpitTelemetryPane(
 }
 
 /**
- * Combined analog dial: outer arc and long needle for speed, inner arc and short
- * needle for engine RPM. Replaces the separate digital speed/RPM tiles.
+ * Responsive instrument cluster that adapts dynamically to the chosen [GaugeStyle]
+ * (Radial, Arc, Bar, Digital, Minimal) and [ThemeDensity].
  */
 @Composable
-private fun CockpitDial(speed: Int?, speedUnit: String, rpm: Int?, onToggleSpeedUnit: () -> Unit, modifier: Modifier = Modifier) {
+private fun CockpitDial(
+    speed: Int?,
+    speedUnit: String,
+    rpm: Int?,
+    onToggleSpeedUnit: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tokens = LocalCockpitTokens.current
+    val gaugeStyle = tokens.spec.gauge.style
+    val density = tokens.spec.spacing.density
+
     val speedColor = ElectricCyan()
     val rpmColor = WarningAmber()
     val trackColor = DarkSurfaceElevated()
     val needleColor = PrimaryText()
     val speedValue = speed?.toFloat() ?: 0f
     val rpmValue = rpm?.toFloat() ?: 0f
+    val speedFrac = (speedValue / 220f).coerceIn(0f, 1f)
+    val rpmFrac = (rpmValue / 7000f).coerceIn(0f, 1f)
+
+    val dialHeight = when (density) {
+        ThemeDensity.COMPACT -> 170.dp
+        ThemeDensity.SPACIOUS -> 230.dp
+        else -> 205.dp
+    }
+
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Canvas(Modifier.fillMaxWidth().height(210.dp)) {
-            val stroke = 10.dp.toPx()
-            val rpmStroke = 5.dp.toPx()
-            val inset = stroke / 2 + 2.dp.toPx()
-            val diameter = minOf(size.width, size.height) - inset * 2
-            val arcSize = Size(diameter, diameter)
-            val topLeft = Offset((size.width - diameter) / 2, inset)
-            val sweep = 240f
-            val start = 150f
-            // Speed arc (outer): 0..220 km/h (or mph scaled dial stays 0..220 units of the shown unit).
-            drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
-                topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
-            val speedFrac = (speedValue / 220f).coerceIn(0f, 1f)
-            drawArc(color = speedColor, startAngle = start, sweepAngle = sweep * speedFrac, useCenter = false,
-                topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
-            // RPM arc (inner): 0..7000 rpm.
-            val innerInset = inset + stroke + 8.dp.toPx()
-            val innerDiameter = diameter - (innerInset - inset) * 2
-            val innerSize = Size(innerDiameter, innerDiameter)
-            val innerTopLeft = Offset((size.width - innerDiameter) / 2, innerInset)
-            drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
-                topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
-            val rpmFrac = (rpmValue / 7000f).coerceIn(0f, 1f)
-            drawArc(color = rpmColor, startAngle = start, sweepAngle = sweep * rpmFrac, useCenter = false,
-                topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
-            // Needles from the dial center.
-            val centerX = size.width / 2
-            val centerY = arcSize.height / 2 + inset
-            fun angle(frac: Float) = Math.toRadians((start + sweep * frac).toDouble())
-            val speedAngle = angle(speedFrac)
-            val speedLen = arcSize.width / 2 - stroke
-            drawLine(needleColor, Offset(centerX, centerY),
-                Offset(centerX + (speedLen * Math.cos(speedAngle)).toFloat(),
-                    centerY + (speedLen * Math.sin(speedAngle)).toFloat()),
-                strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
-            val rpmAngle = angle(rpmFrac)
-            val rpmLen = innerSize.width / 2
-            drawLine(rpmColor, Offset(centerX, centerY),
-                Offset(centerX + (rpmLen * Math.cos(rpmAngle)).toFloat(),
-                    centerY + (rpmLen * Math.sin(rpmAngle)).toFloat()),
-                strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
-            drawCircle(needleColor, radius = 4.dp.toPx(), center = Offset(centerX, centerY))
+        when (gaugeStyle) {
+            GaugeStyle.BAR -> {
+                // Horizontal Sports Bar Gauges
+                Column(
+                    Modifier.fillMaxWidth().height(dialHeight).padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalArrangement = Arrangement.SpaceEvenly
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("SPEED", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("${speed ?: "--"} $speedUnit", color = speedColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.fillMaxWidth().height(16.dp).background(trackColor, RoundedCornerShape(8.dp))) {
+                            Box(
+                                Modifier.fillMaxHeight().fillMaxWidth(speedFrac)
+                                    .background(speedColor, RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("TACHOMETER", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text("${rpm ?: "--"} rpm", color = rpmColor, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.fillMaxWidth().height(14.dp).background(trackColor, RoundedCornerShape(7.dp))) {
+                            val isRedline = (rpm ?: 0) >= 6000
+                            Box(
+                                Modifier.fillMaxHeight().fillMaxWidth(rpmFrac)
+                                    .background(if (isRedline) CriticalRed() else rpmColor, RoundedCornerShape(7.dp))
+                            )
+                        }
+                    }
+                }
+            }
+
+            GaugeStyle.DIGITAL -> {
+                // High-Glanceability Digital Instrument Display
+                Column(
+                    Modifier.fillMaxWidth().height(dialHeight).padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = speed?.toString() ?: "--",
+                        color = PrimaryText(),
+                        fontSize = when (density) { ThemeDensity.COMPACT -> 44.sp; ThemeDensity.SPACIOUS -> 60.sp; else -> 52.sp },
+                        fontWeight = FontWeight.Light,
+                        style = TextStyle(fontFeatureSettings = "tnum")
+                    )
+                    Text(
+                        text = speedUnit.uppercase(Locale.US),
+                        color = speedColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    // 12-segment digital tachometer rev band
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
+                        val activeSegments = (rpmFrac * 12).toInt().coerceIn(0, 12)
+                        for (i in 0 until 12) {
+                            val segColor = when {
+                                i < activeSegments && i >= 10 -> CriticalRed()
+                                i < activeSegments && i >= 7 -> WarningAmber()
+                                i < activeSegments -> speedColor
+                                else -> trackColor
+                            }
+                            Box(
+                                Modifier.weight(1f).height(10.dp)
+                                    .background(segColor, RoundedCornerShape(2.dp))
+                            )
+                        }
+                    }
+                }
+            }
+
+            GaugeStyle.MINIMAL -> {
+                // Minimalist HUD layout
+                Column(
+                    Modifier.fillMaxWidth().height(dialHeight),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = speed?.toString() ?: "--",
+                        color = speedColor,
+                        fontSize = 48.sp,
+                        fontWeight = FontWeight.Bold,
+                        style = TextStyle(fontFeatureSettings = "tnum")
+                    )
+                    Text(
+                        text = "$speedUnit · ${rpm ?: "--"} rpm",
+                        color = SecondaryText(),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        Modifier.width(100.dp).height(3.dp)
+                            .background(DarkSurfaceElevated(), RoundedCornerShape(2.dp))
+                    ) {
+                        Box(
+                            Modifier.fillMaxHeight().width((100 * speedFrac).dp)
+                                .background(speedColor, RoundedCornerShape(2.dp))
+                        )
+                    }
+                }
+            }
+
+            GaugeStyle.ARC -> {
+                // Pure Sweep Arc without mechanical needles
+                Canvas(Modifier.fillMaxWidth().height(dialHeight)) {
+                    val stroke = 12.dp.toPx()
+                    val rpmStroke = 6.dp.toPx()
+                    val inset = stroke / 2 + 3.dp.toPx()
+                    val diameter = minOf(size.width, size.height) - inset * 2
+                    val arcSize = Size(diameter, diameter)
+                    val topLeft = Offset((size.width - diameter) / 2, inset)
+                    val sweep = 240f
+                    val start = 150f
+
+                    // Speed arc
+                    drawArc(trackColor, start, sweep, false, topLeft, arcSize, Stroke(stroke, cap = StrokeCap.Round))
+                    drawArc(speedColor, start, sweep * speedFrac, false, topLeft, arcSize, Stroke(stroke, cap = StrokeCap.Round))
+
+                    // RPM arc
+                    val innerInset = inset + stroke + 9.dp.toPx()
+                    val innerDiameter = diameter - (innerInset - inset) * 2
+                    val innerSize = Size(innerDiameter, innerDiameter)
+                    val innerTopLeft = Offset((size.width - innerDiameter) / 2, innerInset)
+                    drawArc(trackColor, start, sweep, false, innerTopLeft, innerSize, Stroke(rpmStroke, cap = StrokeCap.Round))
+                    drawArc(rpmColor, start, sweep * rpmFrac, false, innerTopLeft, innerSize, Stroke(rpmStroke, cap = StrokeCap.Round))
+                }
+            }
+
+            else -> {
+                // Default / RADIAL: Traditional dial with ticks, arcs, and needle pointers
+                Canvas(Modifier.fillMaxWidth().height(dialHeight)) {
+                    val stroke = 10.dp.toPx()
+                    val rpmStroke = 5.dp.toPx()
+                    val inset = stroke / 2 + 2.dp.toPx()
+                    val diameter = minOf(size.width, size.height) - inset * 2
+                    val arcSize = Size(diameter, diameter)
+                    val topLeft = Offset((size.width - diameter) / 2, inset)
+                    val sweep = 240f
+                    val start = 150f
+                    val centerX = size.width / 2
+                    val centerY = arcSize.height / 2 + inset
+                    fun angle(frac: Float) = Math.toRadians((start + sweep * frac).toDouble())
+
+                    // Tick marks around perimeter
+                    for (i in 0..10) {
+                        val tickFrac = i / 10f
+                        val rad = angle(tickFrac)
+                        val outerR = diameter / 2
+                        val innerR = outerR - (if (i % 2 == 0) 8.dp.toPx() else 4.dp.toPx())
+                        val p1 = Offset(centerX + (outerR * Math.cos(rad)).toFloat(), centerY + (outerR * Math.sin(rad)).toFloat())
+                        val p2 = Offset(centerX + (innerR * Math.cos(rad)).toFloat(), centerY + (innerR * Math.sin(rad)).toFloat())
+                        drawLine(color = trackColor, start = p1, end = p2, strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    }
+
+                    // Speed arc (outer): 0..220
+                    drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
+                        topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
+                    drawArc(color = speedColor, startAngle = start, sweepAngle = sweep * speedFrac, useCenter = false,
+                        topLeft = topLeft, size = arcSize, style = Stroke(width = stroke, cap = StrokeCap.Round))
+
+                    // RPM arc (inner): 0..7000
+                    val innerInset = inset + stroke + 8.dp.toPx()
+                    val innerDiameter = diameter - (innerInset - inset) * 2
+                    val innerSize = Size(innerDiameter, innerDiameter)
+                    val innerTopLeft = Offset((size.width - innerDiameter) / 2, innerInset)
+                    drawArc(color = trackColor, startAngle = start, sweepAngle = sweep, useCenter = false,
+                        topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
+                    drawArc(color = rpmColor, startAngle = start, sweepAngle = sweep * rpmFrac, useCenter = false,
+                        topLeft = innerTopLeft, size = innerSize, style = Stroke(width = rpmStroke, cap = StrokeCap.Round))
+
+                    // Needles from dial center
+                    val speedAngle = angle(speedFrac)
+                    val speedLen = arcSize.width / 2 - stroke
+                    drawLine(needleColor, Offset(centerX, centerY),
+                        Offset(centerX + (speedLen * Math.cos(speedAngle)).toFloat(),
+                            centerY + (speedLen * Math.sin(speedAngle)).toFloat()),
+                        strokeWidth = 3.dp.toPx(), cap = StrokeCap.Round)
+                    val rpmAngle = angle(rpmFrac)
+                    val rpmLen = innerSize.width / 2
+                    drawLine(rpmColor, Offset(centerX, centerY),
+                        Offset(centerX + (rpmLen * Math.cos(rpmAngle)).toFloat(),
+                            centerY + (rpmLen * Math.sin(rpmAngle)).toFloat()),
+                        strokeWidth = 2.dp.toPx(), cap = StrokeCap.Round)
+                    drawCircle(needleColor, radius = 4.dp.toPx(), center = Offset(centerX, centerY))
+                }
+            }
         }
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${speed ?: "--"} $speedUnit", color = PrimaryText(), fontSize = 20.sp, fontWeight = FontWeight.Medium,
