@@ -131,7 +131,7 @@ fun QuickActionDock(
                 Box(contentAlignment = Alignment.Center) {
                     DockAction(
                         icon = Icons.Default.MoreVert,
-                        description = "Quick actions menu",
+                        description = "Quick actions",
                         action = { menu = true }
                     )
                     DropdownMenu(

@@ -219,18 +219,7 @@ fun CockpitTelemetryPane(
                 }
                 Row(Modifier.fillMaxWidth().padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    CockpitDialRevamped(
-                        speed = speed,
-                        speedUnit = speedUnit,
-                        rpm = rpm,
-                        coolant = coolant,
-                        throttle = throttle,
-                        gear = gear,
-                        transmissionGear = transmissionGear,
-                        connectionState = connectionState,
-                        onToggleSpeedUnit = onToggleSpeedUnit,
-                        modifier = Modifier.weight(1.3f).fillMaxWidth()
-                    )
+                    CockpitDial(speed, speedUnit, rpm, onToggleSpeedUnit, Modifier.weight(1.3f).fillMaxWidth())
                     Column(
                         Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
@@ -533,8 +522,10 @@ private fun CockpitDial(
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("${speed ?: "--"} $speedUnit", color = PrimaryText(), fontSize = 20.sp, fontWeight = FontWeight.Medium,
                 modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                style = TextStyle(fontFeatureSettings = "tnum"),
                 maxLines = 1)
-            Text("${rpm ?: "--"} rpm", color = rpmColor, fontSize = 16.sp, maxLines = 1)
+            Text("${rpm ?: "--"} rpm", color = rpmColor, fontSize = 16.sp, maxLines = 1,
+                style = TextStyle(fontFeatureSettings = "tnum"))
         }
         TextButton(onClick = onToggleSpeedUnit, modifier = Modifier.heightIn(min = 36.dp)) {
             Text("Switch to ${if (speedUnit == "km/h") "mph" else "km/h"}", color = SecondaryText(),
