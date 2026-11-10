@@ -579,7 +579,7 @@ private fun CockpitRpm(rpm: Int?) {
 }
 
 @Composable
-private fun CockpitReading(label: String, value: String, modifier: Modifier, color: androidx.compose.ui.graphics.Color = PrimaryText()) {
+internal fun CockpitReading(label: String, value: String, modifier: Modifier, color: androidx.compose.ui.graphics.Color = PrimaryText()) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = SecondaryText(),
             maxLines = 1, overflow = TextOverflow.Ellipsis)

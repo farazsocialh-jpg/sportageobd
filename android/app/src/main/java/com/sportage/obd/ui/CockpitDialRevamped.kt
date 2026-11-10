@@ -162,6 +162,15 @@ fun CockpitDialRevamped(
         else -> DriveMode.NORMAL
     }
 
+    val criticalRedColor = CriticalRed()
+    val activeSpeedColor = when (driveMode) {
+        DriveMode.CRITICAL -> criticalRedColor
+        DriveMode.SPORT -> Color(0xFFFF3D00)
+        DriveMode.ECO -> Color(0xFF00E5FF)
+        DriveMode.NORMAL -> Color(0xFFFFB300)
+    }
+    val rpmColor = if (effectiveRpmVal >= 6000f) criticalRedColor else Color(0xFFFF9100)
+
     // 4. Critical Alert Halo Pulsing Animation
     val infiniteTransition = rememberInfiniteTransition(label = "halo_pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -271,13 +280,6 @@ fun CockpitDialRevamped(
                 )
 
                 // Dynamic Active Speed Arc
-                val activeSpeedColor = when (driveMode) {
-                    DriveMode.CRITICAL -> CriticalRed()
-                    DriveMode.SPORT -> Color(0xFFFF3D00)
-                    DriveMode.ECO -> Color(0xFF00E5FF)
-                    DriveMode.NORMAL -> Color(0xFFFFB300)
-                }
-
                 drawArc(
                     brush = Brush.sweepGradient(
                         colors = listOf(
@@ -310,7 +312,6 @@ fun CockpitDialRevamped(
                 )
 
                 // Tachometer active arc with redline zone (6000-7000 RPM = 0.857 - 1.0)
-                val rpmColor = if (effectiveRpmVal >= 6000f) CriticalRed() else Color(0xFFFF9100)
                 drawArc(
                     color = rpmColor,
                     startAngle = startAngle,

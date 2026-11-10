@@ -1,6 +1,5 @@
 package com.sportage.obd.service
 
-import android.os.SystemClock
 import kotlin.math.max
 import kotlin.math.min
 
@@ -185,7 +184,7 @@ class PriorityPidScheduler(
      * the UART safety delay and monitor telemetry throughput.
      */
     fun recordResponseTime(command: String, elapsedMs: Long, success: Boolean) {
-        val now = SystemClock.elapsedRealtime()
+        val now = System.currentTimeMillis()
         sampleCount++
         if (lastSampleTimestamp == 0L) {
             lastSampleTimestamp = now

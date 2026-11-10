@@ -64,7 +64,7 @@ class PriorityPidSchedulerTest {
         assertTrue("Fast delay should be within reasonable bounds: $fastDelay", fastDelay in 8L..40L)
 
         // Record slow responses (>120ms RTT on cheap clone adapter)
-        repeat(10) {
+        repeat(25) {
             scheduler.recordResponseTime("010C", 140L, success = true)
         }
         val slowDelay = scheduler.getAdaptiveDelayMs()
