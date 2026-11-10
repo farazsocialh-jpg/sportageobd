@@ -167,11 +167,15 @@ class DashboardVisualTest {
         compose.onAllNodesWithContentDescription("Open navigation app").assertCountEquals(1)
         compose.onNodeWithText("64 km/h", substring = false).assertExists()
         // The richer vehicle pane now scrolls on short screens; readings stay reachable.
-        compose.onNodeWithText("2100 rpm", substring = false).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("89°C", substring = false).performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("13.8 V", substring = false).performScrollTo().assertIsDisplayed()
+        // Ultrawide layouts also repeat these readings in the powertrain widget pane,
+        // so scope the lookups to the telemetry pane.
+        fun telemetry(text: String) = compose.onAllNodesWithText(text, substring = false)
+            .filterToOne(hasAnyAncestor(hasTestTag("cockpit_telemetry_pane")))
+        telemetry("2100 rpm").performScrollTo().assertIsDisplayed()
+        telemetry("89°C").performScrollTo().assertIsDisplayed()
+        telemetry("13.8 V").performScrollTo().assertIsDisplayed()
         snapshot("phone-landscape")
-        compose.onNodeWithText("24%", substring = false).performScrollTo().assertIsDisplayed()
+        telemetry("24%").performScrollTo().assertIsDisplayed()
     }
 
     @Test fun secondaryPhoneScreensRemainReachable() {

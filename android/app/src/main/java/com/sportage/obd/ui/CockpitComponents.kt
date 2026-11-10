@@ -177,7 +177,11 @@ fun CockpitTelemetryPane(
     val density = tokens.spec.spacing.density
     val gaugeStyle = tokens.spec.gauge.style
 
-    Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxSize()) {
+    Surface(
+        color = DarkSurface(),
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier.testTag("cockpit_telemetry_pane").fillMaxSize()
+    ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val compact = maxHeight < 550.dp
             val panePadding = when (density) {
