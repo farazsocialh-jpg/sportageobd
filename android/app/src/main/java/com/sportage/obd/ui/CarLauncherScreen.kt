@@ -1786,358 +1786,41 @@ fun SettingsPage(
     onSetGaugeStyleOverride: (String?) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {},
     dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
-    onSetDashboardLayoutId: (String) -> Unit = {}
+    onSetDashboardLayoutId: (String) -> Unit = {},
+    onNavigateToHome: (() -> Unit)? = null
 ) {
-    val context = LocalContext.current
-    var thresholds by remember { mutableStateOf(viewModel?.alertThresholds() ?: AlertThresholds()) }
-    var csvLogging by remember { mutableStateOf(false) }
-    csvLogging = viewModel?.isCsvLogging?.collectAsState()?.value ?: false
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Text("Settings", color = PrimaryText(), style = MaterialTheme.typography.titleLarge)
-
-        // 0. Theme & Colors Card: restyles the whole app instantly, persisted across restarts.
-        // =============================================================\n        // SECTION 1: Theme & Colors\n        // =============================================================
-        ThemeCustomizationCard(
-            themeId = themeId,
-            accentOverride = accentOverride,
-            densityOverride = densityOverride,
-            gaugeStyleOverride = gaugeStyleOverride,
-            onSetThemeId = onSetThemeId,
-            onSetAccentOverride = onSetAccentOverride,
-            onSetDensityOverride = onSetDensityOverride,
-            onSetGaugeStyleOverride = onSetGaugeStyleOverride,
-            onOpenPrivacyPolicy = onOpenPrivacyPolicy
-        )
-
-        // 0b. Whole-screen layout: switches the home screen itself, not just its palette.
-        DashboardLayoutCard(
-            selectedId = dashboardLayoutId,
-            onSelect = { onSetDashboardLayoutId(it.id) }
-        )
-
-        // 1. Set as Default Launcher Card (Non-Negotiable P0 Launcher Requirement)
-        // =============================================================\n        // SECTION 2: Default Launcher & Units\n        // =============================================================
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 16.dp)) {
-                    Text("SET AS DEFAULT ANDROID HOME LAUNCHER", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        "Makes Sportage OBD the permanent car dashboard. Booting the head unit or pressing Home returns here.",
-                        color = SecondaryText(),
-                        fontSize = 12.sp,
-                        fontFamily = FontFamily.SansSerif
-                    )
-                }
-
-                Button(
-                    modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
-                    onClick = onSetDefaultLauncher,
-                    colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Text("Set Default Home", color = OnAccent(), fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-                }
-            }
-        }
-
-        // 2. Units & Telemetry Settings Card
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, DarkSurfaceElevated())
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                // Speed Unit
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Speed & Distance Units", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Current: $speedUnit", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Button(
-                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
-                        onClick = onToggleSpeedUnit,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text(text = if (speedUnit == "km/h") "Switch to MPH" else "Switch to KM/H", color = ElectricCyan(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-                    }
-                }
-
-                // Installed Apps Drawer
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Installed App Drawer", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Browse and launch all head unit installed apps", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Button(
-                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
-                        onClick = onOpenAppDrawer,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Icon(Icons.Default.Apps, contentDescription = null, tint = ElectricCyan(), modifier = Modifier.size(13.dp))
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text("Open Apps", color = ElectricCyan(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-                    }
-                }
-
-                // Pause OBD Polling Toggle (Ignition Off / Save Battery)
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Pause OBD Polling (Engine Off)", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Stop Bluetooth querying when car engine is switched off", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Switch(
-                        checked = isPollingPaused,
-                        onCheckedChange = { onTogglePausePolling() },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning(), checkedTrackColor = AmberWarning().copy(alpha = 0.4f))
-                    )
-                }
-
-                // Bench Test / Demo Telemetry
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Bench Test / Demo Simulation", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Simulates live RPM, speed and sensors for indoor testing without car", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Switch(
-                        checked = isDemoMode,
-                        onCheckedChange = onToggleDemoMode,
-                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan(), checkedTrackColor = ElectricCyan().copy(alpha = 0.4f))
-                    )
-                }
-
-                // Android Bluetooth Settings Shortcut
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Android Bluetooth System Settings", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Pair new ELM327 adapters or view system devices", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Button(
-                        modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
-                        onClick = onOpenBluetoothSettings,
-                        colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                        shape = RoundedCornerShape(6.dp)
-                    ) {
-                        Text("Open Settings", color = SecondaryText(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-                    }
-                }
-            }
-        }
-
-        // 3. Warning Thresholds Card
-        // =============================================================\n        // SECTION 3: Warning Thresholds & Logging\n        // =============================================================
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, AmberWarning().copy(alpha = 0.5f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text("VEHICLE WARNING THRESHOLDS", color = AmberWarning(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                Text("Audible beep + red banner when a value crosses its limit", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-
-                ThresholdStepper(
-                    label = "Coolant Overheat Limit",
-                    value = "${thresholds.coolantMaxC}°C",
-                    onMinus = { thresholds = thresholds.copy(coolantMaxC = (thresholds.coolantMaxC - 5).coerceAtLeast(90)); viewModel?.updateAlertThresholds(thresholds) },
-                    onPlus = { thresholds = thresholds.copy(coolantMaxC = (thresholds.coolantMaxC + 5).coerceAtMost(130)); viewModel?.updateAlertThresholds(thresholds) }
-                )
-                ThresholdStepper(
-                    label = "Battery Low Limit",
-                    value = "%.1fV".format(thresholds.batteryMinV),
-                    onMinus = { thresholds = thresholds.copy(batteryMinV = (thresholds.batteryMinV - 0.5f).coerceAtLeast(9f)); viewModel?.updateAlertThresholds(thresholds) },
-                    onPlus = { thresholds = thresholds.copy(batteryMinV = (thresholds.batteryMinV + 0.5f).coerceAtMost(14f)); viewModel?.updateAlertThresholds(thresholds) }
-                )
-                ThresholdStepper(
-                    label = "RPM Redline Limit",
-                    value = "${thresholds.rpmMax}",
-                    onMinus = { thresholds = thresholds.copy(rpmMax = (thresholds.rpmMax - 500).coerceAtLeast(3000)); viewModel?.updateAlertThresholds(thresholds) },
-                    onPlus = { thresholds = thresholds.copy(rpmMax = (thresholds.rpmMax + 500).coerceAtMost(7500)); viewModel?.updateAlertThresholds(thresholds) }
-                )
-                ThresholdStepper(
-                    label = "Speed Limit",
-                    value = "${thresholds.speedMaxKmh} km/h",
-                    onMinus = { thresholds = thresholds.copy(speedMaxKmh = (thresholds.speedMaxKmh - 10).coerceAtLeast(60)); viewModel?.updateAlertThresholds(thresholds) },
-                    onPlus = { thresholds = thresholds.copy(speedMaxKmh = (thresholds.speedMaxKmh + 10).coerceAtMost(220)); viewModel?.updateAlertThresholds(thresholds) }
-                )
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Audible Warning Beeps", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Play a tone when a threshold is crossed", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-                    Switch(
-                        checked = thresholds.audibleAlerts,
-                        onCheckedChange = {
-                            thresholds = thresholds.copy(audibleAlerts = it)
-                            viewModel?.updateAlertThresholds(thresholds)
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = AmberWarning(), checkedTrackColor = AmberWarning().copy(alpha = 0.4f))
-                    )
-                }
-            }
-        }
-
-        // 4. CSV Data Logging Card
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, TealAccent().copy(alpha = 0.5f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("CSV TELEMETRY LOGGING", color = TealAccent(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Record every sensor sample to a CSV file on this drive", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-
-                    Switch(
-                        checked = csvLogging,
-                        onCheckedChange = { enable ->
-                            if (enable) viewModel?.startCsvLogging() else viewModel?.stopCsvLogging()
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent(), checkedTrackColor = TealAccent().copy(alpha = 0.4f))
-                    )
-                }
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("Auto-Start With Connection", color = PrimaryText(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Begin logging every time the adapter connects", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-                    var csvAuto by remember { mutableStateOf(viewModel?.csvAutostart() ?: false) }
-                    Switch(
-                        checked = csvAuto,
-                        onCheckedChange = {
-                            csvAuto = it
-                            viewModel?.setCsvAutostart(it)
-                        },
-                        colors = SwitchDefaults.colors(checkedThumbColor = TealAccent(), checkedTrackColor = TealAccent().copy(alpha = 0.4f))
-                    )
-                }
-
-                Button(
-                    modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp),
-                    onClick = {
-                        val file = viewModel?.csvLogFile()
-                        if (file != null && file.exists()) {
-                            try {
-                                val uri = androidx.core.content.FileProvider.getUriForFile(
-                                    context,
-                                    context.packageName + ".fileprovider",
-                                    file
-                                )
-                                val send = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/csv"
-                                    putExtra(Intent.EXTRA_STREAM, uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                }
-                                context.startActivity(Intent.createChooser(send, "Share OBD Log").apply {
-                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                })
-                            } catch (e: Exception) {
-                                Toast.makeText(context, "Could not share log: ${e.message}", Toast.LENGTH_SHORT).show()
-                            }
-                        } else {
-                            Toast.makeText(context, "No active log file. Start logging first.", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
-                    shape = RoundedCornerShape(6.dp)
-                ) {
-                    Icon(Icons.Default.Share, contentDescription = null, tint = TealAccent(), modifier = Modifier.size(13.dp))
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text("Share Current Log", color = TealAccent(), fontFamily = FontFamily.SansSerif, fontSize = 11.sp)
-                }
-            }
-        }
-
-        // 5. Night Dimming Card
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = DarkBackground(),
-            shape = RoundedCornerShape(10.dp),
-            border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f).padding(end = 16.dp)) {
-                        Text("AUTO NIGHT DIMMING", color = ElectricCyan(), fontSize = 12.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-                        Text("Dim the screen automatically after dark (follows system day/night)", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-                    Switch(
-                        checked = autoNightDim,
-                        onCheckedChange = onSetAutoNightDim,
-                        colors = SwitchDefaults.colors(checkedThumbColor = ElectricCyan(), checkedTrackColor = ElectricCyan().copy(alpha = 0.4f))
-                    )
-                }
-
-                if (autoNightDim) {
-                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text("BRIGHTNESS", color = SecondaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                        Slider(
-                            value = 1f - nightDimLevel,
-                            onValueChange = { onSetNightDimLevel(1f - it) },
-                            modifier = Modifier.weight(1f),
-                            colors = SliderDefaults.colors(thumbColor = ElectricCyan(), activeTrackColor = ElectricCyan().copy(alpha = 0.5f))
-                        )
-                        Text("${((1f - nightDimLevel) * 100).toInt()}%", color = PrimaryText(), fontSize = 12.sp, fontFamily = FontFamily.SansSerif)
-                    }
-                }
-            }
-        }
-    }
+    com.sportage.obd.ui.settings.SettingsPage(
+        speedUnit = speedUnit,
+        onToggleSpeedUnit = onToggleSpeedUnit,
+        onSetDefaultLauncher = onSetDefaultLauncher,
+        isDemoMode = isDemoMode,
+        onToggleDemoMode = onToggleDemoMode,
+        onOpenBluetoothSettings = onOpenBluetoothSettings,
+        isPollingPaused = isPollingPaused,
+        onTogglePausePolling = onTogglePausePolling,
+        onOpenAppDrawer = onOpenAppDrawer,
+        viewModel = viewModel,
+        autoNightDim = autoNightDim,
+        nightDimLevel = nightDimLevel,
+        onSetAutoNightDim = onSetAutoNightDim,
+        onSetNightDimLevel = onSetNightDimLevel,
+        themeId = themeId,
+        accentOverride = accentOverride,
+        densityOverride = densityOverride,
+        gaugeStyleOverride = gaugeStyleOverride,
+        onSetThemeId = onSetThemeId,
+        onSetAccentOverride = onSetAccentOverride,
+        onSetDensityOverride = onSetDensityOverride,
+        onSetGaugeStyleOverride = onSetGaugeStyleOverride,
+        onOpenPrivacyPolicy = onOpenPrivacyPolicy,
+        dashboardLayoutId = dashboardLayoutId,
+        onSetDashboardLayoutId = onSetDashboardLayoutId,
+        onNavigateToHome = onNavigateToHome
+    )
 }
 
 @Composable
-private fun ThemeCustomizationCard(
+internal fun ThemeCustomizationCard(
     themeId: String,
     accentOverride: String?,
     densityOverride: String?,
@@ -2387,7 +2070,7 @@ private fun ThemeCustomizationCard(
  * the background, text, accent and gauge before applying the theme.
  */
 @Composable
-private fun ThemePreviewCard(
+internal fun ThemePreviewCard(
     preset: CockpitThemePreset,
     selected: Boolean,
     active: Boolean,

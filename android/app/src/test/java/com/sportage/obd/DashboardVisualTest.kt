@@ -118,7 +118,10 @@ class DashboardVisualTest {
         snapshot("trip-portrait")
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
+        compose.onNodeWithText("Vehicle & Driving").performClick()
         compose.onNodeWithText("Speed & Distance Units").assertExists()
+        compose.onNodeWithContentDescription("Navigate Back").performClick()
+        compose.onNodeWithText("OBD & Connectivity").performClick()
         val label = compose.onNodeWithText("Android Bluetooth System Settings").fetchSemanticsNode().boundsInRoot
         val control = compose.onNodeWithText("Open Settings").fetchSemanticsNode().boundsInRoot
         assertTrue("Settings labels must not overlap their controls", label.right <= control.left)
@@ -134,6 +137,7 @@ class DashboardVisualTest {
         // The rail now holds 11 destinations; scroll it so Setup is reachable.
         compose.onAllNodes(hasScrollAction())[0].performTouchInput { swipeUp() }
         compose.onNodeWithText("Setup").performClick()
+        compose.onNodeWithText("Vehicle & Driving").performClick()
         compose.onNodeWithText("Speed & Distance Units").assertExists()
         snapshot("settings-headunit")
     }
@@ -152,6 +156,7 @@ class DashboardVisualTest {
         snapshot("large-text-phone")
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
+        compose.onNodeWithText("OBD & Connectivity").performClick()
         compose.onNodeWithText("Open Settings").performScrollTo()
             .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(48.dp)
         snapshot("large-text-settings")
@@ -259,6 +264,7 @@ class DashboardVisualTest {
         // Theme customization lives in Setup and restyles the whole app.
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
+        compose.onNodeWithText("Appearance & Themes").performClick()
         compose.onNodeWithText("THEME & COLORS").assertExists()
         // Selecting only previews; the app restyles when Apply theme is pressed.
         compose.onNodeWithTag("theme_preset_list").performScrollToNode(hasTestTag("theme_preset_arctic"))

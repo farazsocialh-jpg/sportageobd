@@ -8,3 +8,5 @@ android/.gradle/
 android/build/
 android/app/build/
 artifacts/*.apk
+node_modules/
+dist/
