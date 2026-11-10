@@ -13,6 +13,7 @@ import {
   RawLogPacket,
   DtcFault
 } from '../types/obd';
+import { parseDtcBytes } from './obdDecoders';
 
 export type TelemetryListener = (telemetry: LiveTelemetry) => void;
 export type ConnectionListener = (state: ConnectionState, adapter?: AdapterInfo) => void;
