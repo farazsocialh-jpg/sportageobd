@@ -416,16 +416,48 @@ private fun CockpitDial(
                     val start = 150f
 
                     // Speed arc
-                    drawArc(trackColor, start, sweep, false, topLeft, arcSize, Stroke(stroke, cap = StrokeCap.Round))
-                    drawArc(speedColor, start, sweep * speedFrac, false, topLeft, arcSize, Stroke(stroke, cap = StrokeCap.Round))
+                    drawArc(
+                        color = trackColor,
+                        startAngle = start,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
+                    drawArc(
+                        color = speedColor,
+                        startAngle = start,
+                        sweepAngle = sweep * speedFrac,
+                        useCenter = false,
+                        topLeft = topLeft,
+                        size = arcSize,
+                        style = Stroke(width = stroke, cap = StrokeCap.Round)
+                    )
 
                     // RPM arc
                     val innerInset = inset + stroke + 9.dp.toPx()
                     val innerDiameter = diameter - (innerInset - inset) * 2
                     val innerSize = Size(innerDiameter, innerDiameter)
                     val innerTopLeft = Offset((size.width - innerDiameter) / 2, innerInset)
-                    drawArc(trackColor, start, sweep, false, innerTopLeft, innerSize, Stroke(rpmStroke, cap = StrokeCap.Round))
-                    drawArc(rpmColor, start, sweep * rpmFrac, false, innerTopLeft, innerSize, Stroke(rpmStroke, cap = StrokeCap.Round))
+                    drawArc(
+                        color = trackColor,
+                        startAngle = start,
+                        sweepAngle = sweep,
+                        useCenter = false,
+                        topLeft = innerTopLeft,
+                        size = innerSize,
+                        style = Stroke(width = rpmStroke, cap = StrokeCap.Round)
+                    )
+                    drawArc(
+                        color = rpmColor,
+                        startAngle = start,
+                        sweepAngle = sweep * rpmFrac,
+                        useCenter = false,
+                        topLeft = innerTopLeft,
+                        size = innerSize,
+                        style = Stroke(width = rpmStroke, cap = StrokeCap.Round)
+                    )
                 }
             }
 
