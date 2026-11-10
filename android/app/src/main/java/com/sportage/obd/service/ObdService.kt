@@ -867,6 +867,8 @@ class ObdService : Service() {
 
     fun csvAutostart(): Boolean = prefs().getBoolean(KEY_CSV_AUTOSTART, false)
 
+    private fun uiPrefs() = getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+
     private suspend fun initializeElm327() {
         try {
             transport.sendCommand("ATZ")      // Reset ELM327
@@ -879,7 +881,13 @@ class ObdService : Service() {
             delay(50)
             transport.sendCommand("ATH0")     // Headers off
             delay(50)
-            transport.sendCommand("ATSP0")    // Auto protocol detect (matches CAN 11/500 for Sportage)
+            val protocolCmd = when (uiPrefs().getString("forcedProtocol", "Auto-Detect Protocol")) {
+                "ISO 15765-4 CAN (11-bit, 500k)" -> "ATSP6"
+                "ISO 15765-4 CAN (29-bit, 500k)" -> "ATSP7"
+                "ISO 9141-2 / KWP2000" -> "ATSP3"
+                else -> "ATSP0"
+            }
+            transport.sendCommand(protocolCmd)
             delay(100)
         } catch (e: CancellationException) { throw e }
     }
@@ -1124,7 +1132,12 @@ class ObdService : Service() {
                         updateNotification("OBD recording stopped: storage unavailable")
                     }
 
-                    delay(30) // Fast cycle rate
+                    val loopDelayMs = when (uiPrefs().getString("pollingRate", "Fast CAN (20-25 Hz)")) {
+                        "Standard (10-15 Hz)" -> 75L
+                        "Battery Saver (4-6 Hz)" -> 200L
+                        else -> 30L
+                    }
+                    delay(loopDelayMs)
                 } catch (e: Exception) {
                     if (e is CancellationException) throw e
                     if (isActive && activeDevice != null) {
@@ -1144,6 +1157,10 @@ class ObdService : Service() {
     private fun scheduleReconnect() {
         stopPolling()
         reconnectJob?.cancel()
+        if (!uiPrefs().getBoolean("autoReconnectOnDrop", true)) {
+            stateRelay.publish(ConnectionState.Disconnected)
+            return
+        }
         reconnectJob = serviceScope.launch {
             var attempt = 0
             val target = activeDevice ?: return@launch
@@ -1213,7 +1230,7 @@ class ObdService : Service() {
             .apply()
     }
 
-    private fun forgetDevice() {
+    fun forgetDevice() {
         prefs().edit()
             .remove(KEY_LAST_DEVICE)
             .remove(KEY_LAST_DEVICE_IS_BLE)
@@ -1229,6 +1246,7 @@ class ObdService : Service() {
      */
     private fun restoreLastDevice() {
         if (activeDevice != null) return
+        if (!uiPrefs().getBoolean("autoConnectAdapter", true)) return
         val address = prefs().getString(KEY_LAST_DEVICE, null) ?: return
         val ble = prefs().getBoolean(KEY_LAST_DEVICE_IS_BLE, false)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&

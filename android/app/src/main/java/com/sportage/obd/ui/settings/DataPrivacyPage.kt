@@ -70,7 +70,17 @@ fun DataPrivacyPage(
             description = "Record RPM, speed, coolant, throttle, battery, and O2 readings to a local CSV file",
             checked = csvLogging,
             onCheckedChange = { enable ->
-                if (enable) viewModel?.startCsvLogging() else viewModel?.stopCsvLogging()
+                if (enable) {
+                    val ok = viewModel?.startCsvLogging() ?: false
+                    if (ok) {
+                        Toast.makeText(context, "CSV telemetry logging started", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Could not start CSV logging", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    viewModel?.stopCsvLogging()
+                    Toast.makeText(context, "CSV telemetry logging stopped", Toast.LENGTH_SHORT).show()
+                }
             },
             activeColor = TealAccent(),
             icon = Icons.Default.Storage
@@ -156,7 +166,8 @@ fun DataPrivacyPage(
             title = "Telemetry Storage Mode",
             valueText = "100% Offline Local Device",
             description = "No location coordinates or engine diagnostic data are transmitted to cloud servers without user intent",
-            icon = Icons.Default.PrivacyTip
+            icon = Icons.Default.PrivacyTip,
+            onClick = onOpenPrivacyPolicy
         )
 
         Spacer(modifier = Modifier.height(16.dp))

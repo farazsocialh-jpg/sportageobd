@@ -636,40 +636,101 @@ class ObdRepository(private val context: Context) {
         }
     }
 
+    private val localAlertEngine by lazy {
+        runCatching { com.sportage.obd.service.AlertEngine(context) }.getOrNull()
+    }
+    private val localCsvLogger by lazy {
+        runCatching { com.sportage.obd.service.CsvLogger(context) }.getOrNull()
+    }
+    private var demoFuelCalibrationFactor: Float =
+        context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+            .getFloat("fuelCalibrationFactor", 1.0f)
+    private var demoFuelUsedLiters: Float = 0f
+
     // --- Warning thresholds ---
 
     fun alertThresholds(): AlertThresholds =
-        obdService?.alertThresholds() ?: AlertThresholds()
+        obdService?.alertThresholds() ?: AlertThresholds.load(context)
 
     fun setFuelCalibration(factor: Float) {
+        demoFuelCalibrationFactor = factor
+        context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+            .edit().putFloat("fuelCalibrationFactor", factor).apply()
         scope.launch { obdService?.setFuelCalibration(factor) }
     }
 
     fun resetTripFuel() {
+        demoFuelUsedLiters = 0f
         scope.launch { obdService?.resetTripFuel() }
     }
 
     fun updateAlertThresholds(thresholds: AlertThresholds) {
+        AlertThresholds.save(context, thresholds)
+        localAlertEngine?.updateThresholds(thresholds)
         obdService?.updateAlertThresholds(thresholds)
+        if (_isDemoMode.value) {
+            localAlertEngine?.evaluate(_telemetry.value)
+            _activeAlerts.value = localAlertEngine?.activeAlerts?.value ?: emptyList()
+        }
+    }
+
+    fun forgetSavedAdapter() {
+        context.getSharedPreferences("sportage_obd_service", Context.MODE_PRIVATE)
+            .edit()
+            .remove("last_adapter_address")
+            .remove("last_adapter_is_ble")
+            .apply()
+        context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+            .edit()
+            .remove("last_connected_device_address")
+            .remove("last_connected_device_name")
+            .apply()
+        obdService?.forgetDevice()
+        if (!_isDemoMode.value && _connectionState.value !is ConnectionState.Disconnected) {
+            disconnect()
+        }
     }
 
     // --- CSV logging ---
 
-    fun startCsvLogging(): Boolean =
-        obdService?.startCsvLogging() ?: false
+    fun startCsvLogging(): Boolean {
+        val serviceStarted = obdService?.startCsvLogging()
+        if (serviceStarted == true) {
+            _isCsvLogging.value = true
+            return true
+        }
+        return try {
+            val file = localCsvLogger?.start()
+            val ok = file != null && file.exists()
+            _isCsvLogging.value = ok
+            ok
+        } catch (_: Exception) {
+            _isCsvLogging.value = false
+            false
+        }
+    }
 
     fun stopCsvLogging() {
         obdService?.stopCsvLogging()
+        localCsvLogger?.stop()
+        _isCsvLogging.value = false
     }
 
-    fun csvAutostart(): Boolean = obdService?.csvAutostart() ?: false
+    fun csvAutostart(): Boolean =
+        obdService?.csvAutostart()
+            ?: context.getSharedPreferences("sportage_obd_service", Context.MODE_PRIVATE)
+                .getBoolean("csv_autostart", false)
 
     fun setCsvAutostart(enabled: Boolean) {
+        context.getSharedPreferences("sportage_obd_service", Context.MODE_PRIVATE)
+            .edit()
+            .putBoolean("csv_autostart", enabled)
+            .apply()
         obdService?.setCsvAutostart(enabled)
     }
 
     /** Current log file for sharing, if a session is active. */
-    fun csvLogFile(): java.io.File? = obdService?.csvLogFile
+    fun csvLogFile(): java.io.File? = obdService?.csvLogFile ?: localCsvLogger?.activeFile
 
     suspend fun sendRawCommand(cmd: String): String {
         return if (_isDemoMode.value) {
@@ -680,6 +741,7 @@ class ObdRepository(private val context: Context) {
                 "010D" -> "41 0D 3C"
                 "0105" -> "41 05 5A"
                 "ATRV" -> "14.2V"
+                "ATSP0", "ATSP6", "ATSP7", "ATSP3" -> "OK"
                 else -> "OK"
             }
         } else {
@@ -715,9 +777,24 @@ class ObdRepository(private val context: Context) {
     )
 
     private fun startDemoSimulation() {
+        val uiPrefs = context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
+        if (csvAutostart() && !_isCsvLogging.value) {
+            startCsvLogging()
+        }
         demoJob = scope.launch {
             var step = 0.0
             while (isActive && _isDemoMode.value) {
+                if (_isPollingPaused.value) {
+                    delay(400)
+                    continue
+                }
+                val ratePref = uiPrefs.getString("pollingRate", "Fast CAN (20-25 Hz)")
+                val (delayMs, simHz) = when (ratePref) {
+                    "Standard (10-15 Hz)" -> 80L to 12.5f
+                    "Battery Saver (4-6 Hz)" -> 200L to 5.0f
+                    else -> 45L to 22.2f
+                }
+
                 step += 0.08
                 val speed = ((sin(step * 0.7) + 1.0) * 45.0 + 10.0).toInt().coerceIn(0, 180)
                 val rpm = ((sin(step * 1.4) + 1.0) * 1600.0 + 800.0).toInt().coerceIn(700, 6500)
@@ -731,8 +808,9 @@ class ObdRepository(private val context: Context) {
                 val stft = ((sin(step * 0.9) * 4.0)).toFloat()
                 val ltft = 1.8f
                 val timing = ((sin(step * 0.6) + 1.0) * 12.0).toFloat() // deg BTDC
-                val litersPerHour = maf * 3.6f / (14.7f * 0.745f)
+                val litersPerHour = (maf * 3.6f / (14.7f * 0.745f)) * demoFuelCalibrationFactor
                 val economy = if (speed > 3) litersPerHour / speed * 100f else null
+                demoFuelUsedLiters += litersPerHour * (delayMs / 1000f) / 3600f
                 val gear = when {
                     speed < 5 -> 0
                     speed < 22 -> 1
@@ -743,7 +821,7 @@ class ObdRepository(private val context: Context) {
                     else -> 6
                 }
 
-                _telemetry.value = ObdTelemetry(
+                val sample = ObdTelemetry(
                     speedKmh = speed,
                     rpm = rpm,
                     coolantTempC = coolant,
@@ -757,11 +835,20 @@ class ObdRepository(private val context: Context) {
                     longTermFuelTrimPct = ltft,
                     timingAdvanceDeg = timing,
                     fuelEconomyL100 = economy,
+                    fuelUsedLiters = demoFuelUsedLiters,
+                    fuelCalibrationFactor = demoFuelCalibrationFactor,
+                    fuelSource = if (demoFuelCalibrationFactor != 1f) "CALIBRATED" else "CALCULATED",
                     estimatedGear = gear,
                     timestamp = System.currentTimeMillis(),
-                    sampleRateHz = 16.5f
+                    sampleRateHz = simHz
                 )
-                delay(60)
+                _telemetry.value = sample
+                localAlertEngine?.evaluate(sample)
+                _activeAlerts.value = localAlertEngine?.activeAlerts?.value ?: emptyList()
+                if (_isCsvLogging.value) {
+                    localCsvLogger?.log(sample)
+                }
+                delay(delayMs)
             }
         }
     }

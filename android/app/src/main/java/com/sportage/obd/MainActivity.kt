@@ -147,6 +147,8 @@ class MainActivity : ComponentActivity(), LocationListener {
     private val uiPrefs by lazy { getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
     private var autoNightDim by mutableStateOf(true)
     private var nightDimLevel by mutableStateOf(0.55f)
+    private var appearanceMode by mutableStateOf("Automatic (Follow System)")
+    private var keepScreenAwake by mutableStateOf(true)
 
     // Theme customization (persisted): full-app theme, plus accent/density/gauge overrides.
     private var themeId by mutableStateOf("cockpit-dark")
@@ -162,6 +164,28 @@ class MainActivity : ComponentActivity(), LocationListener {
     // the spec at 1.0x, so this is a comfort feature, not a legibility crutch.
     private var fontScale by mutableStateOf(1.0f)
     private val fontScaleProvider = staticCompositionLocalOf { fontScale }
+
+    private fun applyKeepScreenAwakeFlag(awake: Boolean) {
+        runCatching {
+            if (awake) {
+                window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else {
+                window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+        }
+    }
+
+    private fun applyWindowDimBrightness(dimEnabled: Boolean, dimLevel: Float, mode: String) {
+        runCatching {
+            val lp = window.attributes
+            lp.screenBrightness = if (dimEnabled && mode != "Light Mode (Day High-Vis)") {
+                (1f - dimLevel).coerceIn(0.12f, 1.0f)
+            } else {
+                android.view.WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+            }
+            window.attributes = lp
+        }
+    }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -219,6 +243,8 @@ class MainActivity : ComponentActivity(), LocationListener {
 
         autoNightDim = uiPrefs.getBoolean("autoNightDim", true)
         nightDimLevel = uiPrefs.getFloat("nightDimLevel", 0.55f)
+        appearanceMode = uiPrefs.getString("appearanceMode", "Automatic (Follow System)") ?: "Automatic (Follow System)"
+        keepScreenAwake = uiPrefs.getBoolean("keepScreenAwake", true)
         themeId = uiPrefs.getString("themeId", "cockpit-dark") ?: "cockpit-dark"
         accentOverride = uiPrefs.getString("accentOverride", null)
         densityOverride = uiPrefs.getString("densityOverride", null)
@@ -227,6 +253,8 @@ class MainActivity : ComponentActivity(), LocationListener {
         // Imported themes must be registered before the first composition resolves the theme.
         ImportedThemes.replaceAll(ImportedThemeStore(this).load())
         fontScale = uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.5f)
+        applyKeepScreenAwakeFlag(keepScreenAwake)
+        applyWindowDimBrightness(autoNightDim, nightDimLevel, appearanceMode)
 
         checkAndRequestPermissions()
         initLocationTracking()
@@ -284,7 +312,14 @@ class MainActivity : ComponentActivity(), LocationListener {
                 }
             }
 
-            CompositionLocalProvider(fontScaleProvider provides fontScale) {
+            val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+            CompositionLocalProvider(
+                fontScaleProvider provides fontScale,
+                androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                    density = baseDensity.density,
+                    fontScale = fontScale
+                )
+            ) {
                 SportageObdTheme(
                     themeId = themeId,
                     accentOverride = accentOverride,
@@ -292,6 +327,11 @@ class MainActivity : ComponentActivity(), LocationListener {
                     gaugeStyleOverride = gaugeStyleOverride
                 ) {
                     val isNight = isSystemInDarkTheme()
+                    val shouldDimOverlay = autoNightDim && when (appearanceMode) {
+                        "Light Mode (Day High-Vis)" -> false
+                        "Dark Mode (Night Always)" -> true
+                        else -> isNight || nightDimLevel != 0.55f
+                    }
                     Box(modifier = Modifier.fillMaxSize()) {
                         Box(
                             modifier = Modifier
@@ -337,10 +377,12 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 onSetAutoNightDim = { enabled ->
                                     autoNightDim = enabled
                                     uiPrefs.edit().putBoolean("autoNightDim", enabled).apply()
+                                    applyWindowDimBrightness(autoNightDim, nightDimLevel, appearanceMode)
                                 },
                                 onSetNightDimLevel = { level ->
                                     nightDimLevel = level.coerceIn(0.1f, 0.85f)
                                     uiPrefs.edit().putFloat("nightDimLevel", nightDimLevel).apply()
+                                    applyWindowDimBrightness(autoNightDim, nightDimLevel, appearanceMode)
                                 },
                                 themeId = themeId,
                                 accentOverride = accentOverride,
@@ -368,11 +410,43 @@ class MainActivity : ComponentActivity(), LocationListener {
                                     val layout = DashboardLayoutTheme.fromId(id)
                                     dashboardLayoutId = layout.id
                                     dashboardLayoutStore.save(layout)
+                                },
+                                fontScale = fontScale,
+                                onSetFontScale = { scale ->
+                                    fontScale = scale.coerceIn(0.85f, 1.5f)
+                                    uiPrefs.edit().putFloat("fontScale", fontScale).apply()
+                                },
+                                appearanceMode = appearanceMode,
+                                onSetAppearanceMode = { mode ->
+                                    appearanceMode = mode
+                                    uiPrefs.edit().putString("appearanceMode", mode).apply()
+                                    applyWindowDimBrightness(autoNightDim, nightDimLevel, appearanceMode)
+                                },
+                                keepScreenAwake = keepScreenAwake,
+                                onSetKeepScreenAwake = { awake ->
+                                    keepScreenAwake = awake
+                                    uiPrefs.edit().putBoolean("keepScreenAwake", awake).apply()
+                                    applyKeepScreenAwakeFlag(awake)
+                                },
+                                onResetPreferences = {
+                                    autoNightDim = true
+                                    nightDimLevel = 0.55f
+                                    appearanceMode = "Automatic (Follow System)"
+                                    keepScreenAwake = true
+                                    themeId = "cockpit-dark"
+                                    accentOverride = null
+                                    densityOverride = null
+                                    gaugeStyleOverride = null
+                                    fontScale = 1.0f
+                                    dashboardLayoutId = DashboardLayoutTheme.DEFAULT_ID
+                                    dashboardLayoutStore.save(DashboardLayoutTheme.Classic)
+                                    applyKeepScreenAwakeFlag(true)
+                                    applyWindowDimBrightness(autoNightDim, nightDimLevel, appearanceMode)
                                 }
                             )
                         }
 
-                        if (autoNightDim && isNight) {
+                        if (shouldDimOverlay) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxSize()

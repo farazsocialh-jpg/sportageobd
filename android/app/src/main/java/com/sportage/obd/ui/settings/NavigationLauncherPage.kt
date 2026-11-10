@@ -60,6 +60,10 @@ import com.sportage.obd.ui.theme.SecondaryText
 fun NavigationLauncherPage(
     onSetDefaultLauncher: () -> Unit,
     onOpenAppDrawer: () -> Unit,
+    showQuickActionDock: Boolean = true,
+    onSetShowQuickActionDock: (Boolean) -> Unit = {},
+    keepScreenAwake: Boolean = true,
+    onSetKeepScreenAwake: (Boolean) -> Unit = {},
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -72,11 +76,11 @@ fun NavigationLauncherPage(
     var autoLaunchWazeOnDrive by remember {
         mutableStateOf(uiPrefs.getBoolean("autoLaunchWazeOnDrive", false))
     }
-    var keepScreenAwake by remember {
-        mutableStateOf(uiPrefs.getBoolean("keepScreenAwake", true))
+    var localKeepScreenAwake by remember(keepScreenAwake) {
+        mutableStateOf(keepScreenAwake)
     }
-    var showQuickActionDock by remember {
-        mutableStateOf(uiPrefs.getBoolean("showQuickActionDock", true))
+    var localShowQuickActionDock by remember(showQuickActionDock) {
+        mutableStateOf(showQuickActionDock)
     }
     var autoStartOnBoot by remember {
         mutableStateOf(uiPrefs.getBoolean("autoStartOnBoot", true))
@@ -165,12 +169,16 @@ fun NavigationLauncherPage(
                     }
                     context.startActivity(intent)
                 } catch (_: Exception) {
-                    try {
-                        val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.waze")).apply {
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    if (!com.sportage.obd.map.NavigationLauncher.open(context, 25.2854, 51.5310)) {
+                        try {
+                            val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=com.waze")).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(fallback)
+                        } catch (_: Exception) {
+                            android.widget.Toast.makeText(context, "Waze or navigation app not installed", android.widget.Toast.LENGTH_SHORT).show()
                         }
-                        context.startActivity(fallback)
-                    } catch (_: Exception) {}
+                    }
                 }
             }
         )
@@ -213,10 +221,11 @@ fun NavigationLauncherPage(
         SettingsSwitchItem(
             title = "Quick Action Dock",
             description = "Shows the bottom navigation dock for fast access to Phone, Media, and Apps",
-            checked = showQuickActionDock,
+            checked = localShowQuickActionDock,
             onCheckedChange = { enabled ->
-                showQuickActionDock = enabled
+                localShowQuickActionDock = enabled
                 uiPrefs.edit().putBoolean("showQuickActionDock", enabled).apply()
+                onSetShowQuickActionDock(enabled)
             },
             icon = Icons.AutoMirrored.Filled.ViewSidebar
         )
@@ -224,10 +233,11 @@ fun NavigationLauncherPage(
         SettingsSwitchItem(
             title = "Keep Screen Awake While Driving",
             description = "Acquires Android WakeLock so display never sleeps or turns off while engine is running",
-            checked = keepScreenAwake,
+            checked = localKeepScreenAwake,
             onCheckedChange = { enabled ->
-                keepScreenAwake = enabled
+                localKeepScreenAwake = enabled
                 uiPrefs.edit().putBoolean("keepScreenAwake", enabled).apply()
+                onSetKeepScreenAwake(enabled)
             },
             icon = Icons.Default.LockOpen
         )

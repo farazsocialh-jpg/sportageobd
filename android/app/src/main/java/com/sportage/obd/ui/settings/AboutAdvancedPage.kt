@@ -61,10 +61,13 @@ fun AboutAdvancedPage(
     isDemoMode: Boolean,
     onToggleDemoMode: (Boolean) -> Unit,
     onNavigateBack: () -> Unit,
+    viewModel: com.sportage.obd.viewmodel.ObdViewModel? = null,
+    onOpenBluetoothDialog: () -> Unit = {},
     onResetPreferences: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     var showResetDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -97,15 +100,27 @@ fun AboutAdvancedPage(
         SettingsValueItem(
             title = "OBD-II Command Parser",
             valueText = "ELM327 v1.5 / v2.1 Compatible",
-            description = "Supports standard Mode \$01, Mode \$02, Mode \$03, Mode \$06, and Mode \$09 PIDs",
-            icon = Icons.Default.Terminal
+            description = "Tap to open live ELM327 AT / OBD-II command terminal",
+            icon = Icons.Default.Terminal,
+            onClick = onOpenBluetoothDialog
         )
 
         SettingsValueItem(
             title = "ISO-TP Multi-Frame Engine",
             valueText = "Active (Flow Control 00)",
-            description = "Assembles 4KB+ VIN and calibration data over CAN bus framing",
-            icon = Icons.Default.Build
+            description = "Tap to query ECU Mode \$01/\$09 PID bitmaps and multi-frame VIN identity",
+            icon = Icons.Default.Build,
+            onClick = {
+                scope.launch {
+                    viewModel?.refreshSensorCapabilities()
+                    viewModel?.readVehicleIdentityNow()
+                    Toast.makeText(
+                        context,
+                        "ECU PID capability bitmap & ISO-TP identity refreshed",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
         )
 
         // 3. APPLICATION INFORMATION
@@ -232,9 +247,15 @@ fun AboutAdvancedPage(
                 Button(
                     onClick = {
                         val prefs = context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE)
-                        prefs.edit().clear().apply()
+                        prefs.edit().clear().putBoolean("onboarding_complete", true).apply()
                         val fuel = context.getSharedPreferences("sportage_fuel_settings", Context.MODE_PRIVATE)
                         fuel.edit().clear().apply()
+                        val boards = context.getSharedPreferences("sportage_obd_boards", Context.MODE_PRIVATE)
+                        boards.edit().clear().apply()
+                        val alerts = context.getSharedPreferences("sportage_obd_alerts", Context.MODE_PRIVATE)
+                        alerts.edit().clear().apply()
+                        viewModel?.updateAlertThresholds(com.sportage.obd.service.AlertThresholds())
+                        viewModel?.setFuelCalibration(1.0f)
                         showResetDialog = false
                         onResetPreferences?.invoke()
                         Toast.makeText(context, "Preferences reset to factory defaults", Toast.LENGTH_SHORT).show()

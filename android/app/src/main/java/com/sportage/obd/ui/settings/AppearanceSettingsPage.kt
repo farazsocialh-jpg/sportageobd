@@ -81,6 +81,10 @@ fun AppearanceSettingsPage(
     onSetAutoNightDim: (Boolean) -> Unit,
     nightDimLevel: Float,
     onSetNightDimLevel: (Float) -> Unit,
+    fontScale: Float = 1.0f,
+    onSetFontScale: (Float) -> Unit = {},
+    appearanceMode: String = "Automatic (Follow System)",
+    onSetAppearanceMode: (String) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {},
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
@@ -88,10 +92,12 @@ fun AppearanceSettingsPage(
     val context = LocalContext.current
     val uiPrefs = remember { context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
 
-    var fontScale by remember { mutableFloatStateOf(uiPrefs.getFloat("fontScale", 1.0f).coerceIn(0.85f, 1.30f)) }
-    var appearanceMode by remember { mutableStateOf(uiPrefs.getString("appearanceMode", "Automatic (Follow System)") ?: "Automatic (Follow System)") }
-
-    val activePreset = remember(themeId) { CockpitThemes.byId(themeId) }
+    var localFontScale by remember(fontScale) {
+        mutableFloatStateOf(fontScale.coerceIn(0.85f, 1.30f))
+    }
+    var localAppearanceMode by remember(appearanceMode) {
+        mutableStateOf(appearanceMode)
+    }
 
     Column(
         modifier = modifier
@@ -126,17 +132,23 @@ fun AppearanceSettingsPage(
 
         SettingsValueItem(
             title = "Display Mode",
-            valueText = appearanceMode,
+            valueText = localAppearanceMode,
             description = "Switch between dark theme, light theme, or automatic day/night detection",
             icon = Icons.Default.BrightnessMedium,
             onClick = {
-                val next = when (appearanceMode) {
+                val next = when (localAppearanceMode) {
                     "Automatic (Follow System)" -> "Dark Mode (Night Always)"
                     "Dark Mode (Night Always)" -> "Light Mode (Day High-Vis)"
                     else -> "Automatic (Follow System)"
                 }
-                appearanceMode = next
+                localAppearanceMode = next
                 uiPrefs.edit().putString("appearanceMode", next).apply()
+                onSetAppearanceMode(next)
+                when (next) {
+                    "Light Mode (Day High-Vis)" -> onSetThemeId("arctic")
+                    "Dark Mode (Night Always)" -> if (themeId == "arctic") onSetThemeId("cockpit-dark")
+                    else -> if (themeId == "arctic") onSetThemeId("cockpit-dark")
+                }
             }
         )
 
@@ -165,15 +177,16 @@ fun AppearanceSettingsPage(
         val fontScales = listOf(0.85f to "Compact (0.85×)", 1.0f to "Standard (1.0×)", 1.15f to "Large (1.15×)", 1.30f to "Extra Large (1.3×)")
         SettingsValueItem(
             title = "Font Size Scaling",
-            valueText = fontScales.firstOrNull { it.first == fontScale }?.second ?: "Standard (1.0×)",
+            valueText = fontScales.firstOrNull { kotlin.math.abs(it.first - localFontScale) < 0.03f }?.second ?: "Standard (1.0×)",
             description = "In-car readability scaling for zero-glance-delay driving",
             icon = Icons.Default.FormatSize,
             onClick = {
-                val currentIdx = fontScales.indexOfFirst { it.first == fontScale }
+                val currentIdx = fontScales.indexOfFirst { kotlin.math.abs(it.first - localFontScale) < 0.03f }
                 val nextIdx = (if (currentIdx == -1) 1 else currentIdx + 1) % fontScales.size
                 val nextScale = fontScales[nextIdx].first
-                fontScale = nextScale
+                localFontScale = nextScale
                 uiPrefs.edit().putFloat("fontScale", nextScale).apply()
+                onSetFontScale(nextScale)
             }
         )
 

@@ -199,6 +199,8 @@ class ObdViewModel(application: Application) : AndroidViewModel(application) {
 
     fun setCsvAutostart(enabled: Boolean) = repository.setCsvAutostart(enabled)
 
+    fun forgetSavedAdapter() = repository.forgetSavedAdapter()
+
     suspend fun sendRawCommand(cmd: String): String {
         return repository.sendRawCommand(cmd)
     }

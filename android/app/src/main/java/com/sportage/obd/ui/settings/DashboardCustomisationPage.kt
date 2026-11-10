@@ -70,28 +70,39 @@ import com.sportage.obd.ui.dashboard.DashboardLayoutTheme
 fun DashboardCustomisationPage(
     dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
     onSetDashboardLayoutId: (String) -> Unit = {},
+    mapArrangement: String = "Balanced (50/50)",
+    onSetMapArrangement: (String) -> Unit = {},
+    showMiniGaugesOnMap: Boolean = true,
+    onSetShowMiniGaugesOnMap: (Boolean) -> Unit = {},
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     val uiPrefs = remember { context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
+    val boardStore = remember { com.sportage.obd.ui.boards.PrefsBoardStore(context) }
 
-    var dashboardLayout by remember {
-        mutableStateOf(uiPrefs.getString("dashboardLayout", "Split Map & Cockpit") ?: "Split Map & Cockpit")
-    }
-    var mapArrangement by remember {
-        mutableStateOf(uiPrefs.getString("mapArrangement", "Balanced (50/50)") ?: "Balanced (50/50)")
+    var localMapArrangement by remember(mapArrangement) {
+        mutableStateOf(mapArrangement)
     }
     var widgetSize by remember {
-        mutableStateOf(uiPrefs.getString("widgetSize", "Standard (3x2)") ?: "Standard (3x2)")
+        mutableStateOf(uiPrefs.getString("widgetSize", "Standard (3x2 Grid)") ?: "Standard (3x2 Grid)")
     }
-    var showMiniGaugesOnMap by remember {
-        mutableStateOf(uiPrefs.getBoolean("showMiniGaugesOnMap", true))
+    var localShowMiniGaugesOnMap by remember(showMiniGaugesOnMap) {
+        mutableStateOf(showMiniGaugesOnMap)
     }
 
-    // Active widgets on the custom board
-    var boardLayout by remember { mutableStateOf(BoardLayout.load(uiPrefs)) }
+    // Active widgets on the custom board (uses PrefsBoardStore so changes reflect on Boards screen)
+    var boardLayout by remember { mutableStateOf(boardStore.load()) }
     val currentWidgets = boardLayout.boards.firstOrNull() ?: BoardLayout.DEFAULT.boards.first()
+    val otherBoards = boardLayout.boards.drop(1)
+
+    fun savePrimaryBoard(widgets: List<BoardWidgetType>) {
+        val updated = BoardLayout(listOf(widgets) + otherBoards)
+        boardLayout = updated
+        boardStore.save(updated)
+    }
+
+    val activeLayoutTheme = DashboardLayoutTheme.fromId(dashboardLayoutId)
 
     Column(
         modifier = modifier
@@ -114,22 +125,17 @@ fun DashboardCustomisationPage(
             onSelect = { onSetDashboardLayoutId(it.id) }
         )
 
-        val layouts = listOf(
-            "Split Map & Cockpit",
-            "Full-Screen Gauges",
-            "Swipeable Custom Boards",
-            "Minimalist Highway HUD"
-        )
         SettingsValueItem(
             title = "Active Layout Mode",
-            valueText = dashboardLayout,
-            description = "Determines how gauges and map are arranged on the primary drive screen",
+            valueText = activeLayoutTheme.name,
+            description = activeLayoutTheme.description,
             icon = Icons.Default.Dashboard,
             onClick = {
-                val currentIdx = layouts.indexOf(dashboardLayout)
-                val next = layouts[(currentIdx + 1) % layouts.size]
-                dashboardLayout = next
-                uiPrefs.edit().putString("dashboardLayout", next).apply()
+                val allThemes = DashboardLayoutTheme.ALL
+                val currentIdx = allThemes.indexOfFirst { it.id == activeLayoutTheme.id }
+                val next = allThemes[(if (currentIdx == -1) 0 else currentIdx + 1) % allThemes.size]
+                onSetDashboardLayoutId(next.id)
+                uiPrefs.edit().putString("dashboardLayout", next.name).apply()
             }
         )
 
@@ -143,24 +149,26 @@ fun DashboardCustomisationPage(
         )
         SettingsValueItem(
             title = "Split View Ratio",
-            valueText = mapArrangement,
+            valueText = localMapArrangement,
             description = "Adjusts screen real-estate allocation between GPS map and live telemetry",
             icon = Icons.Default.Map,
             onClick = {
-                val currentIdx = arrangements.indexOf(mapArrangement)
+                val currentIdx = arrangements.indexOf(localMapArrangement)
                 val next = arrangements[(currentIdx + 1) % arrangements.size]
-                mapArrangement = next
+                localMapArrangement = next
                 uiPrefs.edit().putString("mapArrangement", next).apply()
+                onSetMapArrangement(next)
             }
         )
 
         SettingsSwitchItem(
             title = "Show Mini Gauges on Map",
             description = "Overlays transparent speed and RPM pills on the navigation map window",
-            checked = showMiniGaugesOnMap,
+            checked = localShowMiniGaugesOnMap,
             onCheckedChange = { enabled ->
-                showMiniGaugesOnMap = enabled
+                localShowMiniGaugesOnMap = enabled
                 uiPrefs.edit().putBoolean("showMiniGaugesOnMap", enabled).apply()
+                onSetShowMiniGaugesOnMap(enabled)
             },
             icon = Icons.Default.Layers
         )
@@ -248,9 +256,7 @@ fun DashboardCustomisationPage(
                                             val mutable = currentWidgets.toMutableList()
                                             val item = mutable.removeAt(index)
                                             mutable.add(index - 1, item)
-                                            val updated = BoardLayout(listOf(mutable))
-                                            boardLayout = updated
-                                            BoardLayout.save(uiPrefs, updated)
+                                            savePrimaryBoard(mutable)
                                         },
                                         modifier = Modifier.size(30.dp)
                                     ) {
@@ -269,9 +275,7 @@ fun DashboardCustomisationPage(
                                             val mutable = currentWidgets.toMutableList()
                                             val item = mutable.removeAt(index)
                                             mutable.add(index + 1, item)
-                                            val updated = BoardLayout(listOf(mutable))
-                                            boardLayout = updated
-                                            BoardLayout.save(uiPrefs, updated)
+                                            savePrimaryBoard(mutable)
                                         },
                                         modifier = Modifier.size(30.dp)
                                     ) {
@@ -289,9 +293,7 @@ fun DashboardCustomisationPage(
                                         if (currentWidgets.size > 2) {
                                             val mutable = currentWidgets.toMutableList()
                                             mutable.removeAt(index)
-                                            val updated = BoardLayout(listOf(mutable))
-                                            boardLayout = updated
-                                            BoardLayout.save(uiPrefs, updated)
+                                            savePrimaryBoard(mutable)
                                         }
                                     },
                                     modifier = Modifier.size(30.dp)
@@ -317,9 +319,7 @@ fun DashboardCustomisationPage(
                         buttonLabel = "Add Widget",
                         icon = Icons.Default.Add,
                         onClick = {
-                            val updated = BoardLayout(listOf(currentWidgets + availableToAdd.first()))
-                            boardLayout = updated
-                            BoardLayout.save(uiPrefs, updated)
+                            savePrimaryBoard(currentWidgets + availableToAdd.first())
                         }
                     )
                 }

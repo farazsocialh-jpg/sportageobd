@@ -168,17 +168,79 @@ fun CarLauncherScreen(
     onSetGaugeStyleOverride: (String?) -> Unit = {},
     onOpenPrivacyPolicy: () -> Unit = {},
     dashboardLayoutId: String = DashboardLayoutTheme.DEFAULT_ID,
-    onSetDashboardLayoutId: (String) -> Unit = {}
+    onSetDashboardLayoutId: (String) -> Unit = {},
+    fontScale: Float = 1.0f,
+    onSetFontScale: (Float) -> Unit = {},
+    appearanceMode: String = "Automatic (Follow System)",
+    onSetAppearanceMode: (String) -> Unit = {},
+    keepScreenAwake: Boolean = true,
+    onSetKeepScreenAwake: (Boolean) -> Unit = {},
+    onResetPreferences: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val uiPrefs = remember {
+        runCatching { context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }.getOrNull()
+    }
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp >= configuration.screenHeightDp
     val activeAlerts = viewModel?.activeAlerts?.collectAsState()?.value ?: emptyList()
 
-    var speedUnit by remember { mutableStateOf("km/h") }
+    var speedUnit by remember {
+        mutableStateOf(uiPrefs?.getString("speedUnit", "km/h") ?: "km/h")
+    }
+    var mapArrangement by remember {
+        mutableStateOf(uiPrefs?.getString("mapArrangement", "Balanced (50/50)") ?: "Balanced (50/50)")
+    }
+    var showMiniGaugesOnMap by remember {
+        mutableStateOf(uiPrefs?.getBoolean("showMiniGaugesOnMap", true) ?: true)
+    }
+    var showQuickActionDock by remember {
+        mutableStateOf(uiPrefs?.getBoolean("showQuickActionDock", true) ?: true)
+    }
+    var localFontScale by remember(fontScale) { mutableStateOf(fontScale) }
+    var localAppearanceMode by remember(appearanceMode) { mutableStateOf(appearanceMode) }
+    var localKeepScreenAwake by remember(keepScreenAwake) { mutableStateOf(keepScreenAwake) }
+
+    fun toggleSpeedUnit() {
+        val next = if (speedUnit == "km/h") "mph" else "km/h"
+        speedUnit = next
+        uiPrefs?.edit()?.putString("speedUnit", next)?.apply()
+    }
+
     val displaySpeed = if (speed != null) {
         if (speedUnit == "mph") (speed * 0.621371).toInt() else speed
     } else null
+
+    // Enforce Auto-Switch to Gauges at Highway Speed (> 60 km/h) when enabled in Vehicle & Driving settings
+    LaunchedEffect(speed, activePage) {
+        val autoSwitch = uiPrefs?.getBoolean("autoSwitchToGaugesAtSpeed", false) ?: false
+        if (autoSwitch && (speed ?: 0) > 60 && (activePage == 4 || activePage == 5)) {
+            onNavigatePage(1)
+        }
+    }
+
+    // Enforce Auto-Launch Waze on Trip Start when enabled in Navigation & Launcher settings
+    var wazeAutoLaunchedThisSession by remember { mutableStateOf(false) }
+    LaunchedEffect(speed) {
+        val autoWaze = uiPrefs?.getBoolean("autoLaunchWazeOnDrive", false) ?: false
+        if (autoWaze && !wazeAutoLaunchedThisSession && (speed ?: 0) > 10) {
+            wazeAutoLaunchedThisSession = true
+            com.sportage.obd.map.NavigationLauncher.open(context, currentLat, currentLon)
+        }
+    }
+
+    val guardedClearDtc: () -> Unit = {
+        val lockout = uiPrefs?.getBoolean("driverSafetyLockout", true) ?: true
+        if (lockout && (speed ?: 0) > 5) {
+            Toast.makeText(
+                context,
+                "Safety Lockout: Stop vehicle (< 5 km/h) before clearing ECU codes",
+                Toast.LENGTH_LONG
+            ).show()
+        } else {
+            onClearDtc()
+        }
+    }
 
     // Customizable swipeable boards: live values bundled once for every widget.
     val boardStore = remember { PrefsBoardStore(context) }
@@ -304,7 +366,7 @@ fun CarLauncherScreen(
         rpmHistory = rpmHistory
     )
     val dashboardActions = DashboardActions(
-        onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+        onToggleSpeedUnit = { toggleSpeedUnit() },
         onOpenBluetooth = onOpenBluetoothClick,
         onOpenNavigation = { openNavigation() },
         onOpenMusic = { launchLocalMusicApp() },
@@ -360,7 +422,7 @@ fun CarLauncherScreen(
                                     gpsStatus = gpsStatus,
                                     speed = displaySpeed,
                                     speedUnit = speedUnit,
-                                    onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                    onToggleSpeedUnit = { toggleSpeedUnit() },
                                     rpm = rpm,
                                     coolant = coolant,
                                     voltage = voltage,
@@ -370,7 +432,9 @@ fun CarLauncherScreen(
                                     connectionState = connectionState,
                                     measuredHz = measuredHz,
                                     isDemoMode = isDemoMode,
-                                    onOpenNavigation = { openNavigation() }
+                                    onOpenNavigation = { openNavigation() },
+                                    mapArrangement = mapArrangement,
+                                    showMiniGaugesOnMap = showMiniGaugesOnMap
                                 )
                             }
                             // LIVE DATA SECTION
@@ -396,7 +460,7 @@ fun CarLauncherScreen(
                                 dtcCodes = dtcCodes,
                                 isScanning = isScanningDtc,
                                 onScan = onScanDtc,
-                                onClear = onClearDtc,
+                                onClear = guardedClearDtc,
                                 connectionState = connectionState,
                                 viewModel = viewModel
                             )
@@ -447,7 +511,7 @@ fun CarLauncherScreen(
                             // SETTINGS SECTION
                             5 -> SettingsPage(
                                 speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                onToggleSpeedUnit = { toggleSpeedUnit() },
                                 onSetDefaultLauncher = onSetDefaultLauncher,
                                 isDemoMode = isDemoMode,
                                 onToggleDemoMode = onToggleDemoMode,
@@ -458,14 +522,37 @@ fun CarLauncherScreen(
                                         })
                                     } catch (_: Exception) {}
                                 },
+                                onOpenBluetoothDialog = onOpenBluetoothClick,
                                 isPollingPaused = isPollingPaused,
                                 onTogglePausePolling = onTogglePausePolling,
                                 onOpenAppDrawer = onOpenAppDrawer,
+                                onResetTrip = onResetTrip,
                                 viewModel = viewModel,
                                 autoNightDim = autoNightDim,
                                 nightDimLevel = nightDimLevel,
                                 onSetAutoNightDim = onSetAutoNightDim,
                                 onSetNightDimLevel = onSetNightDimLevel,
+                                fontScale = localFontScale,
+                                onSetFontScale = { scale ->
+                                    localFontScale = scale
+                                    onSetFontScale(scale)
+                                },
+                                appearanceMode = localAppearanceMode,
+                                onSetAppearanceMode = { mode ->
+                                    localAppearanceMode = mode
+                                    onSetAppearanceMode(mode)
+                                },
+                                mapArrangement = mapArrangement,
+                                onSetMapArrangement = { mapArrangement = it },
+                                showMiniGaugesOnMap = showMiniGaugesOnMap,
+                                onSetShowMiniGaugesOnMap = { showMiniGaugesOnMap = it },
+                                showQuickActionDock = showQuickActionDock,
+                                onSetShowQuickActionDock = { showQuickActionDock = it },
+                                keepScreenAwake = localKeepScreenAwake,
+                                onSetKeepScreenAwake = { awake ->
+                                    localKeepScreenAwake = awake
+                                    onSetKeepScreenAwake(awake)
+                                },
                                 themeId = themeId,
                                 accentOverride = accentOverride,
                                 densityOverride = densityOverride,
@@ -476,13 +563,23 @@ fun CarLauncherScreen(
                                 onSetGaugeStyleOverride = onSetGaugeStyleOverride,
                                 onOpenPrivacyPolicy = onOpenPrivacyPolicy,
                                 dashboardLayoutId = dashboardLayoutId,
-                                onSetDashboardLayoutId = onSetDashboardLayoutId
+                                onSetDashboardLayoutId = onSetDashboardLayoutId,
+                                onResetPreferences = {
+                                    speedUnit = "km/h"
+                                    mapArrangement = "Balanced (50/50)"
+                                    showMiniGaugesOnMap = true
+                                    showQuickActionDock = true
+                                    localFontScale = 1.0f
+                                    localAppearanceMode = "Automatic (Follow System)"
+                                    localKeepScreenAwake = true
+                                    onResetPreferences?.invoke()
+                                }
                             )
                         }
                     }
                     // New layout themes own their five-icon dock; keep the legacy quick dock
-                    // for the classic home screen and every secondary page.
-                    if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
+                    // for the classic home screen and every secondary page when showQuickActionDock is enabled.
+                    if (showQuickActionDock && (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic)) {
                         QuickActionDock(
                             onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
                             onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
@@ -524,7 +621,7 @@ fun CarLauncherScreen(
                                 gpsStatus = gpsStatus,
                                 speed = displaySpeed,
                                 speedUnit = speedUnit,
-                                onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                                onToggleSpeedUnit = { toggleSpeedUnit() },
                                 rpm = rpm,
                                 coolant = coolant,
                                 voltage = voltage,
@@ -540,7 +637,9 @@ fun CarLauncherScreen(
                                 connectionState = connectionState,
                                 measuredHz = measuredHz,
                                 isDemoMode = isDemoMode,
-                                onOpenNavigation = { openNavigation() }
+                                onOpenNavigation = { openNavigation() },
+                                mapArrangement = mapArrangement,
+                                showMiniGaugesOnMap = showMiniGaugesOnMap
                             )
                         }
                         1 -> GaugesAndGraphsPage(
@@ -565,7 +664,7 @@ fun CarLauncherScreen(
                             dtcCodes = dtcCodes,
                             isScanning = isScanningDtc,
                             onScan = onScanDtc,
-                            onClear = onClearDtc,
+                            onClear = guardedClearDtc,
                             connectionState = connectionState,
                             viewModel = viewModel
                         )
@@ -613,7 +712,7 @@ fun CarLauncherScreen(
                         )
                         5 -> SettingsPage(
                             speedUnit = speedUnit,
-                            onToggleSpeedUnit = { speedUnit = if (speedUnit == "km/h") "mph" else "km/h" },
+                            onToggleSpeedUnit = { toggleSpeedUnit() },
                             onSetDefaultLauncher = onSetDefaultLauncher,
                             isDemoMode = isDemoMode,
                             onToggleDemoMode = onToggleDemoMode,
@@ -624,14 +723,37 @@ fun CarLauncherScreen(
                                     })
                                 } catch (_: Exception) {}
                             },
+                            onOpenBluetoothDialog = onOpenBluetoothClick,
                             isPollingPaused = isPollingPaused,
                             onTogglePausePolling = onTogglePausePolling,
                             onOpenAppDrawer = onOpenAppDrawer,
+                            onResetTrip = onResetTrip,
                             viewModel = viewModel,
                             autoNightDim = autoNightDim,
                             nightDimLevel = nightDimLevel,
                             onSetAutoNightDim = onSetAutoNightDim,
                             onSetNightDimLevel = onSetNightDimLevel,
+                            fontScale = localFontScale,
+                            onSetFontScale = { scale ->
+                                localFontScale = scale
+                                onSetFontScale(scale)
+                            },
+                            appearanceMode = localAppearanceMode,
+                            onSetAppearanceMode = { mode ->
+                                localAppearanceMode = mode
+                                onSetAppearanceMode(mode)
+                            },
+                            mapArrangement = mapArrangement,
+                            onSetMapArrangement = { mapArrangement = it },
+                            showMiniGaugesOnMap = showMiniGaugesOnMap,
+                            onSetShowMiniGaugesOnMap = { showMiniGaugesOnMap = it },
+                            showQuickActionDock = showQuickActionDock,
+                            onSetShowQuickActionDock = { showQuickActionDock = it },
+                            keepScreenAwake = localKeepScreenAwake,
+                            onSetKeepScreenAwake = { awake ->
+                                localKeepScreenAwake = awake
+                                onSetKeepScreenAwake(awake)
+                            },
                             themeId = themeId,
                             accentOverride = accentOverride,
                             densityOverride = densityOverride,
@@ -642,12 +764,22 @@ fun CarLauncherScreen(
                             onSetGaugeStyleOverride = onSetGaugeStyleOverride,
                             onOpenPrivacyPolicy = onOpenPrivacyPolicy,
                             dashboardLayoutId = dashboardLayoutId,
-                            onSetDashboardLayoutId = onSetDashboardLayoutId
+                            onSetDashboardLayoutId = onSetDashboardLayoutId,
+                            onResetPreferences = {
+                                speedUnit = "km/h"
+                                mapArrangement = "Balanced (50/50)"
+                                showMiniGaugesOnMap = true
+                                showQuickActionDock = true
+                                localFontScale = 1.0f
+                                localAppearanceMode = "Automatic (Follow System)"
+                                localKeepScreenAwake = true
+                                onResetPreferences?.invoke()
+                            }
                         )
                     }
                 }
 
-                if (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic) {
+                if (showQuickActionDock && (activePage != 0 || dashboardLayout == DashboardLayoutTheme.Classic)) {
                     QuickActionDock(
                         onMusic = { launchLocalMusicApp() }, onMediaKey = { sendMediaKey(it) },
                         onPhone = { openPhoneDialer(context) }, onApps = onOpenAppDrawer,
@@ -733,11 +865,18 @@ fun PermanentHomeSplitView(
     measuredHz: Float?,
     isDemoMode: Boolean,
     onOpenNavigation: () -> Unit,
-    gpsStatus: String? = null
+    gpsStatus: String? = null,
+    mapArrangement: String = "Balanced (50/50)",
+    showMiniGaugesOnMap: Boolean = true
 ) {
+    val arrangementRatio = when (mapArrangement) {
+        "Map Dominant (65/35)" -> 0.65f
+        "Gauges Dominant (35/65)" -> 0.35f
+        else -> null
+    }
+
     if (isLandscape) {
-        // Landscape: Adaptive Dominant Live Map Pane (approx 58-64%) + Persistent OBD Pane (approx 36-42%)
-        val mapWeight = if (aspectRatio >= 2.0f) 0.64f else 0.58f
+        val mapWeight = arrangementRatio ?: if (aspectRatio >= 2.0f) 0.64f else 0.58f
         val obdWeight = 1.0f - mapWeight
 
         Row(
@@ -752,9 +891,11 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     currentBearing = currentBearing,
                     speed = speed,
+                    rpm = rpm,
                     speedUnit = speedUnit,
                     onOpenNavigation = onOpenNavigation,
-                    gpsStatus = gpsStatus
+                    gpsStatus = gpsStatus,
+                    showMiniGaugesOnMap = showMiniGaugesOnMap
                 )
             }
 
@@ -782,7 +923,8 @@ fun PermanentHomeSplitView(
         }
     } else {
         // Portrait: prioritize map height, retaining extra telemetry room at enlarged font scales.
-        val portraitMapWeight = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) 0.52f else 0.56f
+        val defaultPortraitWeight = if (androidx.compose.ui.platform.LocalDensity.current.fontScale > 1.15f) 0.52f else 0.56f
+        val portraitMapWeight = arrangementRatio ?: defaultPortraitWeight
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -795,9 +937,11 @@ fun PermanentHomeSplitView(
                     currentLon = currentLon,
                     currentBearing = currentBearing,
                     speed = speed,
+                    rpm = rpm,
                     speedUnit = speedUnit,
                     onOpenNavigation = onOpenNavigation,
-                    gpsStatus = gpsStatus
+                    gpsStatus = gpsStatus,
+                    showMiniGaugesOnMap = showMiniGaugesOnMap
                 )
             }
 
@@ -834,7 +978,9 @@ fun LiveMapSurface(
     currentLat: Double, currentLon: Double, speed: Int?, speedUnit: String,
     onOpenNavigation: () -> Unit,
     gpsStatus: String? = null,
-    currentBearing: Float = 0f
+    currentBearing: Float = 0f,
+    rpm: Int? = null,
+    showMiniGaugesOnMap: Boolean = true
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
@@ -857,7 +1003,27 @@ fun LiveMapSurface(
                     )
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
-            Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) { HybridLocationMap(currentLat, currentLon, 0, currentBearing) }
+            Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) {
+                HybridLocationMap(currentLat, currentLon, 0, currentBearing)
+                if (showMiniGaugesOnMap && (speed != null || rpm != null)) {
+                    Surface(
+                        color = DarkSurface().copy(alpha = 0.85f),
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.4f)),
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                    ) {
+                        Text(
+                            text = "HUD ${speed ?: "--"} · ${rpm ?: "--"}",
+                            color = ElectricCyan(),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+            }
             Row(
                 Modifier.testTag("home_map_footer").fillMaxWidth().padding(horizontal = 6.dp),
                 horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically

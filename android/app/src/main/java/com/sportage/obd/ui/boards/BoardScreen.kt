@@ -355,8 +355,20 @@ fun BoardScreen(
                 val visibleIndices = widgets.indices.filter { index ->
                     editing || configs.configAt(pageIndex, index).visible
                 }
+                val context = androidx.compose.ui.platform.LocalContext.current
+                val widgetSizePref = remember {
+                    runCatching {
+                        context.getSharedPreferences("sportage_obd_ui", android.content.Context.MODE_PRIVATE)
+                            .getString("widgetSize", "Standard (3x2 Grid)")
+                    }.getOrNull() ?: "Standard (3x2 Grid)"
+                }
+                val gridCells = when (widgetSizePref) {
+                    "Expanded (Single Column)" -> GridCells.Fixed(1)
+                    "Compact (2x2 Grid)" -> GridCells.Fixed(2)
+                    else -> GridCells.Adaptive(minSize = 150.dp)
+                }
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
+                    columns = gridCells,
                     modifier = Modifier.fillMaxSize().testTag("board_grid_$pageIndex"),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)

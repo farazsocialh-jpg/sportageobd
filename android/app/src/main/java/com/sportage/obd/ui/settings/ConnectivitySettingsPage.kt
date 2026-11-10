@@ -72,11 +72,13 @@ fun ConnectivitySettingsPage(
     isPollingPaused: Boolean,
     onTogglePausePolling: () -> Unit,
     onOpenBluetoothSettings: () -> Unit,
+    onOpenBluetoothDialog: () -> Unit = {},
     viewModel: ObdViewModel?,
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val uiPrefs = remember { context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
     val connState = viewModel?.connectionState?.collectAsState()?.value ?: ConnectionState.Disconnected
 
@@ -196,6 +198,14 @@ fun ConnectivitySettingsPage(
         }
 
         SettingsActionItem(
+            title = "In-App OBD Scanner & Terminal",
+            description = "Select paired ELM327 / BLE adapter or send raw AT commands",
+            buttonLabel = "Open Scanner",
+            icon = Icons.Default.BluetoothConnected,
+            onClick = onOpenBluetoothDialog
+        )
+
+        SettingsActionItem(
             title = "Android Bluetooth System Settings",
             description = "Pair new ELM327 adapters or view system devices",
             buttonLabel = "Open Settings",
@@ -276,6 +286,17 @@ fun ConnectivitySettingsPage(
                 val next = protocols[(currentIdx + 1) % protocols.size]
                 forcedProtocol = next
                 uiPrefs.edit().putString("forcedProtocol", next).apply()
+                val atCmd = when (next) {
+                    "ISO 15765-4 CAN (11-bit, 500k)" -> "ATSP6"
+                    "ISO 15765-4 CAN (29-bit, 500k)" -> "ATSP7"
+                    "ISO 9141-2 / KWP2000" -> "ATSP3"
+                    else -> "ATSP0"
+                }
+                if (viewModel?.isConnected() == true) {
+                    scope.launch {
+                        runCatching { viewModel.sendRawCommand(atCmd) }
+                    }
+                }
             }
         )
 
@@ -303,7 +324,9 @@ fun ConnectivitySettingsPage(
             icon = Icons.Default.Delete,
             isDestructive = true,
             onClick = {
+                viewModel?.forgetSavedAdapter()
                 uiPrefs.edit().remove("last_connected_device_address").remove("last_connected_device_name").apply()
+                android.widget.Toast.makeText(context, "Stored OBD adapter cleared", android.widget.Toast.LENGTH_SHORT).show()
             }
         )
 

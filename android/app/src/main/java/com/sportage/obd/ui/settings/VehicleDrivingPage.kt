@@ -67,10 +67,14 @@ fun VehicleDrivingPage(
     val fuelPrefs = remember { context.getSharedPreferences("sportage_fuel_settings", Context.MODE_PRIVATE) }
 
     var tankCapacity by remember {
-        mutableDoubleStateOf(fuelPrefs.getFloat("tank_liters", 62.0f).toDouble())
+        mutableDoubleStateOf(
+            fuelPrefs.getFloat("tank_capacity_liters", fuelPrefs.getFloat("tank_liters", 62.0f)).toDouble()
+        )
     }
     var fuelPriceQar by remember {
-        mutableDoubleStateOf(fuelPrefs.getFloat("price_qar", 2.10f).toDouble())
+        mutableDoubleStateOf(
+            fuelPrefs.getFloat("fuel_price_qar_per_liter", fuelPrefs.getFloat("price_qar", 2.05f)).toDouble()
+        )
     }
     var safetyLockout by remember {
         mutableStateOf(uiPrefs.getBoolean("driverSafetyLockout", true))
@@ -165,11 +169,17 @@ fun VehicleDrivingPage(
             description = "Standard Kia Sportage fuel tank volume for percentage & range estimation",
             onMinus = {
                 tankCapacity = (tankCapacity - 1.0).coerceAtLeast(30.0)
-                fuelPrefs.edit().putFloat("tank_liters", tankCapacity.toFloat()).apply()
+                fuelPrefs.edit()
+                    .putFloat("tank_capacity_liters", tankCapacity.toFloat())
+                    .putFloat("tank_liters", tankCapacity.toFloat())
+                    .apply()
             },
             onPlus = {
                 tankCapacity = (tankCapacity + 1.0).coerceAtMost(90.0)
-                fuelPrefs.edit().putFloat("tank_liters", tankCapacity.toFloat()).apply()
+                fuelPrefs.edit()
+                    .putFloat("tank_capacity_liters", tankCapacity.toFloat())
+                    .putFloat("tank_liters", tankCapacity.toFloat())
+                    .apply()
             }
         )
 
@@ -179,11 +189,17 @@ fun VehicleDrivingPage(
             description = "Used to calculate trip cost and fuel expenditure per 100 km",
             onMinus = {
                 fuelPriceQar = (fuelPriceQar - 0.05).coerceAtLeast(0.50)
-                fuelPrefs.edit().putFloat("price_qar", fuelPriceQar.toFloat()).apply()
+                fuelPrefs.edit()
+                    .putFloat("fuel_price_qar_per_liter", fuelPriceQar.toFloat())
+                    .putFloat("price_qar", fuelPriceQar.toFloat())
+                    .apply()
             },
             onPlus = {
                 fuelPriceQar = (fuelPriceQar + 0.05).coerceAtMost(10.00)
-                fuelPrefs.edit().putFloat("price_qar", fuelPriceQar.toFloat()).apply()
+                fuelPrefs.edit()
+                    .putFloat("fuel_price_qar_per_liter", fuelPriceQar.toFloat())
+                    .putFloat("price_qar", fuelPriceQar.toFloat())
+                    .apply()
             }
         )
 

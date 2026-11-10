@@ -27,14 +27,28 @@ fun SettingsPage(
     isDemoMode: Boolean,
     onToggleDemoMode: (Boolean) -> Unit,
     onOpenBluetoothSettings: () -> Unit,
+    onOpenBluetoothDialog: () -> Unit = {},
     isPollingPaused: Boolean = false,
     onTogglePausePolling: () -> Unit = {},
     onOpenAppDrawer: () -> Unit = {},
+    onResetTrip: () -> Unit = {},
     viewModel: ObdViewModel? = null,
     autoNightDim: Boolean = true,
     nightDimLevel: Float = 0.55f,
     onSetAutoNightDim: (Boolean) -> Unit = {},
     onSetNightDimLevel: (Float) -> Unit = {},
+    fontScale: Float = 1.0f,
+    onSetFontScale: (Float) -> Unit = {},
+    appearanceMode: String = "Automatic (Follow System)",
+    onSetAppearanceMode: (String) -> Unit = {},
+    mapArrangement: String = "Balanced (50/50)",
+    onSetMapArrangement: (String) -> Unit = {},
+    showMiniGaugesOnMap: Boolean = true,
+    onSetShowMiniGaugesOnMap: (Boolean) -> Unit = {},
+    showQuickActionDock: Boolean = true,
+    onSetShowQuickActionDock: (Boolean) -> Unit = {},
+    keepScreenAwake: Boolean = true,
+    onSetKeepScreenAwake: (Boolean) -> Unit = {},
     themeId: String = "cockpit-dark",
     accentOverride: String? = null,
     densityOverride: String? = null,
@@ -46,6 +60,7 @@ fun SettingsPage(
     onOpenPrivacyPolicy: () -> Unit = {},
     dashboardLayoutId: String = com.sportage.obd.ui.dashboard.DashboardLayoutTheme.DEFAULT_ID,
     onSetDashboardLayoutId: (String) -> Unit = {},
+    onResetPreferences: (() -> Unit)? = null,
     onNavigateToHome: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -80,6 +95,10 @@ fun SettingsPage(
                     onSetAutoNightDim = onSetAutoNightDim,
                     nightDimLevel = nightDimLevel,
                     onSetNightDimLevel = onSetNightDimLevel,
+                    fontScale = fontScale,
+                    onSetFontScale = onSetFontScale,
+                    appearanceMode = appearanceMode,
+                    onSetAppearanceMode = onSetAppearanceMode,
                     onOpenPrivacyPolicy = onOpenPrivacyPolicy,
                     onNavigateBack = { currentRoute = null }
                 )
@@ -88,6 +107,10 @@ fun SettingsPage(
                 DashboardCustomisationPage(
                     dashboardLayoutId = dashboardLayoutId,
                     onSetDashboardLayoutId = onSetDashboardLayoutId,
+                    mapArrangement = mapArrangement,
+                    onSetMapArrangement = onSetMapArrangement,
+                    showMiniGaugesOnMap = showMiniGaugesOnMap,
+                    onSetShowMiniGaugesOnMap = onSetShowMiniGaugesOnMap,
                     onNavigateBack = { currentRoute = null }
                 )
             }
@@ -96,6 +119,7 @@ fun SettingsPage(
                     isPollingPaused = isPollingPaused,
                     onTogglePausePolling = onTogglePausePolling,
                     onOpenBluetoothSettings = onOpenBluetoothSettings,
+                    onOpenBluetoothDialog = onOpenBluetoothDialog,
                     viewModel = viewModel,
                     onNavigateBack = { currentRoute = null }
                 )
@@ -105,6 +129,7 @@ fun SettingsPage(
                     speedUnit = speedUnit,
                     onToggleSpeedUnit = onToggleSpeedUnit,
                     viewModel = viewModel,
+                    onResetTrip = onResetTrip,
                     onNavigateBack = { currentRoute = null }
                 )
             }
@@ -119,6 +144,10 @@ fun SettingsPage(
                 NavigationLauncherPage(
                     onSetDefaultLauncher = onSetDefaultLauncher,
                     onOpenAppDrawer = onOpenAppDrawer,
+                    showQuickActionDock = showQuickActionDock,
+                    onSetShowQuickActionDock = onSetShowQuickActionDock,
+                    keepScreenAwake = keepScreenAwake,
+                    onSetKeepScreenAwake = onSetKeepScreenAwake,
                     onNavigateBack = { currentRoute = null }
                 )
             }
@@ -133,6 +162,9 @@ fun SettingsPage(
                 AboutAdvancedPage(
                     isDemoMode = isDemoMode,
                     onToggleDemoMode = onToggleDemoMode,
+                    viewModel = viewModel,
+                    onOpenBluetoothDialog = onOpenBluetoothDialog,
+                    onResetPreferences = onResetPreferences,
                     onNavigateBack = { currentRoute = null }
                 )
             }
