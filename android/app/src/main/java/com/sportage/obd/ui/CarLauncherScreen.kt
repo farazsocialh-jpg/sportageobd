@@ -2143,40 +2143,6 @@ internal fun ThemeCustomizationCard(
                 }
             }
 
-            Text("DENSITY", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = densityOverride == null,
-                    onClick = { onSetDensityOverride(null) },
-                    label = { Text("Theme", fontSize = 11.sp) }
-                )
-                ThemeDensity.entries.forEach { density ->
-                    FilterChip(
-                        selected = densityOverride == density.id,
-                        onClick = { onSetDensityOverride(density.id) },
-                        label = { Text(density.id, fontSize = 11.sp) },
-                        modifier = Modifier.testTag("density_${density.id}")
-                    )
-                }
-            }
-
-            Text("GAUGE STYLE", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                FilterChip(
-                    selected = gaugeStyleOverride == null,
-                    onClick = { onSetGaugeStyleOverride(null) },
-                    label = { Text("Theme", fontSize = 11.sp) }
-                )
-                GaugeStyle.entries.forEach { gauge ->
-                    FilterChip(
-                        selected = gaugeStyleOverride == gauge.id,
-                        onClick = { onSetGaugeStyleOverride(gauge.id) },
-                        label = { Text(gauge.id, fontSize = 11.sp) },
-                        modifier = Modifier.testTag("gauge_${gauge.id}")
-                    )
-                }
-            }
-
             Text("ACCENT COLOR", color = SecondaryText(), fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.SansSerif)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(
