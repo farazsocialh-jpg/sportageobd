@@ -33,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +48,7 @@ import com.sportage.obd.ui.theme.DarkSurfaceElevated
 import com.sportage.obd.ui.theme.ElectricCyan
 import com.sportage.obd.ui.theme.PrimaryText
 import com.sportage.obd.ui.theme.SecondaryText
+import kotlinx.coroutines.launch
 
 /**
  * About & Advanced Settings Subpage:
@@ -67,7 +69,7 @@ fun AboutAdvancedPage(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     var showResetDialog by remember { mutableStateOf(false) }
 
     Column(

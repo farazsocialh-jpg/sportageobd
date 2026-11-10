@@ -72,7 +72,7 @@ fun DashboardCustomisationPage(
     onSetDashboardLayoutId: (String) -> Unit = {},
     mapArrangement: String = "Balanced (50/50)",
     onSetMapArrangement: (String) -> Unit = {},
-    showMiniGaugesOnMap: Boolean = true,
+    showMiniGaugesOnMap: Boolean = false,
     onSetShowMiniGaugesOnMap: (Boolean) -> Unit = {},
     onNavigateBack: () -> Unit,
     modifier: Modifier = Modifier

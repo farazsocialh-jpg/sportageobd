@@ -43,7 +43,7 @@ fun SettingsPage(
     onSetAppearanceMode: (String) -> Unit = {},
     mapArrangement: String = "Balanced (50/50)",
     onSetMapArrangement: (String) -> Unit = {},
-    showMiniGaugesOnMap: Boolean = true,
+    showMiniGaugesOnMap: Boolean = false,
     onSetShowMiniGaugesOnMap: (Boolean) -> Unit = {},
     showQuickActionDock: Boolean = true,
     onSetShowQuickActionDock: (Boolean) -> Unit = {},

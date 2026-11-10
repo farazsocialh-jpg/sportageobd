@@ -39,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -57,6 +58,7 @@ import com.sportage.obd.ui.theme.PrimaryText
 import com.sportage.obd.ui.theme.SecondaryText
 import com.sportage.obd.ui.theme.TealAccent
 import com.sportage.obd.viewmodel.ObdViewModel
+import kotlinx.coroutines.launch
 
 /**
  * OBD & Connectivity Settings Subpage:
@@ -78,7 +80,7 @@ fun ConnectivitySettingsPage(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberCoroutineScope()
     val uiPrefs = remember { context.getSharedPreferences("sportage_obd_ui", Context.MODE_PRIVATE) }
     val connState = viewModel?.connectionState?.collectAsState()?.value ?: ConnectionState.Disconnected
 

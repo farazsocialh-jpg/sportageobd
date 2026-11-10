@@ -192,7 +192,7 @@ fun CarLauncherScreen(
         mutableStateOf(uiPrefs?.getString("mapArrangement", "Balanced (50/50)") ?: "Balanced (50/50)")
     }
     var showMiniGaugesOnMap by remember {
-        mutableStateOf(uiPrefs?.getBoolean("showMiniGaugesOnMap", true) ?: true)
+        mutableStateOf(uiPrefs?.getBoolean("showMiniGaugesOnMap", false) ?: false)
     }
     var showQuickActionDock by remember {
         mutableStateOf(uiPrefs?.getBoolean("showQuickActionDock", true) ?: true)
@@ -567,7 +567,7 @@ fun CarLauncherScreen(
                                 onResetPreferences = {
                                     speedUnit = "km/h"
                                     mapArrangement = "Balanced (50/50)"
-                                    showMiniGaugesOnMap = true
+                                    showMiniGaugesOnMap = false
                                     showQuickActionDock = true
                                     localFontScale = 1.0f
                                     localAppearanceMode = "Automatic (Follow System)"
@@ -768,7 +768,7 @@ fun CarLauncherScreen(
                             onResetPreferences = {
                                 speedUnit = "km/h"
                                 mapArrangement = "Balanced (50/50)"
-                                showMiniGaugesOnMap = true
+                                showMiniGaugesOnMap = false
                                 showQuickActionDock = true
                                 localFontScale = 1.0f
                                 localAppearanceMode = "Automatic (Follow System)"
@@ -867,7 +867,7 @@ fun PermanentHomeSplitView(
     onOpenNavigation: () -> Unit,
     gpsStatus: String? = null,
     mapArrangement: String = "Balanced (50/50)",
-    showMiniGaugesOnMap: Boolean = true
+    showMiniGaugesOnMap: Boolean = false
 ) {
     val arrangementRatio = when (mapArrangement) {
         "Map Dominant (65/35)" -> 0.65f
@@ -980,7 +980,7 @@ fun LiveMapSurface(
     gpsStatus: String? = null,
     currentBearing: Float = 0f,
     rpm: Int? = null,
-    showMiniGaugesOnMap: Boolean = true
+    showMiniGaugesOnMap: Boolean = false
 ) {
     var speedAlertThreshold by remember { mutableIntStateOf(100) }
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
