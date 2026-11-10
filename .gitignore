@@ -10,3 +10,8 @@ android/app/build/
 artifacts/*.apk
 node_modules/
 dist/
+.local-sdk/
+*.patch
+*.log
+artifacts/
+phase*.txt

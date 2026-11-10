@@ -127,15 +127,15 @@ fun DashboardCustomisationPage(
 
         SettingsValueItem(
             title = "Active Layout Mode",
-            valueText = activeLayoutTheme.name,
+            valueText = activeLayoutTheme.title,
             description = activeLayoutTheme.description,
             icon = Icons.Default.Dashboard,
             onClick = {
-                val allThemes = DashboardLayoutTheme.ALL
+                val allThemes = DashboardLayoutTheme.all
                 val currentIdx = allThemes.indexOfFirst { it.id == activeLayoutTheme.id }
                 val next = allThemes[(if (currentIdx == -1) 0 else currentIdx + 1) % allThemes.size]
                 onSetDashboardLayoutId(next.id)
-                uiPrefs.edit().putString("dashboardLayout", next.name).apply()
+                uiPrefs.edit().putString("dashboardLayout", next.title).apply()
             }
         )
 
