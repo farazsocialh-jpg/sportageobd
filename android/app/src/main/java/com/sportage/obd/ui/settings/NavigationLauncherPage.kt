@@ -18,13 +18,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.ViewSidebar
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -218,7 +218,7 @@ fun NavigationLauncherPage(
                 showQuickActionDock = enabled
                 uiPrefs.edit().putBoolean("showQuickActionDock", enabled).apply()
             },
-            icon = Icons.Default.ViewSidebar
+            icon = Icons.AutoMirrored.Filled.ViewSidebar
         )
 
         SettingsSwitchItem(

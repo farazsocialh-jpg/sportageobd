@@ -118,10 +118,10 @@ class DashboardVisualTest {
         snapshot("trip-portrait")
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
-        compose.onNodeWithText("Vehicle & Driving").performClick()
+        compose.onNodeWithText("Vehicle & Driving").performScrollTo().performClick()
         compose.onNodeWithText("Speed & Distance Units").assertExists()
         compose.onNodeWithContentDescription("Navigate Back").performClick()
-        compose.onNodeWithText("OBD & Connectivity").performClick()
+        compose.onNodeWithText("OBD & Connectivity").performScrollTo().performClick()
         compose.onNodeWithText("System BT Settings").assertExists()
         snapshot("settings-portrait")
     }
@@ -135,7 +135,7 @@ class DashboardVisualTest {
         // The rail now holds 11 destinations; scroll it so Setup is reachable.
         compose.onAllNodes(hasScrollAction())[0].performTouchInput { swipeUp() }
         compose.onNodeWithText("Setup").performClick()
-        compose.onNodeWithText("Vehicle & Driving").performClick()
+        compose.onNodeWithText("Vehicle & Driving").performScrollTo().performClick()
         compose.onNodeWithText("Speed & Distance Units").assertExists()
         snapshot("settings-headunit")
     }
@@ -154,7 +154,7 @@ class DashboardVisualTest {
         snapshot("large-text-phone")
         compose.onNodeWithText("More").performClick()
         compose.onNodeWithText("Setup").performClick()
-        compose.onNodeWithText("OBD & Connectivity").performClick()
+        compose.onNodeWithText("OBD & Connectivity").performScrollTo().performClick()
         compose.onNodeWithText("System BT Settings").performScrollTo()
             .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(38.dp)
         snapshot("large-text-settings")

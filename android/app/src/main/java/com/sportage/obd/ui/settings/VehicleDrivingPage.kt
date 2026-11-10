@@ -99,7 +99,7 @@ fun VehicleDrivingPage(
         SettingsSectionHeader(title = "Units & Measurements")
 
         SettingsValueItem(
-            title = "Speed Unit",
+            title = "Speed & Distance Units",
             valueText = speedUnit.uppercase(),
             description = "Toggle between Metric (km/h) and Imperial (mph) for gauges and navigation",
             icon = Icons.Default.Speed,

@@ -12,11 +12,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.DeviceThermostat
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -150,7 +150,7 @@ fun AlertsSettingsPage(
                 viewModel?.updateAlertThresholds(updated)
             },
             activeColor = AmberWarning(),
-            icon = Icons.Default.VolumeUp
+            icon = Icons.AutoMirrored.Filled.VolumeUp
         )
 
         SettingsActionItem(

@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -170,7 +172,7 @@ fun ConnectivitySettingsPage(
                         onClick = onOpenBluetoothSettings,
                         colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
                         shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.weight(1f).height(38.dp)
+                        modifier = Modifier.weight(1f).widthIn(min = 128.dp).heightIn(min = 48.dp)
                     ) {
                         Icon(Icons.Default.Settings, contentDescription = null, tint = OnAccent(), modifier = Modifier.size(14.dp))
                         Spacer(modifier = Modifier.width(6.dp))
@@ -182,7 +184,7 @@ fun ConnectivitySettingsPage(
                             onClick = { viewModel?.disconnect() },
                             colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
                             shape = RoundedCornerShape(6.dp),
-                            modifier = Modifier.height(38.dp)
+                            modifier = Modifier.heightIn(min = 48.dp)
                         ) {
                             Icon(Icons.Default.PowerSettingsNew, contentDescription = null, tint = AmberWarning(), modifier = Modifier.size(14.dp))
                             Spacer(modifier = Modifier.width(4.dp))
@@ -192,6 +194,14 @@ fun ConnectivitySettingsPage(
                 }
             }
         }
+
+        SettingsActionItem(
+            title = "Android Bluetooth System Settings",
+            description = "Pair new ELM327 adapters or view system devices",
+            buttonLabel = "Open Settings",
+            icon = Icons.Default.Bluetooth,
+            onClick = onOpenBluetoothSettings
+        )
 
         // 2. AUTOMATIC CONNECTION
         SettingsSectionHeader(title = "Automatic Connection")

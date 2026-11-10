@@ -766,7 +766,7 @@ index 0000000..9051069
 +}
 diff --git a/android/app/src/main/java/com/sportage/obd/ui/settings/AlertsSettingsPage.kt b/android/app/src/main/java/com/sportage/obd/ui/settings/AlertsSettingsPage.kt
 new file mode 100644
-index 0000000..e10e58e
+index 0000000..32bfc56
 --- /dev/null
 +++ b/android/app/src/main/java/com/sportage/obd/ui/settings/AlertsSettingsPage.kt
 @@ -0,0 +1,171 @@
@@ -784,11 +784,11 @@ index 0000000..e10e58e
 +import androidx.compose.foundation.rememberScrollState
 +import androidx.compose.foundation.verticalScroll
 +import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.automirrored.filled.VolumeUp
 +import androidx.compose.material.icons.filled.BatteryAlert
 +import androidx.compose.material.icons.filled.DeviceThermostat
 +import androidx.compose.material.icons.filled.NotificationsActive
 +import androidx.compose.material.icons.filled.Speed
-+import androidx.compose.material.icons.filled.VolumeUp
 +import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
@@ -922,7 +922,7 @@ index 0000000..e10e58e
 +                viewModel?.updateAlertThresholds(updated)
 +            },
 +            activeColor = AmberWarning(),
-+            icon = Icons.Default.VolumeUp
++            icon = Icons.AutoMirrored.Filled.VolumeUp
 +        )
 +
 +        SettingsActionItem(
@@ -1131,10 +1131,10 @@ index 0000000..21158cc
 +}
 diff --git a/android/app/src/main/java/com/sportage/obd/ui/settings/ConnectivitySettingsPage.kt b/android/app/src/main/java/com/sportage/obd/ui/settings/ConnectivitySettingsPage.kt
 new file mode 100644
-index 0000000..4940a39
+index 0000000..1fea3ac
 --- /dev/null
 +++ b/android/app/src/main/java/com/sportage/obd/ui/settings/ConnectivitySettingsPage.kt
-@@ -0,0 +1,302 @@
+@@ -0,0 +1,312 @@
 +package com.sportage.obd.ui.settings
 +
 +import android.content.Context
@@ -1148,9 +1148,11 @@ index 0000000..4940a39
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
 +import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
 +import androidx.compose.foundation.layout.padding
 +import androidx.compose.foundation.layout.size
 +import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
 +import androidx.compose.foundation.rememberScrollState
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.foundation.verticalScroll
@@ -1307,7 +1309,7 @@ index 0000000..4940a39
 +                        onClick = onOpenBluetoothSettings,
 +                        colors = ButtonDefaults.buttonColors(containerColor = ElectricCyan()),
 +                        shape = RoundedCornerShape(6.dp),
-+                        modifier = Modifier.weight(1f).height(38.dp)
++                        modifier = Modifier.weight(1f).widthIn(min = 128.dp).heightIn(min = 48.dp)
 +                    ) {
 +                        Icon(Icons.Default.Settings, contentDescription = null, tint = OnAccent(), modifier = Modifier.size(14.dp))
 +                        Spacer(modifier = Modifier.width(6.dp))
@@ -1319,7 +1321,7 @@ index 0000000..4940a39
 +                            onClick = { viewModel?.disconnect() },
 +                            colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
 +                            shape = RoundedCornerShape(6.dp),
-+                            modifier = Modifier.height(38.dp)
++                            modifier = Modifier.heightIn(min = 48.dp)
 +                        ) {
 +                            Icon(Icons.Default.PowerSettingsNew, contentDescription = null, tint = AmberWarning(), modifier = Modifier.size(14.dp))
 +                            Spacer(modifier = Modifier.width(4.dp))
@@ -1329,6 +1331,14 @@ index 0000000..4940a39
 +                }
 +            }
 +        }
++
++        SettingsActionItem(
++            title = "Android Bluetooth System Settings",
++            description = "Pair new ELM327 adapters or view system devices",
++            buttonLabel = "Open Settings",
++            icon = Icons.Default.Bluetooth,
++            onClick = onOpenBluetoothSettings
++        )
 +
 +        // 2. AUTOMATIC CONNECTION
 +        SettingsSectionHeader(title = "Automatic Connection")
@@ -1946,7 +1956,7 @@ index 0000000..8d3ce60
 +}
 diff --git a/android/app/src/main/java/com/sportage/obd/ui/settings/NavigationLauncherPage.kt b/android/app/src/main/java/com/sportage/obd/ui/settings/NavigationLauncherPage.kt
 new file mode 100644
-index 0000000..3e804a9
+index 0000000..d5f2957
 --- /dev/null
 +++ b/android/app/src/main/java/com/sportage/obd/ui/settings/NavigationLauncherPage.kt
 @@ -0,0 +1,248 @@
@@ -1970,13 +1980,13 @@ index 0000000..3e804a9
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.foundation.verticalScroll
 +import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.automirrored.filled.ViewSidebar
 +import androidx.compose.material.icons.filled.Apps
 +import androidx.compose.material.icons.filled.Home
 +import androidx.compose.material.icons.filled.LockOpen
 +import androidx.compose.material.icons.filled.Map
 +import androidx.compose.material.icons.filled.Navigation
 +import androidx.compose.material.icons.filled.PowerSettingsNew
-+import androidx.compose.material.icons.filled.ViewSidebar
 +import androidx.compose.material3.Button
 +import androidx.compose.material3.ButtonDefaults
 +import androidx.compose.material3.Icon
@@ -2170,7 +2180,7 @@ index 0000000..3e804a9
 +                showQuickActionDock = enabled
 +                uiPrefs.edit().putBoolean("showQuickActionDock", enabled).apply()
 +            },
-+            icon = Icons.Default.ViewSidebar
++            icon = Icons.AutoMirrored.Filled.ViewSidebar
 +        )
 +
 +        SettingsSwitchItem(
@@ -2257,10 +2267,10 @@ index 0000000..3101400
 +}
 diff --git a/android/app/src/main/java/com/sportage/obd/ui/settings/SettingsModels.kt b/android/app/src/main/java/com/sportage/obd/ui/settings/SettingsModels.kt
 new file mode 100644
-index 0000000..b78f644
+index 0000000..21bd8e2
 --- /dev/null
 +++ b/android/app/src/main/java/com/sportage/obd/ui/settings/SettingsModels.kt
-@@ -0,0 +1,713 @@
+@@ -0,0 +1,715 @@
 +package com.sportage.obd.ui.settings
 +
 +import androidx.compose.foundation.BorderStroke
@@ -2274,9 +2284,11 @@ index 0000000..b78f644
 +import androidx.compose.foundation.layout.Spacer
 +import androidx.compose.foundation.layout.fillMaxWidth
 +import androidx.compose.foundation.layout.height
++import androidx.compose.foundation.layout.heightIn
 +import androidx.compose.foundation.layout.padding
 +import androidx.compose.foundation.layout.size
 +import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
 +import androidx.compose.foundation.shape.CircleShape
 +import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.material.icons.Icons
@@ -2407,12 +2419,12 @@ index 0000000..b78f644
 +            IconButton(
 +                onClick = onNavigateBack,
 +                modifier = Modifier
-+                    .size(40.dp)
++                    .size(48.dp)
 +                    .testTag("settings_back_button")
 +            ) {
 +                Icon(
 +                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-+                    contentDescription = "Back",
++                    contentDescription = "Navigate Back",
 +                    tint = ElectricCyan(),
 +                    modifier = Modifier.size(24.dp)
 +                )
@@ -2961,7 +2973,7 @@ index 0000000..b78f644
 +                colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
 +                shape = RoundedCornerShape(6.dp),
 +                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-+                modifier = Modifier.height(36.dp)
++                modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp)
 +            ) {
 +                Text(
 +                    text = buttonLabel,
@@ -3131,7 +3143,7 @@ index 0000000..023a235
 +}
 diff --git a/android/app/src/main/java/com/sportage/obd/ui/settings/VehicleDrivingPage.kt b/android/app/src/main/java/com/sportage/obd/ui/settings/VehicleDrivingPage.kt
 new file mode 100644
-index 0000000..99d8b36
+index 0000000..71fddf9
 --- /dev/null
 +++ b/android/app/src/main/java/com/sportage/obd/ui/settings/VehicleDrivingPage.kt
 @@ -0,0 +1,244 @@
@@ -3236,7 +3248,7 @@ index 0000000..99d8b36
 +        SettingsSectionHeader(title = "Units & Measurements")
 +
 +        SettingsValueItem(
-+            title = "Speed Unit",
++            title = "Speed & Distance Units",
 +            valueText = speedUnit.uppercase(),
 +            description = "Toggle between Metric (km/h) and Imperial (mph) for gauges and navigation",
 +            icon = Icons.Default.Speed,
@@ -3380,20 +3392,20 @@ index 0000000..99d8b36
 +    }
 +}
 diff --git a/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt b/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
-index 4b4f736..5c2ea7b 100644
+index 4b4f736..e4e5aa1 100644
 --- a/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
 +++ b/android/app/src/test/java/com/sportage/obd/DashboardVisualTest.kt
 @@ -118,10 +118,11 @@ class DashboardVisualTest {
          snapshot("trip-portrait")
          compose.onNodeWithText("More").performClick()
          compose.onNodeWithText("Setup").performClick()
-+        compose.onNodeWithText("Vehicle & Driving").performClick()
++        compose.onNodeWithText("Vehicle & Driving").performScrollTo().performClick()
          compose.onNodeWithText("Speed & Distance Units").assertExists()
 -        val label = compose.onNodeWithText("Android Bluetooth System Settings").fetchSemanticsNode().boundsInRoot
 -        val control = compose.onNodeWithText("Open Settings").fetchSemanticsNode().boundsInRoot
 -        assertTrue("Settings labels must not overlap their controls", label.right <= control.left)
 +        compose.onNodeWithContentDescription("Navigate Back").performClick()
-+        compose.onNodeWithText("OBD & Connectivity").performClick()
++        compose.onNodeWithText("OBD & Connectivity").performScrollTo().performClick()
 +        compose.onNodeWithText("System BT Settings").assertExists()
          snapshot("settings-portrait")
      }
@@ -3402,7 +3414,7 @@ index 4b4f736..5c2ea7b 100644
          // The rail now holds 11 destinations; scroll it so Setup is reachable.
          compose.onAllNodes(hasScrollAction())[0].performTouchInput { swipeUp() }
          compose.onNodeWithText("Setup").performClick()
-+        compose.onNodeWithText("Vehicle & Driving").performClick()
++        compose.onNodeWithText("Vehicle & Driving").performScrollTo().performClick()
          compose.onNodeWithText("Speed & Distance Units").assertExists()
          snapshot("settings-headunit")
      }
@@ -3412,7 +3424,7 @@ index 4b4f736..5c2ea7b 100644
          compose.onNodeWithText("Setup").performClick()
 -        compose.onNodeWithText("Open Settings").performScrollTo()
 -            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(48.dp)
-+        compose.onNodeWithText("OBD & Connectivity").performClick()
++        compose.onNodeWithText("OBD & Connectivity").performScrollTo().performClick()
 +        compose.onNodeWithText("System BT Settings").performScrollTo()
 +            .assertWidthIsAtLeast(128.dp).assertHeightIsAtLeast(38.dp)
          snapshot("large-text-settings")

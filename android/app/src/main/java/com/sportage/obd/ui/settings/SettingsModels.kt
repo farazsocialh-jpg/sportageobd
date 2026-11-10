@@ -11,9 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -144,12 +146,12 @@ fun SettingsTopBar(
             IconButton(
                 onClick = onNavigateBack,
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(48.dp)
                     .testTag("settings_back_button")
             ) {
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "Back",
+                    contentDescription = "Navigate Back",
                     tint = ElectricCyan(),
                     modifier = Modifier.size(24.dp)
                 )
@@ -698,7 +700,7 @@ fun SettingsActionItem(
                 colors = ButtonDefaults.buttonColors(containerColor = buttonColor),
                 shape = RoundedCornerShape(6.dp),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                modifier = Modifier.height(36.dp)
+                modifier = Modifier.widthIn(min = 128.dp).heightIn(min = 48.dp)
             ) {
                 Text(
                     text = buttonLabel,
