@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
@@ -52,6 +53,9 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
     private var map: MapLibreMap? = null
     private var fix: LatLng? = null
     private var bearing = 0f
+    private var speedKmh = 0f
+    private var headingUp = false
+    private var markerStyle = MapMarkerStyle.ARROW
     private var lastRecenter = -1
     private var observer: LifecycleEventObserver? = null
     private var started = false
@@ -116,14 +120,14 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
                         if (MapLabels.shouldLocalize(value)) layer.setProperties(textField(english))
                     }
                     style.addSource(GeoJsonSource("sportage-gps"))
-                    // Direction-of-travel arrow instead of a plain dot: the symbol is
-                    // rotated to the GPS bearing so it shows where the vehicle is heading.
-                    style.addImage("sportage-gps-arrow", arrowIcon())
-                    style.addLayer(SymbolLayer("sportage-gps-dot", "sportage-gps").withProperties(
-                        iconImage("sportage-gps-arrow"),
+                    // The chosen vehicle marker (dot, arrow or car), rotated to the GPS bearing
+                    // so it shows where the vehicle is heading.
+                    style.addImage(imageId(markerStyle), MarkerIcons.create(markerStyle, canvasPx(markerStyle)))
+                    style.addLayer(SymbolLayer(MARKER_LAYER, "sportage-gps").withProperties(
+                        iconImage(imageId(markerStyle)),
                         iconAllowOverlap(true),
                         iconIgnorePlacement(true),
-                        iconSize(1.15f),
+                        iconSize(iconScale(markerStyle)),
                         iconRotate(Expression.get("bearing"))))
                     styleLoaded = true
                     fix?.let { updateMarker(it); center(it) }
@@ -133,46 +137,94 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
         catch (_: LinkageError) { onFailure() }
     }
 
-    fun updateFix(latitude: Double, longitude: Double, recenter: Int, headingBearing: Float = 0f) {
+    /**
+     * @param headingBearing driving direction in degrees clockwise from north.
+     * @param speedKmh current speed; heading-up rotation waits until the car really moves.
+     * @param headingUp true for course-up, false for a static north-up map.
+     */
+    fun updateFix(latitude: Double, longitude: Double, recenter: Int, headingBearing: Float = 0f,
+                  speedKmh: Float = 0f, headingUp: Boolean = false) {
         if (released || !TrackerMapPolicy.valid(latitude, longitude)) return
         val next = LatLng(latitude, longitude)
-        if (next != fix || recenter != lastRecenter || headingBearing != bearing) {
+        val changed = next != fix || recenter != lastRecenter || headingBearing != bearing ||
+            speedKmh != this.speedKmh || headingUp != this.headingUp
+        if (changed) {
             fix = next
             bearing = headingBearing
+            this.speedKmh = speedKmh
+            this.headingUp = headingUp
             lastRecenter = recenter
             if (styleLoaded) { updateMarker(next); center(next) }
         }
     }
+
+    /** Course-up only above walking pace: a stationary compass jitters and would spin the map. */
+    private fun rotating() = headingUp && speedKmh > HEADING_UP_MIN_KMH
+
     private fun center(point: LatLng) {
-        val zoom = map?.cameraPosition?.zoom?.takeIf { it >= 3.0 } ?: 15.5
-        map?.cameraPosition = CameraPosition.Builder().target(point).zoom(zoom).bearing(0.0).tilt(0.0).build()
+        val map = map ?: return
+        val zoom = map.cameraPosition.zoom.takeIf { it >= 3.0 } ?: 15.5
+        val courseUp = rotating()
+        // MapLibre insets the viewport: padding the TOP edge shifts the camera target DOWN,
+        // so the car lands on the lower-third line (height / 3 from the top puts it 2/3 down)
+        // and the driver sees more road ahead than behind. Bottom padding would do the reverse.
+        // Padding must be set before target/zoom on the builder.
+        val carAheadPadding = if (courseUp) height / 3.0 else 0.0
+        val position = CameraPosition.Builder()
+            .padding(doubleArrayOf(0.0, carAheadPadding, 0.0, 0.0))
+            .target(point)
+            .zoom(zoom)
+            .bearing(if (courseUp) bearing.toDouble() else 0.0)
+            .tilt(if (courseUp) AUTOMOTIVE_TILT_DEGREES else 0.0)
+            .build()
+        map.animateCamera(CameraUpdateFactory.newCameraPosition(position), CAMERA_ANIMATION_MS)
     }
-    private fun updateMarker(point: LatLng) {
-        map?.style?.getSourceAs<GeoJsonSource>("sportage-gps")?.setGeoJson(
-            Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude))
-                .also { it.addNumberProperty("bearing", bearing.toDouble()) })
+    /** Swaps the vehicle marker artwork without recreating the map view. */
+    fun setMarkerStyle(style: MapMarkerStyle) {
+        if (style == markerStyle) return
+        markerStyle = style
+        if (!styleLoaded) return
+        val style = map?.style ?: return
+        val id = imageId(markerStyle)
+        if (style.getImage(id) == null) {
+            style.addImage(id, MarkerIcons.create(markerStyle, canvasPx(markerStyle)))
+        }
+        style.getLayerAs<SymbolLayer>(MARKER_LAYER)?.setProperties(
+            iconImage(id), iconSize(iconScale(markerStyle)))
     }
 
-    /** Solid triangular arrow pointing up (north) with a light outline, rotated by the layer. */
-    private fun arrowIcon(): android.graphics.Bitmap {
-        val size = 72
-        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
-        val canvas = android.graphics.Canvas(bmp)
-        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF0088BE.toInt() }
-        val outline = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.WHITE; style = android.graphics.Paint.Style.STROKE; strokeWidth = 5f }
-        val tip = android.graphics.PointF(size * 0.5f, size * 0.10f)
-        val left = android.graphics.PointF(size * 0.20f, size * 0.86f)
-        val right = android.graphics.PointF(size * 0.80f, size * 0.86f)
-        val tail = android.graphics.PointF(size * 0.5f, size * 0.70f)
-        val path = android.graphics.Path().apply {
-            moveTo(tip.x, tip.y); lineTo(right.x, right.y); lineTo(tail.x, tail.y)
-            lineTo(left.x, left.y); close()
-        }
-        canvas.drawPath(path, fill)
-        canvas.drawPath(path, outline)
-        return bmp
+    private fun updateMarker(point: LatLng) {
+        // The icon is drawn in screen space: with the map rotated course-up it must stay
+        // pointing at the top edge, otherwise it would double the map's rotation.
+        val arrow = if (rotating()) 0.0 else bearing.toDouble()
+        map?.style?.getSourceAs<GeoJsonSource>("sportage-gps")?.setGeoJson(
+            Feature.fromGeometry(Point.fromLngLat(point.longitude, point.latitude))
+                .also { it.addNumberProperty("bearing", arrow) })
     }
+
+    private fun imageId(style: MapMarkerStyle) = "sportage-gps-" + style.name.lowercase()
+
+    /** Bitmap edge in pixels: the car needs more detail than the flat shapes. */
+    private fun canvasPx(style: MapMarkerStyle) = when (style) {
+        MapMarkerStyle.DOT -> 48
+        MapMarkerStyle.ARROW -> 72
+        MapMarkerStyle.CAR -> 108
+    }
+
+    /** Symbol scale tuned so all three markers read as the same size on screen. */
+    private fun iconScale(style: MapMarkerStyle) = when (style) {
+        MapMarkerStyle.DOT -> 0.8f
+        MapMarkerStyle.ARROW -> 1.15f
+        MapMarkerStyle.CAR -> 0.85f
+    }
+    /** The lower-third offset is a fraction of the view height, so re-centre after a resize. */
+    override fun onSizeChanged(width: Int, height: Int, oldWidth: Int, oldHeight: Int) {
+        super.onSizeChanged(width, height, oldWidth, oldHeight)
+        if (styleLoaded && !released && (width != oldWidth || height != oldHeight)) {
+            fix?.let { center(it) }
+        }
+    }
+
     private fun start() { if (!started && !released) { mapView?.onStart(); started = true } }
     private fun resume() { start(); if (!resumed && !released) { mapView?.onResume(); resumed = true } }
     private fun pause() { if (resumed) { mapView?.onPause(); resumed = false } }
@@ -189,6 +241,12 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
         removeAllViews()
     }
     companion object {
+        /** Below this speed the map stays north-up; compass-only headings are too noisy. */
+        private const val MARKER_LAYER = "sportage-gps-marker"
+        private const val HEADING_UP_MIN_KMH = 3f
+        private const val AUTOMOTIVE_TILT_DEGREES = 35.0
+        private const val CAMERA_ANIMATION_MS = 350
+
         private val httpClient by lazy {
             OkHttpClient.Builder()
                 .dispatcher(okhttp3.Dispatcher().apply { maxRequestsPerHost = 4 })
@@ -202,11 +260,15 @@ internal class LibreTrackerView(context: Context, private val lifecycle: Lifecyc
 }
 
 @Composable
-fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int, bearing: Float = 0f) {
+fun HybridLocationMap(
+    latitude: Double, longitude: Double, recenter: Int, bearing: Float = 0f,
+    speedKmh: Float = 0f, headingUp: Boolean = false
+) {
     val context = LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val prefs = remember { context.getSharedPreferences("map_preferences", Context.MODE_PRIVATE) }
     var theme by remember { mutableStateOf(MapTheme.saved(prefs.getString("theme", null))) }
+    var markerStyle by remember { mutableStateOf(MapMarkerStyle.saved(prefs.getString("marker", null))) }
     var menu by remember { mutableStateOf(false) }
     var failed by remember(theme) { mutableStateOf(false) }
     var rendered by remember(theme) { mutableStateOf(false) }
@@ -246,14 +308,21 @@ fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int, bearin
         // Keep native offline content visible until GL reports a complete frame.
         if (!online || !rendered) {
             val forceOffline = !internet || theme == MapTheme.OFFLINE
-            key(forceOffline) { NativeLocationMap(latitude, longitude, recenter, forceOffline) }
+            key(forceOffline) {
+                NativeLocationMap(latitude, longitude, recenter, forceOffline, bearing, speedKmh, headingUp,
+                    markerStyle)
+            }
         }
         if (online) key(theme, retry) {
             AndroidView(
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = if (rendered) 1f else 0f },
                 factory = { ctx -> LibreTrackerView(ctx, lifecycle, theme,
-                    onReady = { rendered = true }, onFailure = { failed = true }) },
-                update = { it.updateFix(latitude, longitude, recenter, bearing) },
+                    onReady = { rendered = true }, onFailure = { failed = true })
+                    .apply { setMarkerStyle(markerStyle) } },
+                update = {
+                    it.setMarkerStyle(markerStyle)
+                    it.updateFix(latitude, longitude, recenter, bearing, speedKmh, headingUp)
+                },
                 onRelease = { it.release() }
             )
         }
@@ -267,6 +336,15 @@ fun HybridLocationMap(latitude: Double, longitude: Double, recenter: Int, bearin
                         onClick = {
                             theme = option; failed = false; rendered = false; retry++; menu = false
                             prefs.edit().putString("theme", option.name).apply()
+                        })
+                }
+                HorizontalDivider()
+                MapMarkerStyle.entries.forEach { option ->
+                    DropdownMenuItem(
+                        text = { Text("Marker: ${option.title}" + if (option == markerStyle) " · selected" else "") },
+                        onClick = {
+                            markerStyle = option; menu = false
+                            prefs.edit().putString("marker", option.name).apply()
                         })
                 }
             }

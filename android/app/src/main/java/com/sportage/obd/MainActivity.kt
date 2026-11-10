@@ -346,6 +346,7 @@ class MainActivity : ComponentActivity(), LocationListener {
                                 weatherTempC = weatherTempC, weatherText = weatherText,
                                 speedHistory = speedHist, rpmHistory = rpmHist,
                                 currentLat = currentLat, currentLon = currentLon, currentBearing = currentBearing,
+                                gpsSpeedKmh = currentGpsSpeed,
                                 gpsStatus = gpsStatus,
                                 activePage = activePage,
                                 onNavigatePage = { page ->

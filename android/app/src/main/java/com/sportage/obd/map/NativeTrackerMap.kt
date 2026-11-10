@@ -22,12 +22,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.mapsforge.core.graphics.Style
 import org.mapsforge.core.model.LatLong
+import org.mapsforge.core.model.Rotation
+import org.mapsforge.map.android.graphics.AndroidBitmap
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
 import org.mapsforge.map.layer.download.TileDownloadLayer
 import org.mapsforge.map.layer.download.tilesource.OpenStreetMapMapnik
 import org.mapsforge.map.layer.overlay.FixedPixelCircle
+import org.mapsforge.map.layer.overlay.Marker
 import org.mapsforge.map.layer.renderer.TileRendererLayer
 import org.mapsforge.map.android.rendertheme.AssetsRenderTheme
 import java.io.File
@@ -40,8 +43,14 @@ class NativeTrackerMap(context: Context, file: File, private val offlineOnly: Bo
     private val offline: TileRendererLayer
     private val online: TileDownloadLayer
     private val marker: FixedPixelCircle
+    private val vehicleMarker: Marker
+    private var markerStyle = MapMarkerStyle.ARROW
+    private var markerAngle = 0f
     private var lastFix: LatLong? = null
     private var lastRecenter = -1
+    private var lastBearing = 0f
+    private var lastSpeedKmh = 0f
+    private var lastHeadingUp = false
     private var offlineMode = true
     private var disposed = false
 
@@ -74,11 +83,22 @@ class NativeTrackerMap(context: Context, file: File, private val offlineOnly: Bo
         }
         marker = FixedPixelCircle(null, 8f, fill, stroke)
         map.layerManager.layers.add(marker)
+        // Billboard marker: it stays screen-upright, so the artwork itself carries the heading.
+        vehicleMarker = Marker(null, vehicleIcon(0f), 0, 0).apply { setBillboard(true) }
+        map.layerManager.layers.add(vehicleMarker)
+        applyMarkerStyle()
         contentDescription = "Native street map with current GPS position"
     }
 
-    /** Returns the displayed data source so Compose can label offline coverage honestly. */
-    fun updateFix(latitude: Double, longitude: Double, recenter: Int): Boolean {
+    /**
+     * Returns the displayed data source so Compose can label offline coverage honestly.
+     *
+     * @param bearing driving direction in degrees clockwise from north.
+     * @param speedKmh current speed; course-up rotation waits until the car really moves.
+     * @param headingUp true rotates the map under the car, false keeps north at the top.
+     */
+    fun updateFix(latitude: Double, longitude: Double, recenter: Int, bearing: Float = 0f,
+                  speedKmh: Float = 0f, headingUp: Boolean = false): Boolean {
         if (disposed || !TrackerMapPolicy.valid(latitude, longitude)) return offlineMode
         val fix = LatLong(latitude, longitude)
         val useOffline = offlineOnly || data.boundingBox().contains(fix)
@@ -90,12 +110,76 @@ class NativeTrackerMap(context: Context, file: File, private val offlineOnly: Bo
         }
         if (fix != lastFix || recenter != lastRecenter) {
             marker.setLatLong(fix)
+            vehicleMarker.setLatLong(fix)
             map.setCenter(fix)
             marker.requestRedraw()
+            vehicleMarker.requestRedraw()
             lastFix = fix
             lastRecenter = recenter
         }
+        if (bearing != lastBearing || speedKmh != lastSpeedKmh || headingUp != lastHeadingUp) {
+            lastBearing = bearing
+            lastSpeedKmh = speedKmh
+            lastHeadingUp = headingUp
+            applyRotation()
+        }
         return useOffline
+    }
+
+    /**
+     * Mapsforge rotates the rendered map content, so the marker stays a circle in the middle.
+     * Rotation degrees run counter-clockwise, hence the negated bearing: a car heading east
+     * (90°) must see north on the left. The pivot is the view centre; MapView re-applies the
+     * pivot itself when it is resized.
+     */
+    private fun applyRotation() {
+        if (disposed) return
+        if (courseUp()) {
+            map.rotate(Rotation(-lastBearing, map.width / 2f, map.height / 2f))
+        } else if (!Rotation.noRotation(map.mapRotation)) {
+            map.rotate(Rotation.NULL_ROTATION)
+        }
+        refreshVehicleIcon()
+        map.repaint()
+    }
+
+    private fun courseUp() = lastHeadingUp && lastSpeedKmh > HEADING_UP_MIN_KMH
+
+    /** Switches between the plain dot and the direction-aware vehicle artwork. */
+    fun setMarkerStyle(style: MapMarkerStyle) {
+        if (disposed || style == markerStyle) return
+        markerStyle = style
+        applyMarkerStyle()
+        map.repaint()
+    }
+
+    private fun applyMarkerStyle() {
+        val dot = markerStyle == MapMarkerStyle.DOT
+        marker.setVisible(dot)
+        vehicleMarker.setVisible(!dot)
+        if (!dot) refreshVehicleIcon(force = true)
+        marker.requestRedraw()
+        vehicleMarker.requestRedraw()
+    }
+
+    /**
+     * The billboard marker never rotates with the map, so the icon is pre-rotated: the driving
+     * direction on a north-up map, zero while the map itself is rotated course-up.
+     */
+    private fun refreshVehicleIcon(force: Boolean = false) {
+        if (disposed || markerStyle == MapMarkerStyle.DOT) return
+        // Two-degree steps: a fresh bitmap per GPS fix would be pure churn at 1 Hz.
+        val angle = Math.round((if (courseUp()) 0f else lastBearing) / 2f) * 2f
+        if (!force && angle == markerAngle && vehicleMarker.bitmap != null) return
+        markerAngle = angle
+        vehicleMarker.setBitmap(vehicleIcon(angle))
+        vehicleMarker.requestRedraw()
+    }
+
+    private fun vehicleIcon(screenDegrees: Float): org.mapsforge.core.graphics.Bitmap {
+        val dp = if (markerStyle == MapMarkerStyle.CAR) 34f else 30f
+        val px = (dp * resources.displayMetrics.density).toInt().coerceAtLeast(16)
+        return AndroidBitmap(MarkerIcons.create(markerStyle, px, screenDegrees))
     }
 
     fun covers(latitude: Double, longitude: Double): Boolean =
@@ -117,6 +201,11 @@ class NativeTrackerMap(context: Context, file: File, private val offlineOnly: Bo
         online.onPause()
         map.destroyAll()
         removeAllViews()
+    }
+
+    private companion object {
+        /** Below this speed the map stays north-up; compass-only headings are too noisy. */
+        const val HEADING_UP_MIN_KMH = 3f
     }
 }
 
@@ -141,7 +230,11 @@ internal fun prepareBundledMap(context: Context): File {
 }
 
 @Composable
-fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int, offlineOnly: Boolean = false) {
+fun NativeLocationMap(
+    latitude: Double, longitude: Double, recenter: Int, offlineOnly: Boolean = false,
+    bearing: Float = 0f, speedKmh: Float = 0f, headingUp: Boolean = false,
+    markerStyle: MapMarkerStyle = MapMarkerStyle.ARROW
+) {
     val context = LocalContext.current
     var file by remember { mutableStateOf<File?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -162,7 +255,10 @@ fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int, offlin
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->
                     try {
-                        NativeTrackerMap(ctx, ready, offlineOnly).apply { updateFix(latitude, longitude, recenter) }
+                        NativeTrackerMap(ctx, ready, offlineOnly).apply {
+                            setMarkerStyle(markerStyle)
+                            updateFix(latitude, longitude, recenter, bearing, speedKmh, headingUp)
+                        }
                     } catch (e: Exception) {
                         error = "Native map initialization failed: ${e.message}"
                         FrameLayout(ctx)
@@ -170,7 +266,8 @@ fun NativeLocationMap(latitude: Double, longitude: Double, recenter: Int, offlin
                 },
                 update = { view ->
                     if (view is NativeTrackerMap) {
-                        offline = view.updateFix(latitude, longitude, recenter)
+                        view.setMarkerStyle(markerStyle)
+                        offline = view.updateFix(latitude, longitude, recenter, bearing, speedKmh, headingUp)
                         covered = view.covers(latitude, longitude)
                     }
                 },

@@ -135,6 +135,7 @@ fun CarLauncherScreen(
     currentLat: Double = 25.2854,
     currentLon: Double = 51.5310,
     currentBearing: Float = 0f,
+    gpsSpeedKmh: Int? = null,
     activePage: Int,
     onNavigatePage: (Int) -> Unit,
     onOpenBluetoothClick: () -> Unit,
@@ -468,11 +469,11 @@ fun CarLauncherScreen(
                                     measuredHz = measuredHz,
                                     isDemoMode = isDemoMode,
                                     onOpenNavigation = { openNavigation() },
-                                    mapArrangement = mapArrangement,
-                                    showMiniGaugesOnMap = showMiniGaugesOnMap,
-                                    speedAlertThreshold = displaySpeedLimit,
-                                    onCycleSpeedAlert = onCycleSpeedLimit
-                                )
+                                    mapArrangement = mapArrangement,                                     showMiniGaugesOnMap = showMiniGaugesOnMap,
+                                     speedAlertThreshold = displaySpeedLimit,
+                                     onCycleSpeedAlert = onCycleSpeedLimit,
+                                     gpsSpeedKmh = gpsSpeedKmh
+                                 )
                             }
                             // LIVE DATA SECTION
                             1 -> GaugesAndGraphsPage(
@@ -680,7 +681,8 @@ fun CarLauncherScreen(
                                 mapArrangement = mapArrangement,
                                 showMiniGaugesOnMap = showMiniGaugesOnMap,
                                 speedAlertThreshold = displaySpeedLimit,
-                                onCycleSpeedAlert = onCycleSpeedLimit
+                                onCycleSpeedAlert = onCycleSpeedLimit,
+                                gpsSpeedKmh = gpsSpeedKmh
                             )
                         }
                         1 -> GaugesAndGraphsPage(
@@ -926,6 +928,13 @@ fun ActiveAlertBanner(activeAlerts: List<ActiveAlert>) {
 fun speedLimitForUnit(limitKmh: Int, speedUnit: String): Int =
     if (speedUnit == "mph") (limitKmh * 0.621371f).toInt() else limitKmh
 
+/** Speeds reach the UI in the selected display unit; the map engines gate on km/h. */
+fun speedInKmh(speed: Int?, speedUnit: String): Float = when {
+    speed == null -> 0f
+    speedUnit == "mph" -> speed / 0.621371f
+    else -> speed.toFloat()
+}
+
 // =========================================================================
 // HELPER: TOP COCKPIT STATUS STRIP
 // =========================================================================
@@ -958,7 +967,8 @@ fun PermanentHomeSplitView(
     mapArrangement: String = "Balanced (50/50)",
     showMiniGaugesOnMap: Boolean = false,
     speedAlertThreshold: Int = 100,
-    onCycleSpeedAlert: () -> Unit = {}
+    onCycleSpeedAlert: () -> Unit = {},
+    gpsSpeedKmh: Int? = null
 ) {
     val arrangementRatio = when (mapArrangement) {
         "Map Dominant (65/35)" -> 0.65f
@@ -1004,6 +1014,7 @@ fun PermanentHomeSplitView(
                         currentLat = currentLat,
                         currentLon = currentLon,
                         currentBearing = currentBearing,
+                        gpsSpeedKmh = gpsSpeedKmh,
                         speed = speed,
                         rpm = rpm,
                         speedUnit = speedUnit,
@@ -1048,6 +1059,7 @@ fun PermanentHomeSplitView(
                         currentLat = currentLat,
                         currentLon = currentLon,
                         currentBearing = currentBearing,
+                        gpsSpeedKmh = gpsSpeedKmh,
                         speed = speed,
                         rpm = rpm,
                         speedUnit = speedUnit,
@@ -1097,6 +1109,7 @@ fun PermanentHomeSplitView(
                     currentLat = currentLat,
                     currentLon = currentLon,
                     currentBearing = currentBearing,
+                    gpsSpeedKmh = gpsSpeedKmh,
                     speed = speed,
                     rpm = rpm,
                     speedUnit = speedUnit,
@@ -1261,9 +1274,12 @@ fun LiveMapSurface(
     rpm: Int? = null,
     showMiniGaugesOnMap: Boolean = false,
     speedAlertThreshold: Int = 100,
-    onCycleSpeedAlert: () -> Unit = {}
+    onCycleSpeedAlert: () -> Unit = {},
+    gpsSpeedKmh: Int? = null
 ) {
     val overspeed = speed != null && speedAlertThreshold > 0 && speed > speedAlertThreshold
+    // Course-up is the driving default; north-up is one tap away for planning a route.
+    var headingUp by remember { mutableStateOf(true) }
     Surface(color = DarkSurface(), shape = RoundedCornerShape(16.dp), modifier = Modifier.testTag("home_map_card").fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             Row(
@@ -1284,7 +1300,13 @@ fun LiveMapSurface(
                 ) { Icon(Icons.Default.Navigation, "Open navigation app", Modifier.size(24.dp)) }
             }
             Box(Modifier.testTag("home_map_viewport").fillMaxWidth().weight(1f)) {
-                HybridLocationMap(currentLat, currentLon, 0, currentBearing)
+                // OBD speed when the adapter is live, GPS speed otherwise: heading-up must
+                // also work for drivers using the phone alone.
+                HybridLocationMap(
+                    currentLat, currentLon, 0, currentBearing,
+                    speedKmh = speed?.let { speedInKmh(it, speedUnit) } ?: gpsSpeedKmh?.toFloat() ?: 0f,
+                    headingUp = headingUp
+                )
                 if (showMiniGaugesOnMap && (speed != null || rpm != null)) {
                     Surface(
                         color = DarkSurface().copy(alpha = 0.85f),
@@ -1300,6 +1322,35 @@ fun LiveMapSurface(
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+                // Compass overlay: the needle always shows where north is on screen, which is
+                // also the state of the toggle (pointing up while the map is north-up).
+                Surface(
+                    color = DarkSurface().copy(alpha = 0.9f),
+                    shape = CircleShape,
+                    border = BorderStroke(1.dp, ElectricCyan().copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 56.dp, end = 8.dp)
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .clickable { headingUp = !headingUp }
+                        .testTag("map_compass_toggle")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            Icons.Default.Navigation,
+                            contentDescription = if (headingUp) {
+                                "Map orientation: heading-up. Tap for north-up."
+                            } else {
+                                "Map orientation: north-up. Tap for heading-up."
+                            },
+                            tint = ElectricCyan(),
+                            modifier = Modifier
+                                .size(22.dp)
+                                .graphicsLayer { rotationZ = if (headingUp) -currentBearing else 0f }
                         )
                     }
                 }
