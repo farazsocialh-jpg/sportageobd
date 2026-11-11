@@ -20,31 +20,49 @@ workflows:
           include: true
           source: true
     scripts:
-      - name: Set Android SDK local.properties
+      - name: Set Android SDK local.properties (car)
         script: |
           ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
           echo "sdk.dir=$ANDROID_SDK" > "$CM_BUILD_DIR/android/local.properties"
-      - name: Prepare Gradle wrapper
+      - name: Prepare Gradle wrapper (car)
         script: |
           cd "$CM_BUILD_DIR/android"
           if [ ! -f "gradle.properties" ] || ! grep -q "android.useAndroidX" "gradle.properties"; then
             echo "android.useAndroidX=true" >> gradle.properties
           fi
-          if command -v gradle >/dev/null 2>&1; then
-            gradle wrapper --gradle-version 8.9
-          fi
           chmod +x gradlew
-      - name: Build Android Debug APK (smoke test)
+      - name: Build Car Debug APK
         script: |
           cd "$CM_BUILD_DIR/android"
           ./gradlew assembleDebug --stacktrace
-      - name: Build Release AAB (Play Store ready)
+      - name: Build Car Release AAB
         script: |
           cd "$CM_BUILD_DIR/android"
+          ./gradlew bundleRelease --stacktrace
+      - name: Set Android SDK local.properties (companion)
+        script: |
+          ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
+          echo "sdk.dir=$ANDROID_SDK" > "$CM_BUILD_DIR/phone-companion/local.properties"
+      - name: Prepare Gradle wrapper (companion)
+        script: |
+          cd "$CM_BUILD_DIR/phone-companion"
+          if [ ! -f "gradle.properties" ] || ! grep -q "android.useAndroidX" "gradle.properties"; then
+            echo "android.useAndroidX=true" >> gradle.properties
+          fi
+          chmod +x gradlew
+      - name: Build Companion Debug APK
+        script: |
+          cd "$CM_BUILD_DIR/phone-companion"
+          ./gradlew assembleDebug --stacktrace
+      - name: Build Companion Release AAB
+        script: |
+          cd "$CM_BUILD_DIR/phone-companion"
           ./gradlew bundleRelease --stacktrace
     artifacts:
       - android/app/build/outputs/**/*.apk
       - android/app/build/outputs/**/*.aab
+      - phone-companion/app/build/outputs/**/*.apk
+      - phone-companion/app/build/outputs/**/*.aab
     publishing:
       email:
         recipients:
