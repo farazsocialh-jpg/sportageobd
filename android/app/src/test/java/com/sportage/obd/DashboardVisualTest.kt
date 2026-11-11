@@ -101,7 +101,7 @@ class DashboardVisualTest {
             assertEquals(header.bottom, viewport.top, 1f)
             assertEquals(footer.top, viewport.bottom, 1f)
             assertTrue("Viewport must remain inside its card", viewport.top >= card.top && viewport.bottom <= card.bottom)
-            compose.onNodeWithTag("dashboard_header").assertHeightIsEqualTo(48.dp)
+            compose.onNodeWithTag("dashboard_header").assertHeightIsEqualTo(56.dp)
             compose.onNodeWithTag("home_map_header").assertHeightIsEqualTo(48.dp)
             compose.onNodeWithTag("home_map_footer").assertHeightIsEqualTo(48.dp)
         }

@@ -170,6 +170,7 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // MediaBrowserService connection for real now-playing sync with installed music apps.
     implementation("androidx.media:media:1.7.0")
+    implementation("androidx.datastore:datastore-preferences:1.0.0")
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 

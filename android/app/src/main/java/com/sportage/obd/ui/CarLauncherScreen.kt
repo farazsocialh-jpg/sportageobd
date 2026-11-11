@@ -13,9 +13,13 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
@@ -33,6 +37,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -50,11 +56,15 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sportage.obd.bluetooth.ConnectionState
+import com.sportage.obd.media.DiscoveredMusicApp
+import com.sportage.obd.media.LocalMusicAppScanner
 import com.sportage.obd.media.MediaAppInfo
 import com.sportage.obd.media.MediaApps
 import com.sportage.obd.media.NowPlayingController
 import com.sportage.obd.media.chosenMusicApp
+import com.sportage.obd.media.queryInstalledMusicApps
 import com.sportage.obd.media.saveChosenMusicApp
+import com.sportage.obd.media.saveChosenMusicAppPackage
 import com.sportage.obd.obd.ActuatorTestState
 import com.sportage.obd.obd.DtcItem
 import com.sportage.obd.obd.DtcSeverity
@@ -2167,7 +2177,7 @@ fun MediaRadioPage(
     val controller = remember { NowPlayingController(context) }
     val nowPlaying by controller.state.collectAsState()
     var showPicker by remember { mutableStateOf(false) }
-    var pickerApps by remember { mutableStateOf<List<MediaAppInfo>>(emptyList()) }
+    var pickerApps by remember { mutableStateOf<List<DiscoveredMusicApp>>(emptyList()) }
     var radioApps by remember { mutableStateOf<List<MediaAppInfo>>(emptyList()) }
 
     // Connect to the saved music app (or the first MediaBrowserService found) while
@@ -2178,13 +2188,15 @@ fun MediaRadioPage(
         onDispose { controller.disconnect() }
     }
     // Remember the last manually chosen app so the connection follows it next time.
-    fun pickApp(app: MediaAppInfo) {
+    fun pickApp(app: DiscoveredMusicApp) {
         saveChosenMusicApp(context, app.packageName)
-        if (app.browseComponent != null) {
+        runCatching { kotlinx.coroutines.runBlocking { saveChosenMusicAppPackage(context, app.packageName) } }
+        val browse = MediaApps.browseComponents(context).firstOrNull { it.packageName == app.packageName }
+        if (browse != null) {
             controller.connect(app.packageName)
         } else {
             controller.disconnect()
-            app.launchIntent?.let { runCatching { context.startActivity(it) } }
+            runCatching { context.startActivity(context.packageManager.getLaunchIntentForPackage(app.packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
         }
     }
 
@@ -2246,7 +2258,7 @@ fun MediaRadioPage(
                 Spacer(Modifier.height(10.dp))
                 Button(
                     onClick = {
-                        pickerApps = MediaApps.musicApps(context)
+                        pickerApps = queryInstalledMusicApps(context)
                         showPicker = true
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = DarkSurfaceElevated()),
@@ -2316,18 +2328,42 @@ fun MediaRadioPage(
             },
             title = { Text("Choose music app", color = PrimaryText()) },
             text = {
-                Column(Modifier.verticalScroll(rememberScrollState())) {
-                    if (pickerApps.isEmpty()) {
-                        Text("No music apps found on this device.", color = SecondaryText())
-                    }
-                    pickerApps.forEach { app ->
-                        TextButton(onClick = { pickApp(app); showPicker = false }) {
-                            Column {
-                                Text(app.label, color = PrimaryText())
-                                Text(
-                                    if (app.browseComponent != null) "Shows now-playing info" else "Launch only",
-                                    color = SecondaryText(), style = MaterialTheme.typography.labelSmall
-                                )
+                if (pickerApps.isEmpty()) {
+                    Text("No music apps found on this device.", color = SecondaryText())
+                } else {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.heightIn(max = 420.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(pickerApps, key = { it.packageName }) { app ->
+                            val bitmap = remember(app.packageName) { app.icon.toBitmap().asImageBitmap() }
+                            Surface(
+                                onClick = { pickApp(app); showPicker = false },
+                                color = DarkSurfaceElevated(),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(1.dp, DarkSurfaceElevated())
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(10.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Image(bitmap, contentDescription = app.appName, modifier = Modifier.size(36.dp))
+                                    Text(
+                                        app.appName,
+                                        color = PrimaryText(),
+                                        fontSize = 12.sp,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        if (app.isHeadUnitStockApp) "Head-unit player" else "Music player",
+                                        color = SecondaryText(),
+                                        style = MaterialTheme.typography.labelSmall
+                                    )
+                                }
                             }
                         }
                     }

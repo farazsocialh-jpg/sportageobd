@@ -78,7 +78,10 @@ enum class DriveMode(val label: String, val primaryColor: Color, val accentGlow:
     ECO("ECO", Color(0xFF00E5FF), Color(0x3300E676)),
     NORMAL("NORMAL", Color(0xFFFFB300), Color(0x22FFA000)),
     SPORT("SPORT", Color(0xFFFF3D00), Color(0x55D50000)),
-    CRITICAL("CRITICAL ALERT", Color(0xFFFF1744), Color(0x88FF1744))
+    CRITICAL("CRITICAL ALERT", Color(0xFFFF1744), Color(0x88FF1744));
+
+    /** Ready-to-render badge, e.g. "[ ECO ]". */
+    val badge: String get() = "[ $label ]"
 }
 
 /**

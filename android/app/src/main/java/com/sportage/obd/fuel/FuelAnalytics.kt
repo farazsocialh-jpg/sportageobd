@@ -66,6 +66,10 @@ object FuelMath {
     fun kmPerL(rateLh: Double, speedKmh: Double): Double? =
         if (rateLh > 0 && speedKmh > 3) speedKmh / rateLh else null
 
+    /** Primary economy in km/L: speedKmh / fuelFlowLitersPerHour (idle returns null). */
+    fun kmPerLiter(speedKmh: Double, fuelFlowLitersPerHour: Double): Double? =
+        FuelEconomyFormatter.kmPerLiter(speedKmh, fuelFlowLitersPerHour)
+
     /** Weighted overall calibration factor from all usable fills. */
     fun calibrationFactor(fills: List<FuelFillEntry>): Double? {
         val usable = fills.mapNotNull { f -> f.fillFactor()?.let { f.litersFilled to it } }

@@ -22,6 +22,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalView
+import android.view.SoundEffectConstants
+import android.view.View
 import com.sportage.obd.bluetooth.ConnectionState
 import com.sportage.obd.ui.theme.*
 import java.text.SimpleDateFormat
@@ -31,7 +34,15 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.platform.testTag
 
 @Composable
-fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, onOpenBluetoothClick: () -> Unit) {
+fun CockpitStatusStrip(
+    connectionState: ConnectionState,
+    isDemoMode: Boolean,
+    onOpenBluetoothClick: () -> Unit,
+    onOpenNavigation: () -> Unit = {},
+    isNightDimmed: Boolean = false,
+    onToggleNightDim: (Boolean) -> Unit = {}
+) {
+    val view = LocalView.current
     var time by remember { mutableStateOf(Date()) }
     LaunchedEffect(Unit) { while (true) { time = Date(); delay(30_000) } }
     val connected = connectionState is ConnectionState.Connected
@@ -65,6 +76,45 @@ fun CockpitStatusStrip(connectionState: ConnectionState, isDemoMode: Boolean, on
             Spacer(Modifier.width(8.dp))
             Text(status, style = MaterialTheme.typography.labelLarge)
         }
+        Spacer(Modifier.width(8.dp))
+        // Navigation Launcher icon (56dp touch target for in-car use).
+        FilledIconButton(
+            onClick = {
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+                onOpenNavigation()
+            },
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = DarkSurfaceElevated(), contentColor = ElectricCyan()
+            )
+        ) {
+            Icon(
+                Icons.Default.Navigation,
+                contentDescription = "Navigation Launcher",
+                modifier = Modifier.size(24.dp).testTag("navigation_launcher_button")
+            )
+        }
+        Spacer(Modifier.width(4.dp))
+        // Night Dim toggle: 1-tap low-glare OLED mode.
+        FilledIconButton(
+            onClick = {
+                view.playSoundEffect(SoundEffectConstants.CLICK)
+                onToggleNightDim(!isNightDimmed)
+            },
+            modifier = Modifier.size(56.dp),
+            shape = RoundedCornerShape(12.dp),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = DarkSurfaceElevated(),
+                contentColor = if (isNightDimmed) ElectricCyan() else PrimaryText()
+            )
+        ) {
+            Icon(
+                if (isNightDimmed) Icons.Filled.Nightlight else Icons.Filled.LightMode,
+                contentDescription = "Night Dim",
+                modifier = Modifier.size(24.dp).testTag("night_dim_button")
+            )
+        }
     }
 }
 
@@ -85,7 +135,11 @@ private val destinations = listOf(
 
 @Composable
 fun CockpitNavigation(activePage: Int, onNavigate: (Int) -> Unit, onOpenApps: () -> Unit, rail: Boolean) {
-    fun select(page: Int) { if (page == -1) onOpenApps() else onNavigate(page) }
+    val view = LocalView.current
+    fun select(page: Int) {
+        view.playSoundEffect(SoundEffectConstants.CLICK)
+        if (page == -1) onOpenApps() else onNavigate(page)
+    }
     if (rail) {
         NavigationRail(
             modifier = Modifier.width(88.dp).fillMaxHeight().verticalScroll(rememberScrollState()),
@@ -578,6 +632,6 @@ internal fun CockpitReading(label: String, value: String, modifier: Modifier, co
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = SecondaryText(),
             maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(value, style = MaterialTheme.typography.titleLarge, color = color, maxLines = 1)
+        Text(value, style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = color, maxLines = 1)
     }
 }
