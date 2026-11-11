@@ -54,6 +54,10 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
+import com.sportage.obd.mqtt.VehicleMqttPublisher
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
 import kotlin.math.min
 
 /**
@@ -200,6 +204,44 @@ class ObdService : Service() {
         _postDriveSummary.value = null
     }
 
+    /**
+     * Captures the most accurate current GPS fix and publishes it (retained) to MQTT,
+     * mirroring it into the local LastParkedLocationStore. Called on engine shutdown.
+     */
+    private fun captureAndPublishParkedLocation() {
+        val fused: FusedLocationProviderClient = LocationServices.getFusedLocationProviderClient(this)
+        val publish: (android.location.Location) -> Unit = { loc ->
+            mqttPublisher.publishParkedLocation(
+                latitude = loc.latitude,
+                longitude = loc.longitude,
+                timestamp = loc.time,
+                accuracy = loc.accuracy
+            )
+            lastParkedLocationStore.saveParkedLocation(
+                lat = loc.latitude,
+                lon = loc.longitude,
+                accuracy = loc.accuracy,
+                timestamp = loc.time
+            )
+        }
+        try {
+            fused.lastLocation.addOnSuccessListener { loc ->
+                if (loc != null) {
+                    publish(loc)
+                } else {
+                    val request = com.google.android.gms.location.CurrentLocationRequest.Builder()
+                        .setPriority(Priority.PRIORITY_HIGH_ACCURACY)
+                        .setMaxUpdateAgeMillis(0)
+                        .build()
+                    fused.getCurrentLocation(request, null)
+                        .addOnSuccessListener { fresh -> if (fresh != null) publish(fresh) }
+                }
+            }
+        } catch (e: SecurityException) {
+            android.util.Log.w("ObdService", "Location permission missing for parked capture", e)
+        }
+    }
+
     val batteryHealthAnalyzer = BatteryHealthAnalyzer()
     val batteryCrankResult: StateFlow<BatteryCrankResult?> = batteryHealthAnalyzer.latestResult
 
@@ -211,6 +253,11 @@ class ObdService : Service() {
 
     val lastParkedLocationStore by lazy { com.sportage.obd.map.LastParkedLocationStore(this) }
     val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> get() = lastParkedLocationStore.lastParkedLocation
+
+    val mqttPublisher by lazy { VehicleMqttPublisher(this, serviceScope) }
+
+    @Volatile
+    private var hasDrivenThisTrip: Boolean = false
 
     val activeAlerts: StateFlow<List<ActiveAlert>>
         get() = alertEngine?.activeAlerts ?: MutableStateFlow<List<ActiveAlert>>(emptyList())
@@ -341,6 +388,7 @@ class ObdService : Service() {
         val link = transport
         stateRelay.attach(link.connectionState, address)
         _telemetry.value = ObdTelemetry()
+        hasDrivenThisTrip = false
         _supportedPids.value = emptySet()
         _vin.value = null
         _readiness.value = null
@@ -408,6 +456,11 @@ class ObdService : Service() {
 
     @Synchronized
     fun disconnect() {
+        // Power-disconnect / adapter-unplug trigger: lock the last known GPS fix.
+        if (hasDrivenThisTrip) {
+            captureAndPublishParkedLocation()
+            hasDrivenThisTrip = false
+        }
         connectionGeneration++
         activeDevice = null
         forgetDevice()
@@ -963,6 +1016,7 @@ class ObdService : Service() {
             // Engine-off detection tracking:
             // Triggered automatically when RPM drops to 0 and battery voltage drops below 12.8V for > 5 seconds while in DRIVING state
             var hasBeenDrivingThisTrip = false
+            var lastTelemetryPublishMs = 0L
             var engineOffConditionStartedAt = 0L
             var engineOffSummaryTriggered = false
             var peakRpmThisTrip = 0
@@ -1001,7 +1055,7 @@ class ObdService : Service() {
                         }
                         if (batched.speedKmh != null) {
                             speed = batched.speedKmh
-                            if (batched.speedKmh > 5) hasBeenDrivingThisTrip = true
+                            if (batched.speedKmh > 5) { hasBeenDrivingThisTrip = true; hasDrivenThisTrip = true }
                         }
                         if (batched.throttlePct != null) throttle = batched.throttlePct
                         if (batched.engineLoadPct != null) load = batched.engineLoadPct
@@ -1025,7 +1079,7 @@ class ObdService : Service() {
                                 val decoded = PidDecoders.decodeSpeed(response)
                                 if (decoded != null) {
                                     speed = decoded
-                                    if (decoded > 5) hasBeenDrivingThisTrip = true
+                                    if (decoded > 5) { hasBeenDrivingThisTrip = true; hasDrivenThisTrip = true }
                                 }
                             }
                             "0111" -> throttle = PidDecoders.decodeThrottle(response) ?: throttle
@@ -1099,6 +1153,7 @@ class ObdService : Service() {
                                 engineOffConditionStartedAt = now
                             } else if (now - engineOffConditionStartedAt >= 5000L && !engineOffSummaryTriggered) {
                                 engineOffSummaryTriggered = true
+                                captureAndPublishParkedLocation()
                                 val totalDistance = cityDistanceKm + highwayDistanceKm
                                 val driveDurationSec = ((now - tripStartTimeMs) / 1000L).coerceAtLeast(10L)
                                 val fuelPriceQar = runCatching {
@@ -1173,6 +1228,20 @@ class ObdService : Service() {
                     )
 
                     _telemetry.update { newTelemetry.copy(sensors = it.sensors, vehicleInfo = it.vehicleInfo) }
+                    // Throttled live telemetry publish (2-5 Hz) to HiveMQ Cloud.
+                    if (now - lastTelemetryPublishMs >= 250L) {
+                        lastTelemetryPublishMs = now
+                        mqttPublisher.publishTelemetry(
+                            speedKmh = speed,
+                            rpm = rpm,
+                            coolantTempC = coolant,
+                            intakeTempC = intake,
+                            fuelLevelPct = fuel,
+                            throttlePct = throttle,
+                            engineLoadPct = load,
+                            batteryVoltage = voltage
+                        )
+                    }
                     batteryHealthAnalyzer.onTelemetrySample(newTelemetry.rpm, newTelemetry.batteryVoltage, now)
                     predictiveFuelTrimAnalyzer.onTelemetrySample(
                         newTelemetry.shortTermFuelTrimPct,

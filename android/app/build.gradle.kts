@@ -172,6 +172,11 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
 
+    // MQTT (HiveMQ client) for publishing telemetry / parked location to HiveMQ Cloud.
+    implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
+    // Fused location for capturing the parked GPS fix on engine shutdown.
+    implementation("com.google.android.gms:play-services-location:21.3.0")
+
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     // Firebase: use the BOM to keep versions aligned. Analytics is always-on,
