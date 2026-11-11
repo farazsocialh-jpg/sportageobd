@@ -332,6 +332,16 @@ fun ConnectivitySettingsPage(
             }
         )
 
+        SettingsActionItem(
+            title = "MQTT / Adafruit IO Settings",
+            description = "Configure broker host, credentials, vehicle ID, and phone pairing",
+            buttonLabel = "Open MQTT Settings",
+            icon = Icons.Default.Settings,
+            onClick = {
+                context.startActivity(Intent(context, com.sportage.obd.LinkPhoneActivity::class.java))
+            }
+        )
+
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
