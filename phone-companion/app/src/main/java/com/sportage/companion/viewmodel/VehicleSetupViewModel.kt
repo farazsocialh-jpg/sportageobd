@@ -16,7 +16,8 @@ data class VehicleSetupUiState(
     val vehicleId: String = "",
     val displayName: String = "Sportage",
     val error: String? = null,
-    val paired: Boolean = false
+    val paired: Boolean = false,
+    val qrPayload: String? = null
 )
 
 class VehicleSetupViewModel(
@@ -46,9 +47,32 @@ class VehicleSetupViewModel(
                 return@launch
             }
             vehicleRepo.pair(uid, v, _state.value.displayName.trim().ifBlank { "Sportage" })
-            _state.value = _state.value.copy(paired = true, error = null)
+            val payload = buildQrPayload(uid, v)
+            _state.value = _state.value.copy(paired = true, error = null, qrPayload = payload)
         }
     }
+
+    fun generatePairing() {
+        viewModelScope.launch {
+            val uid = authRepo.currentUser.first()?.uid
+            if (uid.isNullOrBlank()) {
+                _state.value = _state.value.copy(error = "Not authenticated")
+                return@launch
+            }
+            val vid = "sportage_${uid.take(6)}_${(100000..999999).random()}"
+            vehicleRepo.pair(uid, vid, _state.value.displayName.trim().ifBlank { "Sportage" })
+            val payload = buildQrPayload(uid, vid)
+            _state.value = _state.value.copy(vehicleId = vid, paired = true, error = null, qrPayload = payload)
+        }
+    }
+
+    private fun buildQrPayload(uid: String, vid: String): String =
+        org.json.JSONObject().apply {
+            put("vehicleId", vid)
+            put("userId", uid)
+            put("mqttUser", com.sportage.companion.data.mqtt.MqttConfig.USERNAME)
+            put("mqttPass", com.sportage.companion.data.mqtt.MqttConfig.PASSWORD)
+        }.toString()
 
     fun unpair() {
         viewModelScope.launch {

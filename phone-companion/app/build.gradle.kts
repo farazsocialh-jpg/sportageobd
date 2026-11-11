@@ -84,6 +84,9 @@ dependencies {
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.android.gms:play-services-auth:21.2.0")
 
+    // QR code generation for pairing
+    implementation("com.google.zxing:core:3.5.3")
+
     // CameraX + ML Kit barcode scanning (QR provisioning)
     implementation("androidx.camera:camera-core:1.4.0")
     implementation("androidx.camera:camera-camera2:1.4.0")

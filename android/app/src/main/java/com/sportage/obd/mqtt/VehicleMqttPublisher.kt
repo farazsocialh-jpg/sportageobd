@@ -22,6 +22,7 @@ class VehicleMqttPublisher(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
+    private val linkManager = MqttLinkManager(context)
     private val client: Mqtt3AsyncClient = MqttClient.builder()
         .useMqttVersion3()
         .serverHost(MqttConfig.HOST)
@@ -79,7 +80,7 @@ class VehicleMqttPublisher(
             put("batteryVoltage", (batteryVoltage ?: 0f).toDouble())
             put("timestamp", System.currentTimeMillis())
         }
-        publish(MqttConfig.TOPIC_TELEMETRY, json.toString(), qos = MqttQos.AT_MOST_ONCE, retain = false)
+        publish(linkManager.telemetryTopic(), json.toString(), qos = MqttQos.AT_MOST_ONCE, retain = false)
     }
 
     fun publishParkedLocation(
@@ -95,7 +96,7 @@ class VehicleMqttPublisher(
             put("accuracy", accuracy.toDouble())
         }
         // Retained + QoS 1 so a phone connecting hours later still receives the last pin.
-        publish(MqttConfig.TOPIC_PARKED, json.toString(), qos = MqttQos.AT_LEAST_ONCE, retain = true)
+        publish(linkManager.parkingTopic(), json.toString(), qos = MqttQos.AT_LEAST_ONCE, retain = true)
     }
 
     private fun publish(topic: String, payload: String, qos: MqttQos, retain: Boolean) {
