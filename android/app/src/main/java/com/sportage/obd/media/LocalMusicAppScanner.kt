@@ -26,6 +26,33 @@ data class DiscoveredMusicApp(
 
 object LocalMusicAppScanner {
 
+    val KNOWN_MUSIC_APP_PACKAGES: List<String> = listOf(
+        "com.spotify.music",
+        "com.google.android.apps.youtube.music",
+        "com.apple.android.music",
+        "com.amazon.mp3",
+        "com.pandora.android",
+        "com.deezer.android.app",
+        "com.aspiro.tidal",
+        "com.soundcloud.android",
+        "com.maxmpz.audioplayer",
+        "com.aimp.player",
+        "org.videolan.vlc",
+        "com.mxtech.videoplayer.ad",
+        "com.mxtech.videoplayer.pro",
+        "com.jetappfactory.jetaudio",
+        "com.rhmsoft.pulsar",
+        "com.simplemobiletools.musicplayer",
+        "com.foobar2000.foobar2000",
+        "com.neutroncode.mp",
+        "com.hiby.music",
+        "com.musicolet",
+        "com.kabouzeid.gramophone",
+        "com.kmplayer",
+        "com.kpoobest.muse",
+        "com.chaitanyapramod.muse"
+    )
+
     val KNOWN_HEAD_UNIT_STOCK_PACKAGES: List<String> = listOf(
         "com.microntek.music",
         "com.syu.music",
@@ -105,6 +132,46 @@ object LocalMusicAppScanner {
             runCatching {
                 pm.getApplicationInfo(pkg, 0)
                 addPackage(pkg, isStock = true)
+            }
+        }
+
+        // (f) Broad heuristic fallback: enumerate installed apps and keep anything that
+        // looks like a music/audio player. This catches apps that do not declare any of
+        // the standard music intents (common on Android head units) while QUERY_ALL_PACKAGES
+        // grants package visibility.
+        runCatching {
+            pm.getInstalledApplications(PackageManager.GET_META_DATA).forEach { appInfo ->
+                val label = runCatching { appInfo.loadLabel(pm).toString() }.getOrDefault("")
+                val haystack = (appInfo.packageName + " " + label).lowercase()
+                val looksLikeMusic = haystack.contains("music") ||
+                    haystack.contains("audio") ||
+                    haystack.contains("player") ||
+                    haystack.contains("sound") ||
+                    haystack.contains("spotify") ||
+                    haystack.contains("youtube") ||
+                    haystack.contains("deezer") ||
+                    haystack.contains("tidal") ||
+                    haystack.contains("pandora") ||
+                    haystack.contains("soundcloud") ||
+                    haystack.contains("poweramp") ||
+                    haystack.contains("phonograph") ||
+                    haystack.contains("musicolet") ||
+                    haystack.contains("retro") ||
+                    haystack.contains("neutron") ||
+                    haystack.contains("hiby") ||
+                    haystack.contains("vlc")
+                if (looksLikeMusic) {
+                    addPackage(appInfo.packageName)
+                }
+            }
+        }
+
+        // (g) Known popular music player packages (handles apps whose label/package name
+        // does not contain an obvious keyword).
+        KNOWN_MUSIC_APP_PACKAGES.forEach { pkg ->
+            runCatching {
+                pm.getApplicationInfo(pkg, 0)
+                addPackage(pkg)
             }
         }
 
