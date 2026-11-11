@@ -196,6 +196,19 @@ fun CarLauncherScreen(
     val configuration = LocalConfiguration.current
     val isLandscape = configuration.screenWidthDp >= configuration.screenHeightDp
     val activeAlerts = viewModel?.activeAlerts?.collectAsState()?.value ?: emptyList()
+    // Prefer the live telemetry StateFlow directly so the home gauges never lag behind a
+    // stale copy forwarded from the activity.
+    val liveTelemetry = viewModel?.telemetry?.collectAsState()?.value
+    val speed = liveTelemetry?.speedKmh ?: speed
+    val rpm = liveTelemetry?.rpm ?: rpm
+    val coolant = liveTelemetry?.coolantTempC ?: coolant
+    val intakeTemp = liveTelemetry?.intakeTempC ?: intakeTemp
+    val fuelLevel = liveTelemetry?.fuelLevelPct ?: fuelLevel
+    val throttle = liveTelemetry?.throttlePct ?: throttle
+    val load = liveTelemetry?.engineLoadPct ?: load
+    val voltage = liveTelemetry?.batteryVoltage ?: voltage
+    val gear = liveTelemetry?.estimatedGear ?: gear
+    val transmissionGear = liveTelemetry?.transmissionGear ?: transmissionGear
 
     var speedUnit by remember {
         mutableStateOf(uiPrefs?.getString("speedUnit", "km/h") ?: "km/h")
