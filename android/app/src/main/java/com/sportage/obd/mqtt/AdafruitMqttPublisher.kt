@@ -12,17 +12,14 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
-/**
- * Publishes live telemetry and the retained parked-location pin to HiveMQ Cloud.
- *
- * Configure [MqttConfig] (host / username / password) before use. The client connects
- * lazily on first publish and reconnects on failure.
- */
-class VehicleMqttPublisher(
+class AdafruitMqttPublisher(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
     private val linkManager = MqttLinkManager(context)
+    private val username: String get() = linkManager.adafruitUsername ?: MqttConfig.USERNAME
+    private val password: String get() = linkManager.adafruitKey ?: MqttConfig.PASSWORD
+
     private val client: Mqtt3AsyncClient = MqttClient.builder()
         .useMqttVersion3()
         .serverHost(MqttConfig.HOST)
@@ -34,26 +31,26 @@ class VehicleMqttPublisher(
     private var connected: Boolean = false
 
     fun connect() {
-        if (connected) return
+        if (connected || username.isBlank()) return
         scope.launch {
             try {
                 client.connectWith()
                     .simpleAuth()
-                    .username(MqttConfig.USERNAME)
-                    .password(MqttConfig.PASSWORD.toByteArray(StandardCharsets.UTF_8))
+                    .username(username)
+                    .password(password.toByteArray(StandardCharsets.UTF_8))
                     .applySimpleAuth()
                     .send()
                     .whenComplete { _, throwable ->
                         if (throwable != null) {
-                            Log.w(TAG, "MQTT connect failed: ${throwable.message}")
+                            Log.w(TAG, "Adafruit MQTT connect failed: ${throwable.message}")
                             connected = false
                         } else {
                             connected = true
-                            Log.i(TAG, "MQTT connected to ${MqttConfig.HOST}")
+                            Log.i(TAG, "Adafruit MQTT connected as $username")
                         }
                     }
             } catch (t: Throwable) {
-                Log.w(TAG, "MQTT connect error: ${t.message}")
+                Log.w(TAG, "Adafruit MQTT connect error: ${t.message}")
                 connected = false
             }
         }
@@ -63,11 +60,7 @@ class VehicleMqttPublisher(
         speedKmh: Int?,
         rpm: Int?,
         coolantTempC: Int?,
-        intakeTempC: Int?,
-        fuelLevelPct: Int?,
-        throttlePct: Float?,
-        engineLoadPct: Float?,
-        batteryVoltage: Float?
+        fuelLevelPct: Int?
     ) {
         val speed = speedKmh ?: 0
         val rpmValue = rpm ?: 0
@@ -75,11 +68,10 @@ class VehicleMqttPublisher(
             put("speed", speed)
             put("rpm", rpmValue)
             put("coolantTemp", coolantTempC ?: 0)
-            put("fuelLevel", fuelLevelPct ?: 0)
             put("isEngineRunning", rpmValue > 0 || speed > 0)
             put("timestamp", System.currentTimeMillis())
         }
-        publish(linkManager.telemetryTopic(), json.toString(), qos = MqttQos.AT_MOST_ONCE, retain = false)
+        publish(linkManager.telemetryTopic(), json.toString(), MqttQos.AT_MOST_ONCE, retain = false)
     }
 
     fun publishParkedLocation(
@@ -94,8 +86,7 @@ class VehicleMqttPublisher(
             put("accuracy", accuracy.toDouble())
             put("timestamp", timestamp)
         }
-        // Retained + QoS 1 so a phone connecting hours later still receives the last pin.
-        publish(linkManager.parkingTopic(), json.toString(), qos = MqttQos.AT_LEAST_ONCE, retain = true)
+        publish(linkManager.parkingTopic(), json.toString(), MqttQos.AT_LEAST_ONCE, retain = true)
     }
 
     private fun publish(topic: String, payload: String, qos: MqttQos, retain: Boolean) {
@@ -109,31 +100,24 @@ class VehicleMqttPublisher(
                     .retain(retain)
                     .send()
             } catch (t: Throwable) {
-                Log.w(TAG, "MQTT publish failed on $topic: ${t.message}")
+                Log.w(TAG, "Adafruit MQTT publish failed on $topic: ${t.message}")
             }
         }
     }
 
     fun disconnect() {
-        try {
-            client.disconnect()
-        } catch (_: Throwable) {
-        }
+        try { client.disconnect() } catch (_: Throwable) {}
         connected = false
     }
 
     companion object {
-        private const val TAG = "VehicleMqttPublisher"
+        private const val TAG = "AdafruitMqttPublisher"
     }
 }
 
 object MqttConfig {
-    // HiveMQ Cloud (free tier) endpoint. Fill these in before shipping.
-    const val HOST: String = "YOUR_CLUSTER.hivemq.cloud"
+    const val HOST: String = "io.adafruit.com"
     const val PORT: Int = 8883
-    const val USERNAME: String = "YOUR_USERNAME"
-    const val PASSWORD: String = "YOUR_PASSWORD"
-
-    const val TOPIC_TELEMETRY: String = "sportage/sportage/telemetry"
-    const val TOPIC_PARKED: String = "sportage/sportage/parking"
+    const val USERNAME: String = "YOUR_ADAFRUIT_USERNAME"
+    const val PASSWORD: String = "YOUR_AIO_KEY"
 }

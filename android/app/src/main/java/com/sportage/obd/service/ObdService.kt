@@ -54,7 +54,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
-import com.sportage.obd.mqtt.VehicleMqttPublisher
+import com.sportage.obd.mqtt.AdafruitMqttPublisher
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -254,7 +254,7 @@ class ObdService : Service() {
     val lastParkedLocationStore by lazy { com.sportage.obd.map.LastParkedLocationStore(this) }
     val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> get() = lastParkedLocationStore.lastParkedLocation
 
-    val mqttPublisher by lazy { VehicleMqttPublisher(this, serviceScope) }
+    val mqttPublisher by lazy { AdafruitMqttPublisher(this, serviceScope) }
 
     @Volatile
     private var hasDrivenThisTrip: Boolean = false
@@ -1229,17 +1229,13 @@ class ObdService : Service() {
 
                     _telemetry.update { newTelemetry.copy(sensors = it.sensors, vehicleInfo = it.vehicleInfo) }
                     // Throttled live telemetry publish (2-5 Hz) to HiveMQ Cloud.
-                    if (now - lastTelemetryPublishMs >= 250L) {
+                    if (now - lastTelemetryPublishMs >= 2000L) {
                         lastTelemetryPublishMs = now
                         mqttPublisher.publishTelemetry(
                             speedKmh = speed,
                             rpm = rpm,
                             coolantTempC = coolant,
-                            intakeTempC = intake,
-                            fuelLevelPct = fuel,
-                            throttlePct = throttle,
-                            engineLoadPct = load,
-                            batteryVoltage = voltage
+                            fuelLevelPct = fuel
                         )
                     }
                     batteryHealthAnalyzer.onTelemetrySample(newTelemetry.rpm, newTelemetry.batteryVoltage, now)

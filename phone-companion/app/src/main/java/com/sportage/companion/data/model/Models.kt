@@ -32,8 +32,8 @@ data class MqttConnectionProfile(
     fun isValid(): Boolean =
         brokerHost.isNotBlank() && mqttUsername.isNotBlank() && mqttPassword.isNotBlank() && vehicleId.isNotBlank()
 
-    fun telemetryTopic(): String = "sportage/$vehicleId/telemetry"
-    fun parkingTopic(): String = "sportage/$vehicleId/parking"
+    fun telemetryTopic(): String = "${mqttUsername}/feeds/telemetry"
+    fun parkingTopic(): String = "${mqttUsername}/feeds/parking"
 }
 
 enum class ConnectionState {

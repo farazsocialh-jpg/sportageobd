@@ -14,10 +14,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class ConnectionSetupUiState(
-    val brokerHost: String = "",
+    val brokerHost: String = "io.adafruit.com",
     val brokerPort: String = "8883",
     val mqttUsername: String = "",
-    val mqttPassword: String = "",
+    val mqttPassword: String = "YOUR_AIO_KEY",
     val vehicleId: String = "",
     val saved: Boolean = false,
     val testing: Boolean = false,
