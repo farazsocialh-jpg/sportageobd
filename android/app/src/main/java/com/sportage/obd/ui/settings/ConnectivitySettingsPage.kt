@@ -113,6 +113,18 @@ fun ConnectivitySettingsPage(
             onNavigateBack = onNavigateBack
         )
 
+        // MQTT / CLOUD SYNC
+        SettingsSectionHeader(title = "MQTT / Cloud Sync")
+        SettingsActionItem(
+            title = "MQTT / Adafruit IO Settings",
+            description = "Configure broker host, credentials, vehicle ID, and phone pairing",
+            buttonLabel = "Open MQTT Settings",
+            icon = Icons.Default.Settings,
+            onClick = {
+                context.startActivity(Intent(context, com.sportage.obd.LinkPhoneActivity::class.java))
+            }
+        )
+
         // 1. BLUETOOTH ADAPTER STATUS
         SettingsSectionHeader(title = "Bluetooth Adapter Status")
 
@@ -329,16 +341,6 @@ fun ConnectivitySettingsPage(
                 viewModel?.forgetSavedAdapter()
                 uiPrefs.edit().remove("last_connected_device_address").remove("last_connected_device_name").apply()
                 android.widget.Toast.makeText(context, "Stored OBD adapter cleared", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        )
-
-        SettingsActionItem(
-            title = "MQTT / Adafruit IO Settings",
-            description = "Configure broker host, credentials, vehicle ID, and phone pairing",
-            buttonLabel = "Open MQTT Settings",
-            icon = Icons.Default.Settings,
-            onClick = {
-                context.startActivity(Intent(context, com.sportage.obd.LinkPhoneActivity::class.java))
             }
         )
 
