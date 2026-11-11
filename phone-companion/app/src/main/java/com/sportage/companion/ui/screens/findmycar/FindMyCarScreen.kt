@@ -25,6 +25,7 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.maps.android.compose.GoogleMap
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerState
+import com.google.maps.android.compose.rememberMarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.sportage.companion.viewmodel.FindMyCarViewModel
 import org.koin.androidx.compose.koinViewModel
@@ -55,7 +56,7 @@ fun FindMyCarScreen(viewModel: FindMyCarViewModel = koinViewModel()) {
                     cameraPositionState = cameraPositionState
                 ) {
                     Marker(
-                        state = MarkerState(position = latLng),
+                        state = rememberMarkerState(position = latLng),
                         title = "Parked Sportage",
                         snippet = "Accuracy ${"%.1f".format(loc.accuracy)} m"
                     )

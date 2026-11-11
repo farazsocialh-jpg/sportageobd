@@ -19,6 +19,8 @@ import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import java.util.concurrent.Executors
 
+@Suppress("UnsafeOptInUsageError")
+@OptIn(androidx.camera.core.ExperimentalGetImage::class)
 @Composable
 fun QrScanner(
     modifier: Modifier = Modifier,
@@ -51,17 +53,7 @@ fun QrScanner(
                 }
                 val analysis = ImageAnalysis.Builder().build().also { ia ->
                     ia.setAnalyzer(executor) { imageProxy ->
-                        val mediaImage = imageProxy.image
-                        if (mediaImage != null) {
-                            val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-                            scanner.process(image)
-                                .addOnSuccessListener { barcodes ->
-                                    barcodes.firstOrNull()?.rawValue?.let { onScanned(it) }
-                                }
-                                .addOnCompleteListener { imageProxy.close() }
-                        } else {
-                            imageProxy.close()
-                        }
+                        handleImageProxy(imageProxy, scanner, onScanned)
                     }
                 }
                 cameraProvider.unbindAll()
@@ -76,4 +68,24 @@ fun QrScanner(
         },
         modifier = modifier
     )
+}
+
+@Suppress("UnsafeOptInUsageError")
+@androidx.camera.core.ExperimentalGetImage
+private fun handleImageProxy(
+    imageProxy: androidx.camera.core.ImageProxy,
+    scanner: com.google.mlkit.vision.barcode.BarcodeScanner,
+    onScanned: (String) -> Unit
+) {
+    val mediaImage = imageProxy.image
+    if (mediaImage != null) {
+        val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
+        scanner.process(image)
+            .addOnSuccessListener { barcodes ->
+                barcodes.firstOrNull()?.rawValue?.let { onScanned(it) }
+            }
+            .addOnCompleteListener { imageProxy.close() }
+    } else {
+        imageProxy.close()
+    }
 }
