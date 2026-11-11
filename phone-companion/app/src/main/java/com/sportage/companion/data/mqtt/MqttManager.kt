@@ -88,11 +88,14 @@ class MqttManager(
     }
 
     private fun subscribe() {
+        val telemetryTopic = profile.telemetryTopic()
+        Log.d("MQTT_STREAM", "Subscribing to: $telemetryTopic")
         client.subscribeWith()
-            .topicFilter(profile.telemetryTopic())
+            .topicFilter(telemetryTopic)
             .qos(MqttQos.AT_MOST_ONCE)
-            .callback { publish ->
-                val payload = String(publish.payloadAsBytes, StandardCharsets.UTF_8)
+            .callback { message ->
+                Log.d("MQTT_STREAM", "Received raw packet: " + String(message.payloadAsBytes))
+                val payload = String(message.payloadAsBytes, StandardCharsets.UTF_8)
                 runCatching {
                     val o = JSONObject(payload)
                     val t = LiveTelemetry(
@@ -103,9 +106,11 @@ class MqttManager(
                         isEngineRunning = o.optBoolean("isEngineRunning", false),
                         timestamp = o.optLong("timestamp", System.currentTimeMillis())
                     )
-                    _telemetry.value = t
-                    _lastTelemetryAt.value = if (t.timestamp > 0) t.timestamp else System.currentTimeMillis()
-                    _isDriving.value = t.isDriving
+                    scope.launch(Dispatchers.Main) {
+                        _telemetry.value = t
+                        _lastTelemetryAt.value = if (t.timestamp > 0) t.timestamp else System.currentTimeMillis()
+                        _isDriving.value = t.isDriving
+                    }
                 }.onFailure { Log.w(TAG, "Bad telemetry payload: ${it.message}") }
             }
             .send()

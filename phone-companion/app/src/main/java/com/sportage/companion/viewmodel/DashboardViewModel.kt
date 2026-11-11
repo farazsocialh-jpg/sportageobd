@@ -15,7 +15,8 @@ import kotlinx.coroutines.launch
 class DashboardViewModel(
     private val repo: CompanionDataRepository
 ) : ViewModel() {
-    val telemetry: StateFlow<LiveTelemetry> = repo.telemetry
+    private val _telemetry = MutableStateFlow(LiveTelemetry())
+    val telemetry: StateFlow<LiveTelemetry> = _telemetry.asStateFlow()
     val connectionState: StateFlow<ConnectionState> = repo.connectionState
     val isDriving: StateFlow<Boolean> = repo.isDriving
 
@@ -23,6 +24,11 @@ class DashboardViewModel(
     val isLive: StateFlow<Boolean> = _isLive.asStateFlow()
 
     init {
+        viewModelScope.launch {
+            repo.telemetry.collect { incoming ->
+                _telemetry.value = incoming
+            }
+        }
         viewModelScope.launch {
             while (isActive) {
                 val last = repo.lastTelemetryAt.value
