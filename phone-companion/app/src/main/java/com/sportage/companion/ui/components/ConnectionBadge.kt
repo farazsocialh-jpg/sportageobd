@@ -8,12 +8,13 @@ import androidx.compose.runtime.Composable
 import com.sportage.companion.data.model.ConnectionState
 
 @Composable
-fun ConnectionBadge(status: ConnectionState) {
-    val (label, color) = when (status) {
-        ConnectionState.CONNECTING -> "Connecting to Broker" to MaterialTheme.colorScheme.tertiary
-        ConnectionState.CONNECTED -> "Connected" to MaterialTheme.colorScheme.primary
-        ConnectionState.DISCONNECTED -> "Disconnected" to MaterialTheme.colorScheme.error
-        ConnectionState.AUTH_FAILED -> "Auth Failed" to MaterialTheme.colorScheme.error
+fun ConnectionBadge(status: ConnectionState, live: Boolean) {
+    val (label, color) = when {
+        live -> "Live" to MaterialTheme.colorScheme.primary
+        status == ConnectionState.CONNECTED -> "Connected (waiting for car)" to MaterialTheme.colorScheme.tertiary
+        status == ConnectionState.CONNECTING -> "Connecting to Broker" to MaterialTheme.colorScheme.tertiary
+        status == ConnectionState.AUTH_FAILED -> "Auth Failed" to MaterialTheme.colorScheme.error
+        else -> "Car Offline / Parked" to MaterialTheme.colorScheme.error
     }
     AssistChip(
         onClick = {},

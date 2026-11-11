@@ -28,6 +28,7 @@ import org.koin.androidx.compose.koinViewModel
 fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
     val telemetry by viewModel.telemetry.collectAsState()
     val status by viewModel.connectionState.collectAsState()
+    val isLive by viewModel.isLive.collectAsState()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -35,7 +36,7 @@ fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Text("Live Dashboard", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        ConnectionBadge(status)
+        ConnectionBadge(status, isLive)
         Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier.fillMaxWidth(),

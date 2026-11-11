@@ -39,49 +39,39 @@ class LinkPhoneActivity : ComponentActivity() {
 
 @Composable
 private fun LinkPhoneScreen(linkManager: MqttLinkManager) {
+    var host by remember { mutableStateOf(linkManager.brokerHost) }
+    var port by remember { mutableStateOf(linkManager.brokerPort.toString()) }
     var username by remember { mutableStateOf(linkManager.adafruitUsername ?: "") }
-    var vehicleId by remember { mutableStateOf(linkManager.vehicleId ?: "") }
     var aioKey by remember { mutableStateOf(linkManager.adafruitKey ?: "YOUR_AIO_KEY") }
+    var vehicleId by remember { mutableStateOf(linkManager.vehicleId ?: "") }
     var saved by remember { mutableStateOf(linkManager.isLinked()) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         verticalArrangement = Arrangement.Center
     ) {
-        Text("Link Adafruit IO", style = MaterialTheme.typography.headlineMedium)
+        Text("MQTT Settings", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
-        OutlinedTextField(
-            value = username,
-            onValueChange = { username = it; saved = false },
-            label = { Text("Adafruit IO username") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        OutlinedTextField(value = host, onValueChange = { host = it; saved = false }, label = { Text("Broker host") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = aioKey,
-            onValueChange = { aioKey = it; saved = false },
-            label = { Text("AIO key") },
-            visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
-        )
+        OutlinedTextField(value = port, onValueChange = { port = it; saved = false }, label = { Text("Broker port") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = vehicleId,
-            onValueChange = { vehicleId = it; saved = false },
-            label = { Text("Vehicle ID") },
-            modifier = Modifier.fillMaxWidth()
-        )
+        OutlinedTextField(value = username, onValueChange = { username = it; saved = false }, label = { Text("MQTT username") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = aioKey, onValueChange = { aioKey = it; saved = false }, label = { Text("MQTT password / AIO key") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = vehicleId, onValueChange = { vehicleId = it; saved = false }, label = { Text("Vehicle ID") }, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
-                linkManager.savePairing(username, vehicleId, aioKey)
+                linkManager.saveSettings(host, port.toIntOrNull() ?: 8883, username, aioKey, vehicleId)
                 saved = true
             },
             modifier = Modifier.fillMaxWidth()
-        ) { Text("Save pairing") }
+        ) { Text("Save settings") }
         if (saved) {
             Spacer(Modifier.height(8.dp))
-            Text("Linked. Telemetry publishes to ${username}/feeds/telemetry", color = MaterialTheme.colorScheme.primary)
+            Text("Saved. Telemetry topic: ${linkManager.telemetryTopic()}", color = MaterialTheme.colorScheme.primary)
         }
     }
 }

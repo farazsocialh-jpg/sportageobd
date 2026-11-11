@@ -12,18 +12,22 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.nio.charset.StandardCharsets
 
-class AdafruitMqttPublisher(
+class CarMqttPublisher(
     private val context: Context,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
     private val linkManager = MqttLinkManager(context)
     private val username: String get() = linkManager.adafruitUsername ?: MqttConfig.USERNAME
     private val password: String get() = linkManager.adafruitKey ?: MqttConfig.PASSWORD
+    private val host: String get() = linkManager.brokerHost
+    private val port: Int get() = linkManager.brokerPort
 
+    private val clientId = "car-" + java.util.UUID.randomUUID().toString().take(8)
     private val client: Mqtt3AsyncClient = MqttClient.builder()
         .useMqttVersion3()
-        .serverHost(MqttConfig.HOST)
-        .serverPort(MqttConfig.PORT)
+        .identifier(clientId)
+        .serverHost(host)
+        .serverPort(port)
         .sslWithDefaultConfig()
         .buildAsync()
 
@@ -42,15 +46,15 @@ class AdafruitMqttPublisher(
                     .send()
                     .whenComplete { _, throwable ->
                         if (throwable != null) {
-                            Log.w(TAG, "Adafruit MQTT connect failed: ${throwable.message}")
+                            Log.w(TAG, "Car MQTT connect failed: ${throwable.message}")
                             connected = false
                         } else {
                             connected = true
-                            Log.i(TAG, "Adafruit MQTT connected as $username")
+                            Log.i(TAG, "Car MQTT connected as $username")
                         }
                     }
             } catch (t: Throwable) {
-                Log.w(TAG, "Adafruit MQTT connect error: ${t.message}")
+                Log.w(TAG, "Car MQTT connect error: ${t.message}")
                 connected = false
             }
         }
@@ -100,7 +104,7 @@ class AdafruitMqttPublisher(
                     .retain(retain)
                     .send()
             } catch (t: Throwable) {
-                Log.w(TAG, "Adafruit MQTT publish failed on $topic: ${t.message}")
+                Log.w(TAG, "Car MQTT publish failed on $topic: ${t.message}")
             }
         }
     }
@@ -111,7 +115,7 @@ class AdafruitMqttPublisher(
     }
 
     companion object {
-        private const val TAG = "AdafruitMqttPublisher"
+        private const val TAG = "CarMqttPublisher"
     }
 }
 

@@ -87,7 +87,7 @@ class ConnectionSetupViewModel(
         testJob?.cancel()
         _state.value = _state.value.copy(testing = true, testResult = null, error = null)
         testJob = viewModelScope.launch {
-            val manager = MqttManager(profile, this)
+            val manager = MqttManager(profile, false, this)
             manager.connect()
             var result: String? = null
             val deadline = System.currentTimeMillis() + 10_000L

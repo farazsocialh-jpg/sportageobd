@@ -21,10 +21,13 @@ import java.nio.charset.StandardCharsets
 
 class MqttManager(
     private val profile: MqttConnectionProfile,
+    private val autoSubscribe: Boolean = true,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) {
+    private val clientId = "phone-" + java.util.UUID.randomUUID().toString().take(8)
     private val client: Mqtt3AsyncClient = MqttClient.builder()
         .useMqttVersion3()
+        .identifier(clientId)
         .serverHost(profile.brokerHost)
         .serverPort(profile.brokerPort)
         .sslWithDefaultConfig()
@@ -32,6 +35,9 @@ class MqttManager(
 
     private val _telemetry = MutableStateFlow(LiveTelemetry())
     val telemetry: StateFlow<LiveTelemetry> = _telemetry.asStateFlow()
+
+    private val _lastTelemetryAt = MutableStateFlow(0L)
+    val lastTelemetryAt: StateFlow<Long> = _lastTelemetryAt.asStateFlow()
 
     private val _parkedLocation = MutableStateFlow<ParkedLocation?>(null)
     val parkedLocation: StateFlow<ParkedLocation?> = _parkedLocation.asStateFlow()
@@ -70,7 +76,7 @@ class MqttManager(
                         } else {
                             reconnectAttempt = 0
                             _connectionState.value = ConnectionState.CONNECTED
-                            subscribe()
+                            if (autoSubscribe) subscribe()
                         }
                     }
             } catch (t: Throwable) {
@@ -98,6 +104,7 @@ class MqttManager(
                         timestamp = o.optLong("timestamp", System.currentTimeMillis())
                     )
                     _telemetry.value = t
+                    _lastTelemetryAt.value = if (t.timestamp > 0) t.timestamp else System.currentTimeMillis()
                     _isDriving.value = t.isDriving
                 }.onFailure { Log.w(TAG, "Bad telemetry payload: ${it.message}") }
             }

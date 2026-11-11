@@ -30,6 +30,9 @@ class CompanionDataRepository(
     private val _isDriving = MutableStateFlow(false)
     val isDriving: StateFlow<Boolean> = _isDriving.asStateFlow()
 
+    private val _lastTelemetryAt = MutableStateFlow(0L)
+    val lastTelemetryAt: StateFlow<Long> = _lastTelemetryAt.asStateFlow()
+
     private var activeJob: Job? = null
     private var activeManager: MqttManager? = null
 
@@ -45,13 +48,14 @@ class CompanionDataRepository(
                     _connectionState.value = ConnectionState.DISCONNECTED
                 } else {
                     _connectionState.value = ConnectionState.CONNECTING
-                    val manager = MqttManager(profile, scope)
+                    val manager = MqttManager(profile, true, scope)
                     activeManager = manager
                     val job = scope.launch {
                         launch { manager.telemetry.collect { _telemetry.value = it } }
                         launch { manager.parkedLocation.collect { loc -> if (loc != null) _parkedLocation.value = loc } }
                         launch { manager.connectionState.collect { _connectionState.value = it } }
                         launch { manager.isDriving.collect { _isDriving.value = it } }
+                        launch { manager.lastTelemetryAt.collect { _lastTelemetryAt.value = it } }
                     }
                     activeJob = job
                     manager.connect()

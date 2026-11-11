@@ -54,7 +54,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withTimeoutOrNull
-import com.sportage.obd.mqtt.AdafruitMqttPublisher
+import com.sportage.obd.mqtt.CarMqttPublisher
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
@@ -254,7 +254,7 @@ class ObdService : Service() {
     val lastParkedLocationStore by lazy { com.sportage.obd.map.LastParkedLocationStore(this) }
     val lastParkedLocation: StateFlow<com.sportage.obd.map.ParkedLocation?> get() = lastParkedLocationStore.lastParkedLocation
 
-    val mqttPublisher by lazy { AdafruitMqttPublisher(this, serviceScope) }
+    val mqttPublisher by lazy { CarMqttPublisher(this, serviceScope) }
 
     @Volatile
     private var hasDrivenThisTrip: Boolean = false
