@@ -67,3 +67,12 @@
 #     public static *** v(...);
 # }
 
+
+# --- HiveMQ MQTT client (Netty) optional classes ---
+-dontwarn io.netty.**
+-dontwarn org.slf4j.**
+-dontwarn org.apache.log4j.**
+-dontwarn org.apache.logging.log4j.**
+-dontwarn org.eclipse.jetty.**
+-dontwarn reactor.blockhound.**
+-dontwarn io.netty.internal.tcnative.**
