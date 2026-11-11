@@ -1,9 +1,8 @@
-# Codemagic CI/CD Workflow for Sportage OBD Intelligence Native Android Launcher
-# Builds debug and installable APK for Android Head Units and Mobile Devices
+# Codemagic CI/CD Workflows for Sportage OBD and Sportage Companion
 
 workflows:
-  android-workflow:
-    name: Sportage OBD Android Launcher
+  car-workflow:
+    name: Sportage OBD Android Launcher (Car Head Unit)
     max_build_duration: 30
     instance_type: linux_x2
     environment:
@@ -20,16 +19,13 @@ workflows:
           include: true
           source: true
     scripts:
-      - name: Set Android SDK local.properties (car)
+      - name: Set Android SDK local.properties
         script: |
           ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
           echo "sdk.dir=$ANDROID_SDK" > "$CM_BUILD_DIR/android/local.properties"
-      - name: Prepare Gradle wrapper (car)
+      - name: Prepare Gradle wrapper
         script: |
           cd "$CM_BUILD_DIR/android"
-          if [ ! -f "gradle.properties" ] || ! grep -q "android.useAndroidX" "gradle.properties"; then
-            echo "android.useAndroidX=true" >> gradle.properties
-          fi
           chmod +x gradlew
       - name: Build Car Debug APK
         script: |
@@ -39,16 +35,42 @@ workflows:
         script: |
           cd "$CM_BUILD_DIR/android"
           ./gradlew bundleRelease --stacktrace
-      - name: Set Android SDK local.properties (companion)
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/*.aab
+    publishing:
+      email:
+        recipients:
+          - farazsocialh@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  companion-workflow:
+    name: Sportage Companion (Phone App)
+    max_build_duration: 30
+    instance_type: linux_x2
+    environment:
+      java: 17
+      vars:
+        PACKAGE_NAME: "com.sportage.companion"
+    triggering:
+      events:
+        - push
+        - tag
+        - pull_request
+      branch_patterns:
+        - pattern: '*'
+          include: true
+          source: true
+    scripts:
+      - name: Set Android SDK local.properties
         script: |
           ANDROID_SDK="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$HOME/Library/Android/sdk}}"
           echo "sdk.dir=$ANDROID_SDK" > "$CM_BUILD_DIR/phone-companion/local.properties"
-      - name: Prepare Gradle wrapper (companion)
+      - name: Prepare Gradle wrapper
         script: |
           cd "$CM_BUILD_DIR/phone-companion"
-          if [ ! -f "gradle.properties" ] || ! grep -q "android.useAndroidX" "gradle.properties"; then
-            echo "android.useAndroidX=true" >> gradle.properties
-          fi
           chmod +x gradlew
       - name: Build Companion Debug APK
         script: |
@@ -59,8 +81,6 @@ workflows:
           cd "$CM_BUILD_DIR/phone-companion"
           ./gradlew bundleRelease --stacktrace
     artifacts:
-      - android/app/build/outputs/**/*.apk
-      - android/app/build/outputs/**/*.aab
       - phone-companion/app/build/outputs/**/*.apk
       - phone-companion/app/build/outputs/**/*.aab
     publishing:
