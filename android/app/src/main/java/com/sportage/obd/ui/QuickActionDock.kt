@@ -43,6 +43,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalView
+import android.view.SoundEffectConstants
 import androidx.compose.ui.unit.dp
 import com.sportage.obd.ui.theme.DarkSurface
 import com.sportage.obd.ui.theme.DarkSurfaceElevated
@@ -207,15 +209,18 @@ private fun DockAction(
     active: Boolean = false,
     activeTint: Color = ElectricCyan()
 ) {
+    val view = LocalView.current
     Box(
         modifier = Modifier
             .size(64.dp)
             .clip(CircleShape)
-            .background(if (active) activeTint.copy(alpha = 0.15f) else Color.Transparent)
-            .clickable(
+            .background(if (active) activeTint.copy(alpha = 0.15f) else Color.Transparent)                .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                onClick = action
+                onClick = {
+                    view.playSoundEffect(SoundEffectConstants.CLICK)
+                    action()
+                }
             ),
         contentAlignment = Alignment.Center
     ) {
