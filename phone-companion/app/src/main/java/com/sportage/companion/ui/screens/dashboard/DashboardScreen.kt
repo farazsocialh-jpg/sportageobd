@@ -27,7 +27,7 @@ import org.koin.androidx.compose.koinViewModel
 @Composable
 fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
     val telemetry by viewModel.telemetry.collectAsState()
-    val status by viewModel.connectionStatus.collectAsState()
+    val status by viewModel.connectionState.collectAsState()
 
     Column(
         modifier = Modifier.fillMaxSize().padding(16.dp),
@@ -41,19 +41,18 @@ fun DashboardScreen(viewModel: DashboardViewModel = koinViewModel()) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            DialGauge("Speed", telemetry.speedKmh.toFloat(), 220f, "km/h")
+            DialGauge("Speed", telemetry.speed.toFloat(), 220f, "km/h")
             DialGauge("RPM", telemetry.rpm.toFloat(), 8000f, "")
         }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
-            DialGauge("Coolant", telemetry.coolantTempC.toFloat(), 130f, "°C")
-            DialGauge("Fuel", telemetry.fuelLevelPct.toFloat(), 100f, "%")
+            DialGauge("Coolant", telemetry.coolantTemp.toFloat(), 130f, "°C")
+            DialGauge("Fuel", telemetry.fuelLevel.toFloat(), 100f, "%")
         }
         Card(modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
-                Text("Battery: ${"%.2f".format(telemetry.batteryVoltage)} V")
                 Text("Updated: ${telemetry.timestamp}")
             }
         }

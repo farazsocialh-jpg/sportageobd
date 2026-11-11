@@ -69,15 +69,14 @@ class VehicleMqttPublisher(
         engineLoadPct: Float?,
         batteryVoltage: Float?
     ) {
+        val speed = speedKmh ?: 0
+        val rpmValue = rpm ?: 0
         val json = JSONObject().apply {
-            put("speedKmh", speedKmh ?: 0)
-            put("rpm", rpm ?: 0)
-            put("coolantTempC", coolantTempC ?: 0)
-            put("intakeTempC", intakeTempC ?: 0)
-            put("fuelLevelPct", fuelLevelPct ?: 0)
-            put("throttlePct", (throttlePct ?: 0f).toDouble())
-            put("engineLoadPct", (engineLoadPct ?: 0f).toDouble())
-            put("batteryVoltage", (batteryVoltage ?: 0f).toDouble())
+            put("speed", speed)
+            put("rpm", rpmValue)
+            put("coolantTemp", coolantTempC ?: 0)
+            put("fuelLevel", fuelLevelPct ?: 0)
+            put("isEngineRunning", rpmValue > 0 || speed > 0)
             put("timestamp", System.currentTimeMillis())
         }
         publish(linkManager.telemetryTopic(), json.toString(), qos = MqttQos.AT_MOST_ONCE, retain = false)
@@ -92,8 +91,8 @@ class VehicleMqttPublisher(
         val json = JSONObject().apply {
             put("latitude", latitude)
             put("longitude", longitude)
-            put("timestamp", timestamp)
             put("accuracy", accuracy.toDouble())
+            put("timestamp", timestamp)
         }
         // Retained + QoS 1 so a phone connecting hours later still receives the last pin.
         publish(linkManager.parkingTopic(), json.toString(), qos = MqttQos.AT_LEAST_ONCE, retain = true)
@@ -135,6 +134,6 @@ object MqttConfig {
     const val USERNAME: String = "YOUR_USERNAME"
     const val PASSWORD: String = "YOUR_PASSWORD"
 
-    const val TOPIC_TELEMETRY: String = "vehicles/sportage/telemetry"
-    const val TOPIC_PARKED: String = "vehicles/sportage/parked_location"
+    const val TOPIC_TELEMETRY: String = "sportage/sportage/telemetry"
+    const val TOPIC_PARKED: String = "sportage/sportage/parking"
 }

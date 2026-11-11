@@ -12,14 +12,35 @@ enum class ConnectionStatus {
 }
 
 data class LiveTelemetry(
-    val speedKmh: Int = 0,
+    val speed: Int = 0,
     val rpm: Int = 0,
-    val coolantTempC: Int = 0,
-    val fuelLevelPct: Int = 0,
-    val batteryVoltage: Float = 0f,
+    val coolantTemp: Int = 0,
+    val fuelLevel: Int = 0,
+    val isEngineRunning: Boolean = false,
     val timestamp: Long = System.currentTimeMillis()
 ) {
-    val isEngineRunning: Boolean get() = rpm > 0 || speedKmh > 0
+    val isDriving: Boolean get() = isEngineRunning || speed > 0
+}
+
+data class MqttConnectionProfile(
+    val brokerHost: String,
+    val brokerPort: Int = 8883,
+    val mqttUsername: String,
+    val mqttPassword: String,
+    val vehicleId: String
+) {
+    fun isValid(): Boolean =
+        brokerHost.isNotBlank() && mqttUsername.isNotBlank() && mqttPassword.isNotBlank() && vehicleId.isNotBlank()
+
+    fun telemetryTopic(): String = "sportage/$vehicleId/telemetry"
+    fun parkingTopic(): String = "sportage/$vehicleId/parking"
+}
+
+enum class ConnectionState {
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTED,
+    AUTH_FAILED
 }
 
 data class ParkedLocation(

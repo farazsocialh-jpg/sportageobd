@@ -4,19 +4,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    // Firebase plugins: apply only when google-services.json is present.
-    // The google-services plugin must come before crashlytics.
-    alias(libs.plugins.google.services) apply false
-    alias(libs.plugins.firebase.crashlytics) apply false
-}
-
-val hasGoogleServices = file("google-services.json").exists() ||
-    file("src/debug/google-services.json").exists() ||
-    file("src/release/google-services.json").exists()
-
-if (hasGoogleServices) {
-    apply(plugin = "com.google.gms.google-services")
-    apply(plugin = "com.google.firebase.crashlytics")
 }
 
 android {
@@ -187,16 +174,6 @@ dependencies {
 
     debugImplementation(libs.androidx.compose.ui.tooling)
 
-    // Firebase: use the BOM to keep versions aligned. Analytics is always-on,
-    // Crashlytics is also always-on in this app. Both are free tier friendly.
-    implementation(platform(libs.firebase.bom))
-    implementation(libs.firebase.analytics)
-    implementation(libs.firebase.crashlytics)
-
-    // Track key user flows: OBD connection success/failure, scan completions,
-    // launcher usage, onboarding completion. Analytics respects no special
-    // consent here because the data is anonymous and non-tracking.
-    // (Future: add a user consent gate around analytics if required by policy.)
 
     testImplementation(libs.junit)
     testImplementation("org.robolectric:robolectric:4.14.1")

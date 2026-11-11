@@ -38,7 +38,6 @@ class LinkPhoneActivity : ComponentActivity() {
 
 @Composable
 private fun LinkPhoneScreen(linkManager: MqttLinkManager) {
-    var userId by remember { mutableStateOf(linkManager.userId ?: "") }
     var vehicleId by remember { mutableStateOf(linkManager.vehicleId ?: "") }
     var saved by remember { mutableStateOf(linkManager.isLinked()) }
 
@@ -49,13 +48,6 @@ private fun LinkPhoneScreen(linkManager: MqttLinkManager) {
         Text("Link Phone Companion", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         OutlinedTextField(
-            value = userId,
-            onValueChange = { userId = it; saved = false },
-            label = { Text("User ID (Firebase UID)") },
-            modifier = Modifier.fillMaxWidth()
-        )
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
             value = vehicleId,
             onValueChange = { vehicleId = it; saved = false },
             label = { Text("Vehicle ID") },
@@ -64,7 +56,7 @@ private fun LinkPhoneScreen(linkManager: MqttLinkManager) {
         Spacer(Modifier.height(12.dp))
         Button(
             onClick = {
-                linkManager.savePairing(userId, vehicleId)
+                linkManager.savePairing(vehicleId)
                 saved = true
             },
             modifier = Modifier.fillMaxWidth()

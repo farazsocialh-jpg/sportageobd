@@ -976,11 +976,10 @@ class MainActivity : ComponentActivity(), LocationListener {
      * the user, their vehicle VIN, or their location is sent.
      */
     private fun analyticsLogEvent(eventName: String, vararg parameters: Pair<String, Any?>) {
+        // Firebase Analytics removed; keep method as no-op for compatibility.
         try {
-            val bundle = bundleOf(*parameters.map { (k, v) -> k to (v?.toString() ?: "null") }.toTypedArray())
-            (application as? SportageObdApp)?.firebaseAnalytics?.logEvent(eventName, bundle)
+            // no-op
         } catch (_: Exception) {
-            // Analytics must never break the app.
         }
     }
 

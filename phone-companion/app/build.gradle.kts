@@ -2,16 +2,6 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-    // Firebase plugins: apply only when google-services.json is present.
-    id("com.google.gms.google-services") version "4.4.2" apply false
-}
-
-val hasGoogleServices = file("google-services.json").exists() ||
-    file("src/debug/google-services.json").exists() ||
-    file("src/release/google-services.json").exists()
-
-if (hasGoogleServices) {
-    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -79,10 +69,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-maps:19.0.0")
     implementation("com.google.android.gms:play-services-location:21.3.0")
 
-    // Firebase Auth + Google Sign-In
-    implementation(platform("com.google.firebase:firebase-bom:33.7.0"))
-    implementation("com.google.firebase:firebase-auth-ktx")
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+    // Encrypted local storage for HiveMQ credentials
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
 
     // QR code generation for pairing
     implementation("com.google.zxing:core:3.5.3")

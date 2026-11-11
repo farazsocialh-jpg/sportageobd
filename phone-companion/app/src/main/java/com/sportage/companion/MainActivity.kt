@@ -18,10 +18,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.sportage.companion.ui.theme.SportageCompanionTheme
-import com.sportage.companion.ui.screens.auth.AuthScreen
+import com.sportage.companion.ui.screens.connectionsetup.ConnectionSetupScreen
 import com.sportage.companion.ui.screens.dashboard.DashboardScreen
 import com.sportage.companion.ui.screens.findmycar.FindMyCarScreen
-import com.sportage.companion.ui.screens.vehiclesetup.VehicleSetupScreen
 import org.koin.androidx.compose.koinViewModel
 
 class MainActivity : ComponentActivity() {
@@ -66,19 +65,13 @@ fun SportageCompanionRoot() {
     ) { padding ->
         NavHost(
             navController = navController,
-            startDestination = "auth",
+            startDestination = "setup",
             modifier = Modifier.padding(padding)
         ) {
-            composable("auth") {
-                AuthScreen(
+            composable("setup") {
+                ConnectionSetupScreen(
                     viewModel = koinViewModel(),
-                    onAuthenticated = { navController.navigate("vehiclesetup") { popUpTo("auth") { inclusive = true } } }
-                )
-            }
-            composable("vehiclesetup") {
-                VehicleSetupScreen(
-                    viewModel = koinViewModel(),
-                    onPaired = { navController.navigate("dashboard") { popUpTo("vehiclesetup") { inclusive = true } } }
+                    onConfigured = { navController.navigate("dashboard") { popUpTo("setup") { inclusive = true } } }
                 )
             }
             composable("dashboard") { DashboardScreen(viewModel = koinViewModel()) }
