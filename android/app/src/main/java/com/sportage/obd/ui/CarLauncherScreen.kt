@@ -447,7 +447,9 @@ fun CarLauncherScreen(
                     CockpitStatusStrip(
                     connectionState = connectionState,
                     isDemoMode = isDemoMode,
-                    onOpenBluetoothClick = onOpenBluetoothClick
+                    onOpenBluetoothClick = onOpenBluetoothClick,
+                    isNightDimmed = autoNightDim,
+                    onToggleNightDim = onSetAutoNightDim
                 )
 
                     ActiveAlertBanner(activeAlerts)
@@ -650,7 +652,9 @@ fun CarLauncherScreen(
                 CockpitStatusStrip(
                     connectionState = connectionState,
                     isDemoMode = isDemoMode,
-                    onOpenBluetoothClick = onOpenBluetoothClick
+                    onOpenBluetoothClick = onOpenBluetoothClick,
+                    isNightDimmed = autoNightDim,
+                    onToggleNightDim = onSetAutoNightDim
                 )
 
                 ActiveAlertBanner(activeAlerts)
