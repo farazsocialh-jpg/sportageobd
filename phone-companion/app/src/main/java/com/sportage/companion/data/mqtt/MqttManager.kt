@@ -4,10 +4,12 @@ import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
+import com.google.gson.Gson
 import com.sportage.companion.data.model.ConnectionState
 import com.sportage.companion.data.model.LiveTelemetry
 import com.sportage.companion.data.model.MqttConnectionProfile
 import com.sportage.companion.data.model.ParkedLocation
+import com.sportage.companion.data.model.TelemetryPayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,6 +36,7 @@ class MqttManager(
         .buildAsync()
 
     private val _telemetry = MutableStateFlow(LiveTelemetry())
+    private val gson = Gson()
     val telemetry: StateFlow<LiveTelemetry> = _telemetry.asStateFlow()
 
     private val _lastTelemetryAt = MutableStateFlow(0L)
@@ -88,23 +91,31 @@ class MqttManager(
     }
 
     private fun subscribe() {
-        val telemetryTopic = profile.telemetryTopic()
+        val telemetryTopic = if (profile.brokerHost.contains("io.adafruit.com", ignoreCase = true)) {
+            "${profile.mqttUsername}/feeds/telemetry"
+        } else {
+            profile.telemetryTopic()
+        }
+        val parkingTopic = if (profile.brokerHost.contains("io.adafruit.com", ignoreCase = true)) {
+            "${profile.mqttUsername}/feeds/parking"
+        } else {
+            profile.parkingTopic()
+        }
         Log.d("MQTT_STREAM", "Subscribing to: $telemetryTopic")
         client.subscribeWith()
             .topicFilter(telemetryTopic)
             .qos(MqttQos.AT_MOST_ONCE)
             .callback { message ->
-                Log.d("MQTT_STREAM", "Received raw packet: " + String(message.payloadAsBytes))
-                val payload = String(message.payloadAsBytes, StandardCharsets.UTF_8)
+                Log.d("MQTT_RAW", "Received message: " + String(message.payloadAsBytes))
                 runCatching {
-                    val o = JSONObject(payload)
+                    val parsed = gson.fromJson(String(message.payloadAsBytes, StandardCharsets.UTF_8), TelemetryPayload::class.java)
                     val t = LiveTelemetry(
-                        speed = o.optInt("speed", 0),
-                        rpm = o.optInt("rpm", 0),
-                        coolantTemp = o.optInt("coolantTemp", 0),
-                        fuelLevel = o.optInt("fuelLevel", 0),
-                        isEngineRunning = o.optBoolean("isEngineRunning", false),
-                        timestamp = o.optLong("timestamp", System.currentTimeMillis())
+                        speed = parsed.speed,
+                        rpm = parsed.rpm,
+                        coolantTemp = parsed.coolantTemp,
+                        fuelLevel = parsed.fuelLevel,
+                        isEngineRunning = parsed.isEngineRunning,
+                        timestamp = if (parsed.timestamp > 0) parsed.timestamp else System.currentTimeMillis()
                     )
                     scope.launch(Dispatchers.Main) {
                         _telemetry.value = t
@@ -116,12 +127,12 @@ class MqttManager(
             .send()
 
         client.subscribeWith()
-            .topicFilter(profile.parkingTopic())
+            .topicFilter(parkingTopic)
             .qos(MqttQos.AT_LEAST_ONCE)
             .callback { publish ->
                 val payload = String(publish.payloadAsBytes, StandardCharsets.UTF_8)
                 runCatching {
-                    val o = JSONObject(payload)
+                    val o = org.json.JSONObject(payload)
                     _parkedLocation.value = ParkedLocation(
                         latitude = o.getDouble("latitude"),
                         longitude = o.getDouble("longitude"),

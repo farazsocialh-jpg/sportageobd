@@ -1,5 +1,6 @@
 package com.sportage.companion.data.model
 
+import com.google.gson.annotations.SerializedName
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -10,6 +11,15 @@ enum class ConnectionStatus {
     STANDBY_IGNITION_ON,
     OFFLINE_STALE
 }
+
+data class TelemetryPayload(
+    @SerializedName("speed") val speed: Int = 0,
+    @SerializedName("rpm") val rpm: Int = 0,
+    @SerializedName("coolantTemp") val coolantTemp: Int = 0,
+    @SerializedName("fuelLevel") val fuelLevel: Int = 0,
+    @SerializedName("isEngineRunning") val isEngineRunning: Boolean = false,
+    @SerializedName("timestamp") val timestamp: Long = 0L
+)
 
 data class LiveTelemetry(
     val speed: Int = 0,

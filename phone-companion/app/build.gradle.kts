@@ -64,6 +64,9 @@ dependencies {
     // MQTT (HiveMQ client) subscriber
     implementation("com.hivemq:hivemq-mqtt-client:1.3.3")
 
+    // JSON parsing for MQTT payloads
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // Google Maps Compose
     implementation("com.google.maps.android:maps-compose:6.2.1")
     implementation("com.google.android.gms:play-services-maps:19.0.0")
