@@ -70,42 +70,6 @@ jobs:
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > release.jks
           echo "Keystore restored ($(wc -c < release.jks) bytes)."
 
-      - name: Ensure google-services.json
-        run: |
-          if [ ! -f "app/google-services.json" ]; then
-            echo "::notice::google-services.json not found - restoring placeholder for CI build"
-            cat << 'EOF' > app/google-services.json
-          {
-            "project_info": {
-              "project_number": "000000000000",
-              "project_id": "sportage-companion-placeholder",
-              "storage_bucket": "sportage-companion-placeholder.appspot.com"
-            },
-            "client": [
-              {
-                "client_info": {
-                  "mobilesdk_app_id": "0:00000000000:android:0000000000000000000000",
-                  "android_client_info": {
-                    "package_name": "com.sportage.companion"
-                  }
-                },
-                "oauth_client": [],
-                "api_key": [
-                  {
-                    "current_key": "AIzaSyPlaceholderKeyxxxxxxxxxxxxxxxxxxxxxx"
-                  }
-                ],
-                "services": {
-                  "appinvite_service": {
-                    "other_platform_oauth_client": []
-                  }
-                }
-              }
-            ],
-            "configuration_version": "1"
-          }
-          EOF
-          fi
 
       - name: Unit tests
         run: ./gradlew testDebugUnitTest --stacktrace
